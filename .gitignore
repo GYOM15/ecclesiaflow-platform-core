@@ -1,0 +1,18 @@
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.log
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+### EcclesiaFlow local-only (never tracked) ###
+.claude/
+CLAUDE.md
+.cascade
+.cascade/
+.cascades
+.cascades/
