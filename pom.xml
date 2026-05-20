@@ -34,6 +34,14 @@
         </license>
     </licenses>
 
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages — ecclesiaflow-platform-rpc</name>
+            <url>https://maven.pkg.github.com/GYOM15/ecclesiaflow-platform-rpc</url>
+        </repository>
+    </distributionManagement>
+
     <properties>
         <java.version>21</java.version>
         <maven.compiler.source>21</maven.compiler.source>
