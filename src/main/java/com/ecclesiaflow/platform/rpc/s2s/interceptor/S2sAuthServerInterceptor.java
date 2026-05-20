@@ -20,16 +20,20 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * gRPC server interceptor that authenticates every incoming RPC with a JWT and
- * enforces the generic platform scope (default {@code ef:s2s}).
+ * gRPC server interceptor that authenticates every incoming RPC with a JWT,
+ * enforces the generic platform scope (default {@code ef:s2s}), and — when
+ * the called RPC is annotated with {@link S2sScopeRequired} — enforces a
+ * second per-method scope on top.
  *
- * <p><strong>Single responsibility:</strong> validate the token, check the scope,
- * and decide whether to forward the call. No logging here — rejections are
- * announced through events, which the logging aspect picks up.</p>
+ * <p><strong>Single responsibility:</strong> validate the token, check the
+ * scopes, and decide whether to forward the call. No logging here —
+ * rejections are announced through events, which the logging aspect picks
+ * up.</p>
  *
- * <p>Method-level scope enforcement (per-RPC scopes such as
- * {@code ef:members:write:internal}) is intentionally not implemented in 0.1.x.
- * See issue #1 for the v0.2.0 plan.</p>
+ * <p>Methods without an {@link S2sScopeRequired} annotation only need the
+ * generic scope. This intentionally leaves gRPC standard services (Health,
+ * Reflection), whose source code we don't own and cannot annotate,
+ * accessible to any caller that already carries {@code ef:s2s}.</p>
  */
 public class S2sAuthServerInterceptor implements ServerInterceptor {
 
@@ -39,11 +43,16 @@ public class S2sAuthServerInterceptor implements ServerInterceptor {
     private final JwtDecoder jwtDecoder;
     private final String requiredScope;
     private final ApplicationEventPublisher events;
+    private final S2sScopeRegistry scopeRegistry;
 
-    public S2sAuthServerInterceptor(JwtDecoder jwtDecoder, S2sProperties props, ApplicationEventPublisher events) {
+    public S2sAuthServerInterceptor(JwtDecoder jwtDecoder,
+                                    S2sProperties props,
+                                    ApplicationEventPublisher events,
+                                    S2sScopeRegistry scopeRegistry) {
         this.jwtDecoder = jwtDecoder;
         this.requiredScope = props.getGenericScope();
         this.events = events;
+        this.scopeRegistry = scopeRegistry;
     }
 
     @Override
@@ -70,9 +79,18 @@ public class S2sAuthServerInterceptor implements ServerInterceptor {
         }
 
         Set<String> scopes = extractScopes(jwt);
+
+        // 1. Generic platform scope (always required) — keeps non-backend clients out.
         if (!scopes.contains(requiredScope)) {
             events.publishEvent(new S2sAuthEvents.InboundMissingScope(fullMethodName, requiredScope));
             return abort(call, Status.PERMISSION_DENIED.withDescription("Missing required scope: " + requiredScope));
+        }
+
+        // 2. Per-method scope (only if the RPC declares one via @S2sScopeRequired).
+        String methodScope = scopeRegistry.requiredScope(fullMethodName).orElse(null);
+        if (methodScope != null && !scopes.contains(methodScope)) {
+            events.publishEvent(new S2sAuthEvents.InboundMissingScope(fullMethodName, methodScope));
+            return abort(call, Status.PERMISSION_DENIED.withDescription("Missing required scope: " + methodScope));
         }
 
         return next.startCall(call, headers);

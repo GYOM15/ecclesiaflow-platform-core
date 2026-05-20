@@ -2,12 +2,14 @@ package com.ecclesiaflow.platform.rpc.autoconfigure;
 
 import com.ecclesiaflow.platform.rpc.events.S2sAuthEventListener;
 import com.ecclesiaflow.platform.rpc.logging.PlatformRpcLoggingAspect;
+import com.ecclesiaflow.platform.rpc.s2s.S2sProperties;
 import com.ecclesiaflow.platform.rpc.s2s.interceptor.S2sAuthClientInterceptor;
 import com.ecclesiaflow.platform.rpc.s2s.interceptor.S2sAuthServerInterceptor;
-import com.ecclesiaflow.platform.rpc.s2s.S2sProperties;
+import com.ecclesiaflow.platform.rpc.s2s.interceptor.S2sScopeRegistry;
 import com.ecclesiaflow.platform.rpc.s2s.token.S2sTokenCache;
 import com.ecclesiaflow.platform.rpc.s2s.token.S2sTokenClient;
 import com.ecclesiaflow.platform.rpc.s2s.token.S2sTokenProvider;
+import io.grpc.BindableService;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -86,12 +88,25 @@ public class PlatformRpcAutoConfiguration {
         return new S2sAuthClientInterceptor(provider, events);
     }
 
+    /**
+     * Registry of per-RPC scope requirements declared via
+     * {@code @S2sScopeRequired}. Spring injects every {@link BindableService}
+     * bean on the classpath; the registry scans their public methods for
+     * the annotation at startup.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public S2sScopeRegistry s2sScopeRegistry(java.util.List<BindableService> services) {
+        return new S2sScopeRegistry(services);
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public S2sAuthServerInterceptor s2sAuthServerInterceptor(JwtDecoder jwtDecoder,
                                                              S2sProperties props,
-                                                             ApplicationEventPublisher events) {
-        return new S2sAuthServerInterceptor(jwtDecoder, props, events);
+                                                             ApplicationEventPublisher events,
+                                                             S2sScopeRegistry scopeRegistry) {
+        return new S2sAuthServerInterceptor(jwtDecoder, props, events, scopeRegistry);
     }
 
     // ========================================================================

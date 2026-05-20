@@ -13,7 +13,7 @@
 
     <groupId>com.ecclesiaflow</groupId>
     <artifactId>ecclesiaflow-platform-rpc</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.2.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>EcclesiaFlow Platform RPC</name>

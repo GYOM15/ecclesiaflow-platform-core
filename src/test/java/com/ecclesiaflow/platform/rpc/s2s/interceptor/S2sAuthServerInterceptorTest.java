@@ -22,6 +22,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -39,6 +40,7 @@ class S2sAuthServerInterceptorTest {
     @SuppressWarnings("rawtypes")
     private MethodDescriptor methodDescriptor;
     private S2sProperties props;
+    private S2sScopeRegistry scopeRegistry;
     private S2sAuthServerInterceptor interceptor;
 
     @BeforeEach
@@ -48,8 +50,13 @@ class S2sAuthServerInterceptorTest {
         call = mock(ServerCall.class);
         next = mock(ServerCallHandler.class);
         methodDescriptor = mock(MethodDescriptor.class);
+        scopeRegistry = mock(S2sScopeRegistry.class);
         when(call.getMethodDescriptor()).thenReturn(methodDescriptor);
         when(methodDescriptor.getFullMethodName()).thenReturn("test.Service/Method");
+        // By default, no per-method scope is required (most tests only exercise the
+        // generic check). The two tests that need a method-specific scope override
+        // this stub locally.
+        when(scopeRegistry.requiredScope(anyString())).thenReturn(java.util.Optional.empty());
 
         props = new S2sProperties();
         props.setClientId("ecclesiaflow-backend");
@@ -59,7 +66,7 @@ class S2sAuthServerInterceptorTest {
         props.setIssuer("http://kc");
         props.setGenericScope("ef:s2s");
 
-        interceptor = new S2sAuthServerInterceptor(decoder, props, events);
+        interceptor = new S2sAuthServerInterceptor(decoder, props, events, scopeRegistry);
     }
 
     @Test
@@ -156,6 +163,46 @@ class S2sAuthServerInterceptorTest {
     void acceptsTokenWithRequiredScopeInScpClaimArray() {
         Jwt jwt = jwt(Map.of("scp", List.of("ef:s2s", "ef:email:send")));
         when(decoder.decode("valid")).thenReturn(jwt);
+
+        Metadata headers = new Metadata();
+        headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
+
+        interceptor.interceptCall(call, headers, next);
+
+        verify(next).startCall(eq(call), eq(headers));
+        verify(events, never()).publishEvent(any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void rejectsTokenMissingMethodScope() {
+        // Token has the generic ef:s2s but not the method-specific ef:members:write
+        Jwt jwt = jwt(Map.of("scope", "ef:s2s ef:email:send"));
+        when(decoder.decode("valid")).thenReturn(jwt);
+        // The called RPC requires ef:members:write per its @S2sScopeRequired annotation.
+        when(scopeRegistry.requiredScope("test.Service/Method"))
+                .thenReturn(java.util.Optional.of("ef:members:write"));
+
+        Metadata headers = new Metadata();
+        headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
+
+        interceptor.interceptCall(call, headers, next);
+
+        ArgumentCaptor<Status> status = ArgumentCaptor.forClass(Status.class);
+        verify(call).close(status.capture(), any(Metadata.class));
+        assertThat(status.getValue().getCode()).isEqualTo(Status.Code.PERMISSION_DENIED);
+        assertThat(status.getValue().getDescription()).contains("ef:members:write");
+        verify(events).publishEvent(any(S2sAuthEvents.InboundMissingScope.class));
+        verify(next, never()).startCall(any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void acceptsTokenWithBothGenericAndMethodScope() {
+        Jwt jwt = jwt(Map.of("scope", "ef:s2s ef:members:write"));
+        when(decoder.decode("valid")).thenReturn(jwt);
+        when(scopeRegistry.requiredScope("test.Service/Method"))
+                .thenReturn(java.util.Optional.of("ef:members:write"));
 
         Metadata headers = new Metadata();
         headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
