@@ -1,14 +1,24 @@
-# ecclesiaflow-platform-rpc
+# ecclesiaflow-platform-core
 
-Shared platform library for EcclesiaFlow backend modules. Provides
-**server-to-server authentication on gRPC**: each module obtains a JWT from
-Keycloak via the `client_credentials` flow, attaches it as a Bearer token in
-gRPC metadata, and the receiving side validates the token and enforces the
-required scope.
+Shared platform library for EcclesiaFlow backend modules. Three concerns:
 
-- **Artifact**: `com.ecclesiaflow:ecclesiaflow-platform-rpc:0.1.0`
+1. **Server-to-server authentication on gRPC** (s2s) — each module obtains a
+   JWT from Keycloak via the `client_credentials` flow, attaches it as a Bearer
+   token in gRPC metadata, and the receiving side validates the token and
+   enforces the required scope (generic `ef:s2s` floor + per-method ceiling via
+   `@S2sScopeRequired`).
+2. **Web security helpers** — `KeycloakJwtConverter` extracts roles from a
+   Keycloak JWT (direct claim, `realm_access`, `resource_access`) and produces
+   a Spring `JwtAuthenticationToken`.
+3. **Logging helpers** — `SecurityMaskingUtils` masks PII (emails, JWTs, IDs)
+   and infrastructure details (URLs, hosts) before they reach a log line.
+
+- **Artifact**: `com.ecclesiaflow:ecclesiaflow-platform-core:0.3.0-SNAPSHOT`
 - **Java**: 21
 - **Spring Boot**: 3.5.5 (auto-configuration via starter pattern)
+- **Renamed in 0.3.0** from `ecclesiaflow-platform-rpc` to reflect the broader
+  scope. Existing `com.ecclesiaflow.platform.rpc.*` packages are unchanged for
+  backward compatibility.
 
 ## What this gives you
 

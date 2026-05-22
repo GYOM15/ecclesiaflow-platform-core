@@ -12,19 +12,22 @@
     </parent>
 
     <groupId>com.ecclesiaflow</groupId>
-    <artifactId>ecclesiaflow-platform-rpc</artifactId>
-    <version>0.2.0-SNAPSHOT</version>
+    <artifactId>ecclesiaflow-platform-core</artifactId>
+    <version>0.3.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>EcclesiaFlow Platform RPC</name>
+    <name>EcclesiaFlow Platform Core</name>
     <description>
-        Shared library for EcclesiaFlow backend modules. Provides server-to-server
-        authentication on gRPC (JWT via Keycloak client_credentials, attached as
-        Bearer metadata, validated and scope-checked on the receiving side).
-        Drop-in Spring Boot starter — consumers just declare the dependency and
-        set a few properties.
+        Shared library for EcclesiaFlow backend modules. Provides:
+          - Server-to-server gRPC authentication (Keycloak client_credentials JWT
+            attached as Bearer metadata, validated and scope-checked on the
+            receiving side).
+          - Reusable web security helpers (Keycloak JWT → Spring authorities).
+          - Logging helpers (PII / infra masking).
+        Drop-in Spring Boot starter — consumers declare the dependency and set
+        a few properties.
     </description>
-    <url>https://github.com/ecclesiaflow/ecclesiaflow-platform-rpc</url>
+    <url>https://github.com/ecclesiaflow/ecclesiaflow-platform-core</url>
 
     <licenses>
         <license>
@@ -37,8 +40,8 @@
     <distributionManagement>
         <repository>
             <id>github</id>
-            <name>GitHub Packages — ecclesiaflow-platform-rpc</name>
-            <url>https://maven.pkg.github.com/GYOM15/ecclesiaflow-platform-rpc</url>
+            <name>GitHub Packages — ecclesiaflow-platform-core</name>
+            <url>https://maven.pkg.github.com/GYOM15/ecclesiaflow-platform-core</url>
         </repository>
     </distributionManagement>
 
