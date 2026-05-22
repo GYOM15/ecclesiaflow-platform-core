@@ -6,7 +6,6 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
-import org.springframework.stereotype.Component;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -29,10 +28,10 @@ import java.util.stream.Stream;
  * Role names are prefixed with {@code ROLE_} as Spring Security requires; the
  * principal is the {@code email} claim if present, otherwise the {@code sub}.
  *
- * <p>Auto-registered as a Spring component so any consumer that depends on
- * platform-core gets it for free. To opt out, exclude the bean explicitly.
+ * <p>Auto-registered as a Spring bean by
+ * {@code com.ecclesiaflow.platform.security.autoconfigure.PlatformSecurityAutoConfiguration}.
+ * Consumers can override by declaring their own bean of this type.
  */
-@Component
 public class KeycloakJwtConverter implements Converter<Jwt, AbstractAuthenticationToken> {
 
     private static final String ROLE_PREFIX = "ROLE_";

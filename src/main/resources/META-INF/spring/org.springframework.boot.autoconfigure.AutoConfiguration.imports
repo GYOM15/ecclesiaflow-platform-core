@@ -1,1 +1,2 @@
 com.ecclesiaflow.platform.rpc.autoconfigure.PlatformRpcAutoConfiguration
+com.ecclesiaflow.platform.security.autoconfigure.PlatformSecurityAutoConfiguration
