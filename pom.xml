@@ -38,11 +38,18 @@
     </licenses>
 
     <distributionManagement>
+        <!-- Releases: published by .github/workflows/release.yml on tag v*.*.* -->
         <repository>
             <id>github</id>
-            <name>GitHub Packages — ecclesiaflow-platform-core</name>
+            <name>GitHub Packages — ecclesiaflow-platform-core (releases)</name>
             <url>https://maven.pkg.github.com/GYOM15/ecclesiaflow-platform-core</url>
         </repository>
+        <!-- Snapshots: published by .github/workflows/snapshot.yml on push to main -->
+        <snapshotRepository>
+            <id>github</id>
+            <name>GitHub Packages — ecclesiaflow-platform-core (snapshots)</name>
+            <url>https://maven.pkg.github.com/GYOM15/ecclesiaflow-platform-core</url>
+        </snapshotRepository>
     </distributionManagement>
 
     <properties>
