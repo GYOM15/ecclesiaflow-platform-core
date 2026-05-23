@@ -76,6 +76,14 @@ public final class SecurityMaskingUtils {
         }
     }
 
+    /**
+     * Shortcut for confirmation links of the shape
+     * {@code https://&lt;host&gt;/?token=...} — masks the {@code token} query parameter.
+     */
+    public static String maskConfirmationLink(String link) {
+        return maskUrlQueryParam(link, "token");
+    }
+
     public static String maskId(Object id) {
         if (id == null) return UNKNOWN;
         String s = String.valueOf(id);

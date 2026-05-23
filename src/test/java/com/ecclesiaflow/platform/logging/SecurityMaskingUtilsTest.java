@@ -73,6 +73,12 @@ class SecurityMaskingUtilsTest {
             assertThat(SecurityMaskingUtils.maskUrlQueryParam("https://x.com/api?token=abc", null))
                     .isEqualTo("[URL]");
         }
+
+        @Test
+        void maskConfirmationLinkDelegatesToMaskUrlQueryParam() {
+            assertThat(SecurityMaskingUtils.maskConfirmationLink("https://x.com/confirm?token=abc&u=42"))
+                    .isEqualTo("https://x.com/confirm?token=****&u=[REDACTED]");
+        }
     }
 
     @Nested
