@@ -43,4 +43,11 @@ public class S2sAuthEventListener {
         log.warn("S2S-IN: ❌ Rejected {} — token lacks required scope {}",
                 event.fullMethodName(), event.requiredScope());
     }
+
+    @EventListener
+    public void onInboundUnmappedMethod(S2sAuthEvents.InboundUnmappedMethod event) {
+        log.warn("S2S-IN: ❌ Rejected {} — no per-method scope declared (fail-closed); "
+                + "annotate the RPC with @S2sScopeRequired or whitelist it as infrastructure",
+                event.fullMethodName());
+    }
 }

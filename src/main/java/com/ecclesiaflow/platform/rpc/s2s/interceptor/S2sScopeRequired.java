@@ -18,10 +18,12 @@ import java.lang.annotation.Target;
  * {@code @S2sScopeRequired("ef:members:write")} on a method that
  * mutates member state.</p>
  *
- * <p>Methods that are not annotated only need the generic scope. This
- * keeps gRPC standard services (Health, Reflection) — whose source
- * code we don't own and cannot annotate — accessible to any caller
- * that already carries {@code ef:s2s}.</p>
+ * <p>Enforcement is <strong>fail-closed</strong>: a business RPC that is
+ * not annotated maps to no scope and is rejected, not allowed through on
+ * the generic scope alone. The only exception is the gRPC standard
+ * infrastructure services (Health, Reflection) — whose source code we
+ * don't own and cannot annotate — which {@link S2sScopeRegistry} exempts
+ * by service name so health probes and reflection tooling keep working.</p>
  *
  * @see S2sScopeRegistry
  * @see S2sAuthServerInterceptor
