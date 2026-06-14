@@ -64,6 +64,7 @@ class S2sAuthServerInterceptorTest {
         props.setTokenUrl("http://kc/token");
         props.setJwksUri("http://kc/jwks");
         props.setIssuer("http://kc");
+        props.setExpectedAudience("ecclesiaflow-internal");
         props.setGenericScope("ef:s2s");
 
         interceptor = new S2sAuthServerInterceptor(decoder, props, events, scopeRegistry);
@@ -267,11 +268,20 @@ class S2sAuthServerInterceptorTest {
         verify(events, never()).publishEvent(any());
     }
 
+    /**
+     * Builds a decoded JWT as it would look <em>after</em> the decoder has already
+     * accepted it. Real iss + aud claims are stamped so the fixtures mirror what an
+     * internal service-account token actually carries; the interceptor itself trusts
+     * the decoder, so iss/aud enforcement is covered by
+     * {@code PlatformRpcJwtDecoderValidatorTest}, not here.
+     */
     private static Jwt jwt(Map<String, Object> claims) {
         return Jwt.withTokenValue("token")
                 .header("alg", "RS256")
                 .issuedAt(Instant.now())
                 .expiresAt(Instant.now().plusSeconds(300))
+                .issuer("http://kc")
+                .audience(List.of("ecclesiaflow-internal"))
                 .claims(c -> c.putAll(claims))
                 .build();
     }

@@ -33,9 +33,21 @@ public class S2sProperties {
     @NotBlank
     private String jwksUri;
 
-    /** Expected {@code iss} claim. */
+    /** Expected {@code iss} claim. Pinned on every inbound s2s token. */
     @NotBlank
     private String issuer;
+
+    /**
+     * Expected {@code aud} claim on inbound s2s tokens. The realm stamps
+     * {@code aud=ecclesiaflow-internal} on backend service-account clients only,
+     * so this acts as a hard fence keeping frontend/user tokens out of the gRPC
+     * plane even if they somehow carry {@code ef:s2s}.
+     *
+     * <p>Leave <strong>blank</strong> to skip audience validation — an escape
+     * hatch for the migration window before the realm re-import lands. The
+     * default ({@code ecclesiaflow-internal}) <strong>enforces</strong> it.</p>
+     */
+    private String expectedAudience = "ecclesiaflow-internal";
 
     /** Scope required on every inbound s2s RPC. Defaults to {@code ef:s2s}. */
     @NotBlank
@@ -87,6 +99,14 @@ public class S2sProperties {
 
     public void setIssuer(String issuer) {
         this.issuer = issuer;
+    }
+
+    public String getExpectedAudience() {
+        return expectedAudience;
+    }
+
+    public void setExpectedAudience(String expectedAudience) {
+        this.expectedAudience = expectedAudience;
     }
 
     public String getGenericScope() {
