@@ -1,6 +1,7 @@
 package com.ecclesiaflow.platform.rpc.s2s.interceptor;
 
 import io.grpc.BindableService;
+import org.springframework.aop.support.AopUtils;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;
@@ -56,7 +57,11 @@ public class S2sScopeRegistry {
         Map<String, String> map = new HashMap<>();
         for (BindableService svc : services) {
             String serviceName = svc.bindService().getServiceDescriptor().getName();
-            for (Method m : svc.getClass().getMethods()) {
+            // Scan the target class, not svc.getClass(): gRPC impl beans are CGLIB-proxied
+            // by the logging aspects, and the generated proxy subclass does not carry the
+            // method-level @S2sScopeRequired annotations. AopUtils.getTargetClass unwraps the
+            // proxy (and is a no-op for an unproxied bean), so the scan sees the real methods.
+            for (Method m : AopUtils.getTargetClass(svc).getMethods()) {
                 S2sScopeRequired ann = m.getAnnotation(S2sScopeRequired.class);
                 if (ann == null) {
                     continue;
