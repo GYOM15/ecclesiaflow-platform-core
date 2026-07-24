@@ -13,7 +13,7 @@ Shared platform library for EcclesiaFlow backend modules. Three concerns:
 3. **Logging helpers** — `SecurityMaskingUtils` masks PII (emails, JWTs, IDs)
    and infrastructure details (URLs, hosts) before they reach a log line.
 
-- **Artifact**: `com.ecclesiaflow:ecclesiaflow-platform-core:0.3.0-SNAPSHOT`
+- **Artifact**: `com.ecclesiaflow:ecclesiaflow-platform-core` — the current version is declared in [`pom.xml`](pom.xml) (development head as `X.Y.Z-SNAPSHOT`, releases pinned as `X.Y.Z`)
 - **Java**: 21
 - **Spring Boot**: 3.5.5 (auto-configuration via starter pattern)
 - **Renamed in 0.3.0** from `ecclesiaflow-platform-rpc` to reflect the broader
@@ -108,7 +108,7 @@ In the consumer's `pom.xml`:
   <dependency>
     <groupId>com.ecclesiaflow</groupId>
     <artifactId>ecclesiaflow-platform-core</artifactId>
-    <version>0.3.0-SNAPSHOT</version>  <!-- or 0.3.0 on main -->
+    <version>0.3.1-SNAPSHOT</version>  <!-- development head; see pom.xml / GitHub Packages for the current version, or pin a released X.Y.Z -->
   </dependency>
 </dependencies>
 ```
@@ -150,12 +150,12 @@ Releases are immutable, semver-pinned versions consumed by production code.
 
 ```bash
 # 1. Make sure pom version is set to the release (no -SNAPSHOT)
-mvn -B versions:set -DnewVersion=0.3.0 -DgenerateBackupPoms=false
-git commit -am "Release 0.3.0"
+mvn -B versions:set -DnewVersion=X.Y.Z -DgenerateBackupPoms=false
+git commit -am "Release X.Y.Z"
 
 # 2. Tag and push
-git tag v0.3.0
-git push origin v0.3.0      # triggers .github/workflows/release.yml
+git tag vX.Y.Z
+git push origin vX.Y.Z      # triggers .github/workflows/release.yml
 
 # 3. Bump pom back to the next SNAPSHOT for ongoing dev
 mvn -B versions:set -DnewVersion=0.3.1-SNAPSHOT -DgenerateBackupPoms=false
