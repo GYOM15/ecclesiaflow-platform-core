@@ -59,6 +59,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <grpc.version>1.65.1</grpc.version>
+        <icu4j.version>75.1</icu4j.version>
     </properties>
 
     <dependencies>
@@ -66,6 +67,14 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+        <!-- ICU4J: full ICU message formatting (named placeholders, plurals, gender)
+             on the backend — the same ICU syntax next-intl uses on the frontend, so
+             a translator sees one message format everywhere. -->
+        <dependency>
+            <groupId>com.ibm.icu</groupId>
+            <artifactId>icu4j</artifactId>
+            <version>${icu4j.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
