@@ -2,3 +2,4 @@ com.ecclesiaflow.platform.rpc.autoconfigure.PlatformRpcAutoConfiguration
 com.ecclesiaflow.platform.security.autoconfigure.PlatformSecurityAutoConfiguration
 com.ecclesiaflow.platform.events.signing.autoconfigure.PlatformEventSigningAutoConfiguration
 com.ecclesiaflow.platform.events.signing.autoconfigure.PlatformEventSigningAutoConfiguration$AmqpHelpers
+com.ecclesiaflow.platform.i18n.autoconfigure.PlatformI18nAutoConfiguration
