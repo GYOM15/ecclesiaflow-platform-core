@@ -60,6 +60,7 @@
 
         <grpc.version>1.65.1</grpc.version>
         <icu4j.version>75.1</icu4j.version>
+        <awssdk.version>2.20.0</awssdk.version>
     </properties>
 
     <dependencies>
@@ -96,6 +97,23 @@
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- S3-compatible object storage (Cloudflare R2) adapter. Optional: only
+             modules that actually store images (church, members) pull the AWS SDK;
+             the S3 adapter auto-configures via @ConditionalOnClass(S3Client). A sync
+             URL-connection HTTP client keeps the footprint small (no Netty/Apache). -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>${awssdk.version}</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>url-connection-client</artifactId>
+            <version>${awssdk.version}</version>
+            <optional>true</optional>
         </dependency>
 
         <!-- AOP support: cross-cutting logging concerns live in aspects, never inlined in business code -->

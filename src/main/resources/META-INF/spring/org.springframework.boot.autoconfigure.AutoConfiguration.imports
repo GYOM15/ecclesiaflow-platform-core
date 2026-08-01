@@ -3,3 +3,4 @@ com.ecclesiaflow.platform.security.autoconfigure.PlatformSecurityAutoConfigurati
 com.ecclesiaflow.platform.events.signing.autoconfigure.PlatformEventSigningAutoConfiguration
 com.ecclesiaflow.platform.events.signing.autoconfigure.PlatformEventSigningAutoConfiguration$AmqpHelpers
 com.ecclesiaflow.platform.i18n.autoconfigure.PlatformI18nAutoConfiguration
+com.ecclesiaflow.platform.storage.autoconfigure.PlatformObjectStorageAutoConfiguration
