@@ -64,6 +64,7 @@ class S2sAuthServerInterceptorTest {
         props.setTokenUrl("http://kc/token");
         props.setJwksUri("http://kc/jwks");
         props.setIssuer("http://kc");
+        props.setExpectedAudience("ecclesiaflow-internal");
         props.setGenericScope("ef:s2s");
 
         interceptor = new S2sAuthServerInterceptor(decoder, props, events, scopeRegistry);
@@ -145,8 +146,13 @@ class S2sAuthServerInterceptorTest {
     @Test
     @SuppressWarnings("unchecked")
     void acceptsTokenWithRequiredScopeInScopeClaim() {
+        // Verifies scope extraction from the space-delimited `scope` claim. The
+        // RPC declares ef:email:send, which the token carries — so it passes the
+        // fail-closed per-method check too.
         Jwt jwt = jwt(Map.of("scope", "ef:s2s ef:email:send"));
         when(decoder.decode("valid")).thenReturn(jwt);
+        when(scopeRegistry.requiredScope("test.Service/Method"))
+                .thenReturn(java.util.Optional.of("ef:email:send"));
 
         Metadata headers = new Metadata();
         headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
@@ -161,8 +167,12 @@ class S2sAuthServerInterceptorTest {
     @Test
     @SuppressWarnings("unchecked")
     void acceptsTokenWithRequiredScopeInScpClaimArray() {
+        // Verifies scope extraction from the `scp` array claim. Same fail-closed
+        // setup: the RPC declares ef:email:send and the token carries it.
         Jwt jwt = jwt(Map.of("scp", List.of("ef:s2s", "ef:email:send")));
         when(decoder.decode("valid")).thenReturn(jwt);
+        when(scopeRegistry.requiredScope("test.Service/Method"))
+                .thenReturn(java.util.Optional.of("ef:email:send"));
 
         Metadata headers = new Metadata();
         headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
@@ -213,11 +223,65 @@ class S2sAuthServerInterceptorTest {
         verify(events, never()).publishEvent(any());
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void rejectsUnannotatedBusinessMethodFailClosed() {
+        // A hypothetical business RPC that was added without @S2sScopeRequired:
+        // it maps to no per-method scope and is not infrastructure. Fail-closed
+        // means it is denied even though the token carries the generic ef:s2s.
+        when(methodDescriptor.getFullMethodName()).thenReturn("ecclesiaflow.members.MembersService/SomeNewRpc");
+        Jwt jwt = jwt(Map.of("scope", "ef:s2s"));
+        when(decoder.decode("valid")).thenReturn(jwt);
+        // requiredScope() returns empty (default stub) and isInfrastructureService()
+        // returns false (mock default) — i.e. an unmapped business method.
+
+        Metadata headers = new Metadata();
+        headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
+
+        interceptor.interceptCall(call, headers, next);
+
+        ArgumentCaptor<Status> status = ArgumentCaptor.forClass(Status.class);
+        verify(call).close(status.capture(), any(Metadata.class));
+        assertThat(status.getValue().getCode()).isEqualTo(Status.Code.PERMISSION_DENIED);
+        verify(events).publishEvent(any(S2sAuthEvents.InboundUnmappedMethod.class));
+        verify(next, never()).startCall(any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void allowsUnannotatedInfrastructureHealthService() {
+        // The gRPC Health service is intentionally unannotated and must stay
+        // reachable so liveness/readiness probes keep working. It maps to no
+        // per-method scope but is whitelisted as infrastructure.
+        when(methodDescriptor.getFullMethodName()).thenReturn("grpc.health.v1.Health/Check");
+        when(scopeRegistry.isInfrastructureService("grpc.health.v1.Health/Check")).thenReturn(true);
+        Jwt jwt = jwt(Map.of("scope", "ef:s2s"));
+        when(decoder.decode("valid")).thenReturn(jwt);
+
+        Metadata headers = new Metadata();
+        headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
+
+        interceptor.interceptCall(call, headers, next);
+
+        verify(next).startCall(eq(call), eq(headers));
+        verify(call, never()).close(any(), any());
+        verify(events, never()).publishEvent(any());
+    }
+
+    /**
+     * Builds a decoded JWT as it would look <em>after</em> the decoder has already
+     * accepted it. Real iss + aud claims are stamped so the fixtures mirror what an
+     * internal service-account token actually carries; the interceptor itself trusts
+     * the decoder, so iss/aud enforcement is covered by
+     * {@code PlatformRpcJwtDecoderValidatorTest}, not here.
+     */
     private static Jwt jwt(Map<String, Object> claims) {
         return Jwt.withTokenValue("token")
                 .header("alg", "RS256")
                 .issuedAt(Instant.now())
                 .expiresAt(Instant.now().plusSeconds(300))
+                .issuer("http://kc")
+                .audience(List.of("ecclesiaflow-internal"))
                 .claims(c -> c.putAll(claims))
                 .build();
     }

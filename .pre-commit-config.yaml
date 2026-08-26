@@ -1,0 +1,8 @@
+# Local secret-scanning hook. Enable once per clone:
+#   pip install pre-commit && pre-commit install
+# Then every `git commit` is scanned; a detected secret aborts the commit.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks

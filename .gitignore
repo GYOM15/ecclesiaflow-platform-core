@@ -16,3 +16,8 @@ CLAUDE.md
 .cascade/
 .cascades
 .cascades/
+# --- Secrets hygiene (added after a .env.bak leak held a live S2S secret) ---
+# Ignore EVERY env variant (.env, .env.bak, .env.local, .env.prod...) and only
+# ever track *.example templates. gitleaks (CI + pre-commit) is the backstop.
+.env*
+!.env*.example

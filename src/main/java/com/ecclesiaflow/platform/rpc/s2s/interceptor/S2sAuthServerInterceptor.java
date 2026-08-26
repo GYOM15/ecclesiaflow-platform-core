@@ -30,10 +30,16 @@ import java.util.Set;
  * rejections are announced through events, which the logging aspect picks
  * up.</p>
  *
- * <p>Methods without an {@link S2sScopeRequired} annotation only need the
- * generic scope. This intentionally leaves gRPC standard services (Health,
- * Reflection), whose source code we don't own and cannot annotate,
- * accessible to any caller that already carries {@code ef:s2s}.</p>
+ * <p><strong>Fail-closed per-method scopes.</strong> An RPC that maps to no
+ * required method-scope is <em>rejected</em>, not allowed through on the
+ * generic scope alone. The sole exception is the small set of gRPC standard
+ * infrastructure services (Health, Reflection) tracked by
+ * {@link S2sScopeRegistry#isInfrastructureService(String)} — those we don't
+ * own and cannot annotate, so they stay reachable by any caller that already
+ * carries {@code ef:s2s} (health probes and reflection tooling would
+ * otherwise break). Every real business RPC declares its scope via
+ * {@link S2sScopeRequired}; a new business RPC added without the annotation
+ * is denied by design until it is annotated.</p>
  */
 public class S2sAuthServerInterceptor implements ServerInterceptor {
 
@@ -86,9 +92,19 @@ public class S2sAuthServerInterceptor implements ServerInterceptor {
             return abort(call, Status.PERMISSION_DENIED.withDescription("Missing required scope: " + requiredScope));
         }
 
-        // 2. Per-method scope (only if the RPC declares one via @S2sScopeRequired).
+        // 2. Per-method scope (fail-closed). The RPC must declare a scope via
+        //    @S2sScopeRequired and the token must carry it. The only RPCs allowed
+        //    through without a declared scope are the gRPC standard infrastructure
+        //    services (Health, Reflection) we don't own and cannot annotate.
         String methodScope = scopeRegistry.requiredScope(fullMethodName).orElse(null);
-        if (methodScope != null && !scopes.contains(methodScope)) {
+        if (methodScope == null) {
+            if (scopeRegistry.isInfrastructureService(fullMethodName)) {
+                return next.startCall(call, headers);
+            }
+            events.publishEvent(new S2sAuthEvents.InboundUnmappedMethod(fullMethodName));
+            return abort(call, Status.PERMISSION_DENIED.withDescription("No scope mapping for method"));
+        }
+        if (!scopes.contains(methodScope)) {
             events.publishEvent(new S2sAuthEvents.InboundMissingScope(fullMethodName, methodScope));
             return abort(call, Status.PERMISSION_DENIED.withDescription("Missing required scope: " + methodScope));
         }

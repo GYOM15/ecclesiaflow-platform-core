@@ -59,6 +59,8 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <grpc.version>1.65.1</grpc.version>
+        <icu4j.version>75.1</icu4j.version>
+        <awssdk.version>2.20.0</awssdk.version>
     </properties>
 
     <dependencies>
@@ -66,6 +68,14 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+        <!-- ICU4J: full ICU message formatting (named placeholders, plurals, gender)
+             on the backend — the same ICU syntax next-intl uses on the frontend, so
+             a translator sees one message format everywhere. -->
+        <dependency>
+            <groupId>com.ibm.icu</groupId>
+            <artifactId>icu4j</artifactId>
+            <version>${icu4j.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -89,6 +99,23 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
+        <!-- S3-compatible object storage (Cloudflare R2) adapter. Optional: only
+             modules that actually store images (church, members) pull the AWS SDK;
+             the S3 adapter auto-configures via @ConditionalOnClass(S3Client). A sync
+             URL-connection HTTP client keeps the footprint small (no Netty/Apache). -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>${awssdk.version}</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>url-connection-client</artifactId>
+            <version>${awssdk.version}</version>
+            <optional>true</optional>
+        </dependency>
+
         <!-- AOP support: cross-cutting logging concerns live in aspects, never inlined in business code -->
         <dependency>
             <groupId>org.springframework</groupId>
@@ -103,6 +130,17 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Spring AMQP: publish-side MessagePostProcessor + consume-side
+             verification advice for domain-event HMAC signing (C07). Optional —
+             publishers/consumers already have spring-amqp on their classpath;
+             modules with no messaging keep the pure signer/verifier without
+             pulling AMQP in. Version managed by the spring-boot-dependencies BOM. -->
+        <dependency>
+            <groupId>org.springframework.amqp</groupId>
+            <artifactId>spring-rabbit</artifactId>
             <optional>true</optional>
         </dependency>
 
@@ -192,6 +230,69 @@
                         <goals>
                             <goal>jar-no-fork</goal>
                         </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- JaCoCo: enforce the project-wide 90% line+branch bar on the new
+                 domain-event signing code (C07). Scoped via <includes> to the
+                 signing package so the gate is real for what this branch adds,
+                 without retroactively gating pre-existing untested classes. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                        <configuration>
+                            <destFile>${project.build.directory}/jacoco.exec</destFile>
+                            <append>true</append>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                        <configuration>
+                            <dataFile>${project.build.directory}/jacoco.exec</dataFile>
+                            <outputDirectory>${project.reporting.outputDirectory}/jacoco</outputDirectory>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>jacoco-check-event-signing</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <dataFile>${project.build.directory}/jacoco.exec</dataFile>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <includes>
+                                        <include>com.ecclesiaflow.platform.events.signing.*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.90</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.90</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

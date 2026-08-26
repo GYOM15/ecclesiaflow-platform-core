@@ -28,4 +28,12 @@ public final class S2sAuthEvents {
 
     /** Emitted when an inbound RPC is rejected because the JWT is valid but lacks the required scope. */
     public record InboundMissingScope(String fullMethodName, String requiredScope) {}
+
+    /**
+     * Emitted when an inbound RPC is rejected fail-closed: the JWT carried the
+     * generic scope but the called method declares no per-method scope and is
+     * not an exempt infrastructure service. Usually means a business RPC was
+     * added without its {@code @S2sScopeRequired} annotation.
+     */
+    public record InboundUnmappedMethod(String fullMethodName) {}
 }
