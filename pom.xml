@@ -61,6 +61,7 @@
         <grpc.version>1.65.1</grpc.version>
         <icu4j.version>75.1</icu4j.version>
         <awssdk.version>2.20.0</awssdk.version>
+        <twelvemonkeys.version>3.12.0</twelvemonkeys.version>
     </properties>
 
     <dependencies>
@@ -114,6 +115,25 @@
             <artifactId>url-connection-client</artifactId>
             <version>${awssdk.version}</version>
             <optional>true</optional>
+        </dependency>
+
+        <!-- TwelveMonkeys ImageIO plugins: add a WebP ImageReader so the shared
+             upload sanitizer can DECODE WebP inputs (avatars/logos/content images
+             frequently arrive as WebP). Re-encoding stays on the JDK's native
+             JPEG/PNG writers — we only need the extra decoder. NOT optional: the
+             image policies advertise WebP as an accepted input, so every module
+             that sanitizes uploads must have this reader on the classpath, or a
+             legitimate WebP would be rejected as UNREADABLE. The reader registers
+             itself via the JDK ServiceLoader; imageio-core is its runtime base. -->
+        <dependency>
+            <groupId>com.twelvemonkeys.imageio</groupId>
+            <artifactId>imageio-webp</artifactId>
+            <version>${twelvemonkeys.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.twelvemonkeys.imageio</groupId>
+            <artifactId>imageio-core</artifactId>
+            <version>${twelvemonkeys.version}</version>
         </dependency>
 
         <!-- AOP support: cross-cutting logging concerns live in aspects, never inlined in business code -->
