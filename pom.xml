@@ -78,6 +78,24 @@
             <artifactId>icu4j</artifactId>
             <version>${icu4j.version}</version>
         </dependency>
+        <!-- Rate limiting. Both OPTIONAL: a module that limits nothing must not be
+             made to carry Redis or Spring MVC, and the autoconfiguration below is
+             gated on these classes being present. -->
+        <dependency>
+            <groupId>org.springframework.data</groupId>
+            <artifactId>spring-data-redis</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-webmvc</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-configuration-processor</artifactId>
