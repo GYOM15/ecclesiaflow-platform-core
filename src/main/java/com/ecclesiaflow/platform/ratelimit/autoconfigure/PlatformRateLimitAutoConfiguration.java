@@ -7,6 +7,7 @@ import com.ecclesiaflow.platform.ratelimit.RateLimiter;
 import com.ecclesiaflow.platform.ratelimit.RedisRateLimiter;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -29,7 +30,14 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  *       that has no Redis, never for production convenience.</li>
  * </ul>
  */
-@AutoConfiguration
+// AFTER Redis, and this is load-bearing. @ConditionalOnBean is evaluated at the
+// moment the auto-configuration runs, so without an explicit order this class is
+// processed BEFORE RedisAutoConfiguration, StringRedisTemplate does not exist
+// yet, the condition below silently fails, and no RateLimiter is ever created.
+// The application then dies at startup on whatever injects one — which is how
+// this was found: in production, not in the tests, because a test slice
+// registers its beans in a different order.
+@AutoConfiguration(after = RedisAutoConfiguration.class)
 @ConditionalOnClass({StringRedisTemplate.class, WebMvcConfigurer.class})
 @ConditionalOnProperty(prefix = "ecclesiaflow.rate-limit", name = "enabled",
         havingValue = "true", matchIfMissing = true)
