@@ -134,9 +134,31 @@ public final class SecurityMaskingUtils {
                 : cur.getClass().getSimpleName();
     }
 
+    /**
+     * The longest infrastructure message this will look at.
+     *
+     * <p>Bounded BEFORE the patterns run, not after. The host patterns below
+     * backtrack on long runs of {@code [a-zA-Z0-9._-]}, so cost grows with the
+     * square of the input: 64 KB took 41 seconds of CPU. The input is an
+     * exception message from a driver or a client library, and an attacker who
+     * can make one of those long — a URL, a header, a payload echoed back —
+     * turns one request into minutes of a thread.
+     *
+     * <p>The patterns themselves are unchanged. Rewriting them to be possessive
+     * was tried and reverted: it made the host pattern stop matching
+     * {@code api.example.com} altogether, because the possessive middle group
+     * swallowed the final label and could not give it back. A masker that
+     * silently stops masking is a worse defect than the one being fixed. At 512
+     * characters the backtracking is measured in microseconds, so the bound is
+     * the whole fix.
+     */
+    private static final int MAX_INFRA_MESSAGE = 512;
+
     public static String sanitizeInfra(String msg) {
         if (msg == null || msg.isBlank()) return msg;
-        String s = msg;
+        // Truncate FIRST. Masking a 64 KB message and then shortening it would
+        // pay the quadratic cost in full before throwing the result away.
+        String s = abbreviate(msg, MAX_INFRA_MESSAGE);
         s = s.replaceAll("https?://[^\\s]+", "[URL]");
         s = s.replaceAll("[a-zA-Z0-9._-]+:\\d{2,5}", "[HOST:PORT]");
         s = s.replaceAll("(?<!@)[a-zA-Z0-9._-]+\\.[a-zA-Z]{2,}(?![a-zA-Z0-9._-])", "[HOST]");

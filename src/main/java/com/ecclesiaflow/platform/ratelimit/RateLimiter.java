@@ -19,4 +19,22 @@ public interface RateLimiter {
      * @return whether the call may proceed, and when to come back if not
      */
     RateLimitDecision consume(RateLimitRule rule, String subject);
+
+    /**
+     * Counts {@code cost} calls at once.
+     *
+     * <p>For an operation whose real unit is not the request. A bulk import is
+     * ONE request that mints one invitation and sends one email per row, so
+     * counting it as one call let a thousand-row file walk past a two-hundred
+     * invitation ceiling — the ceiling counted the wrong thing. Pentest F059.
+     *
+     * <p>All or nothing: the whole cost is counted, and if that takes the
+     * subject over the limit the call is refused. Counting part of a batch and
+     * refusing the rest would leave the caller having half-sent something.
+     *
+     * @param cost how many units this call consumes; at least 1
+     */
+    default RateLimitDecision consume(RateLimitRule rule, String subject, int cost) {
+        return consume(rule, subject);
+    }
 }

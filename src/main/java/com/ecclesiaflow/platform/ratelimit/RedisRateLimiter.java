@@ -40,17 +40,27 @@ public class RedisRateLimiter implements RateLimiter {
 
     @Override
     public RateLimitDecision consume(RateLimitRule rule, String subject) {
+        return consume(rule, subject, 1);
+    }
+
+    @Override
+    public RateLimitDecision consume(RateLimitRule rule, String subject, int cost) {
+        if (cost < 1) {
+            throw new IllegalArgumentException("cost must be at least 1, was " + cost);
+        }
         long windowSeconds = rule.window().getSeconds();
         long now = Instant.now().getEpochSecond();
         long windowNumber = now / windowSeconds;
         String key = KEY_PREFIX + rule.name() + ':' + subject + ':' + windowNumber;
 
         try {
-            Long count = redis.opsForValue().increment(key);
+            Long count = redis.opsForValue().increment(key, cost);
             if (count == null) {
                 return unreadable(rule, "Redis returned no count");
             }
-            if (count == 1L) {
+            // The expiry is set on the call that CREATED the key, which for a
+            // batch is the one whose count lands exactly on its own cost.
+            if (count == cost) {
                 redis.expire(key, Duration.ofSeconds(windowSeconds));
             }
             if (count > rule.limit()) {
