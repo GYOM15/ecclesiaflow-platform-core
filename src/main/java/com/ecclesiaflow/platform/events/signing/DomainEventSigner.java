@@ -32,10 +32,19 @@ import java.util.Base64;
  * both: a signature is now valid for one exchange, one routing key and one
  * moment (security finding F054).</p>
  *
- * <p>The three prefix fields are UTF-8 text and are separated by NUL, a byte
- * UTF-8 can never produce — so no choice of exchange or routing key can be made
- * to look like another combination. {@code null} is encoded as the empty
- * string, which is also what AMQP reports for the default exchange.</p>
+ * <p>The three prefix fields are UTF-8 text, separated by NUL — a byte that
+ * standard UTF-8 produces only for U+0000 itself, and never as part of any other
+ * character's encoding. (Only Java's <em>modified</em> UTF-8 encodes U+0000 as
+ * two bytes; {@code String.getBytes(UTF_8)} emits a single {@code 0x00}.) The
+ * three fields are code-defined AMQP names and a decimal instant, none of which
+ * contains U+0000, so no choice of exchange or routing key can be made to look
+ * like another combination.</p>
+ *
+ * <p>Stated that precisely because the earlier wording — « a byte UTF-8 can
+ * never produce » — was simply wrong, and the property it claimed is
+ * conditional on the inputs rather than guaranteed by the encoding. A field that
+ * could ever carry a NUL, such as a tenant- or user-derived routing key, would
+ * break injectivity and would need length-prefixing instead of a separator.</p>
  *
  * <p>A blank secret means signing is disabled (migration escape hatch); callers
  * should consult {@link #isEnabled()} and skip stamping the header rather than

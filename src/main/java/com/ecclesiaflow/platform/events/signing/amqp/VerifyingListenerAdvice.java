@@ -42,13 +42,35 @@ import java.util.Locale;
  * <h2>Metric</h2>
  *
  * <p>Every decision increments
- * {@code ecclesiaflow_domain_events_signature_total{decision,routing_key}}
- * (finding F088) — without it a fleet running lenient is indistinguishable from
- * a fleet running verified. <strong>Caveat for whoever writes the alert:</strong>
- * with a blank secret this advice is not registered at all, so the counter stays
- * absent rather than reading zero. A rule that only watches the
- * {@code accept_unverified} rate will not fire on the one configuration where
- * nothing is checked — pair it with {@code absent()}.</p>
+ * {@code ecclesiaflow_domain_events_signature_total{decision}} (finding F088) —
+ * without it a fleet running lenient is indistinguishable from a fleet running
+ * verified.</p>
+ *
+ * <p><strong>Caveat for whoever writes the alert, corrected.</strong> An earlier
+ * version of this comment said that with a blank secret the advice is not
+ * registered, so the counter would be absent rather than zero, and told the
+ * reader to pair the rule with {@code absent()}. That was measured and it is
+ * false. Every module ships {@code hmac-secret=${EVENTS_HMAC_SECRET:}}, so with
+ * the variable unset the property is still PRESENT with an empty value;
+ * {@code @ConditionalOnProperty} matches, this advice IS registered, the signer
+ * reports disabled, and every message is counted {@code decision="accept"}. The
+ * counter therefore never goes absent and never shows
+ * {@code accept_unverified} — a fleet checking nothing looks exactly like a
+ * healthy verified one.</p>
+ *
+ * <p>So detect that state from CONFIGURATION, not from this metric: a non-empty
+ * {@code EVENTS_HMAC_SECRET}, which {@code docker-compose.prod.yml} enforces
+ * with {@code ${EVENTS_HMAC_SECRET:?}}. What the metric is good for is the
+ * migration window — watching {@code accept_unverified} fall to zero before
+ * {@code verify-signatures} is turned on.</p>
+ *
+ * <p>There is deliberately no {@code routing_key} tag. The value would be
+ * {@code getReceivedRoutingKey()} — chosen by whoever PUBLISHED the message,
+ * which under this class's own threat model is the attacker, on queues bound
+ * with topic wildcards, and counted BEFORE the reject. Each forged key would
+ * mint a permanent time series. The routing key is already in every log line
+ * this advice writes, where retention is bounded by log rotation rather than by
+ * a registry that only grows.</p>
  */
 public class VerifyingListenerAdvice implements MethodInterceptor {
 
@@ -87,7 +109,7 @@ public class VerifyingListenerAdvice implements MethodInterceptor {
 
         DomainEventVerifier.Decision decision =
                 verifier.verify(exchange, routingKey, body, signature, signedAt);
-        count(decision, routingKey);
+        count(decision);
 
         switch (decision) {
             case ACCEPT -> { /* signature valid or signing off — deliver silently */ }
@@ -120,14 +142,16 @@ public class VerifyingListenerAdvice implements MethodInterceptor {
         return invocation.proceed();
     }
 
-    private void count(DomainEventVerifier.Decision decision, String routingKey) {
+    private void count(DomainEventVerifier.Decision decision) {
         if (meterRegistry == null) {
             return;
         }
+        // `decision` only: it is an enum, so the cardinality is five. The routing
+        // key is publisher-controlled — see the javadoc — and tagging with it
+        // would let a forger create unbounded, permanent series from rejected
+        // messages.
         Counter.builder(METRIC)
                 .tag("decision", decision.name().toLowerCase(Locale.ROOT))
-                // Routing keys are a closed, code-defined set — bounded cardinality.
-                .tag("routing_key", routingKey == null ? "unknown" : routingKey)
                 .register(meterRegistry)
                 .increment();
     }

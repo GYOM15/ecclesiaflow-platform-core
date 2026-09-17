@@ -186,24 +186,51 @@ class VerifyingListenerAdviceTest {
         assertThat(noMeters.invoke(inv)).isEqualTo("listener-result");
     }
 
+    /**
+     * INVERTED. These two asserted that the counter carries a {@code routing_key}
+     * tag. It must not: the value is {@code getReceivedRoutingKey()}, chosen by
+     * whoever PUBLISHED the message — the attacker, under this advice's own
+     * threat model — on queues bound with topic wildcards, and counted BEFORE
+     * the reject. Every forged key would have minted a permanent time series.
+     * The comment that justified the tag ("routing keys are a closed,
+     * code-defined set") was false for exactly the messages this class exists to
+     * refuse.
+     */
     @Test
-    void countsTheRoutingKeyItSawOnTheWire() throws Throwable {
+    void theCounterCarriesNoPublisherControlledTag() throws Throwable {
         advice(true).invoke(invocationWith(signedMessage()));
 
-        assertThat(meters.find(VerifyingListenerAdvice.METRIC)
-                .tag("routing_key", ROUTING_KEY)
-                .counter()).isNotNull();
+        assertThat(meters.find(VerifyingListenerAdvice.METRIC).tag("routing_key", ROUTING_KEY).counter())
+                .isNull();
+        // and the decision tag, whose values are an enum, is there
+        assertThat(meters.find(VerifyingListenerAdvice.METRIC).tag("decision", "accept").counter())
+                .isNotNull();
     }
 
     @Test
-    void anUnknownRoutingKeyStillGetsATag() throws Throwable {
-        // a null tag value would throw inside Micrometer and take the listener down
+    void aForgedRoutingKeyCannotCreateANewSeries() throws Throwable {
+        VerifyingListenerAdvice strict = advice(true);
+        for (String forged : new String[]{"a", "b", "c", "d"}) {
+            MethodInvocation inv = invocationWith(
+                    message(EXCHANGE, forged, signature(), Long.toString(NOW.toEpochMilli())));
+            assertThatThrownBy(() -> strict.invoke(inv))
+                    .isInstanceOf(AmqpRejectAndDontRequeueException.class);
+        }
+
+        // Four different forged keys, one series: reject_invalid.
+        assertThat(meters.find(VerifyingListenerAdvice.METRIC).counters()).hasSize(1);
+        assertThat(meters.find(VerifyingListenerAdvice.METRIC).tag("decision", "reject_invalid")
+                .counter().count()).isEqualTo(4d);
+    }
+
+    @Test
+    void aMessageWithNoRoutingKeyIsStillCounted() throws Throwable {
+        // it used to need a "unknown" fallback because a null tag value throws
+        // inside Micrometer; with no wire-derived tag there is nothing to fall back on
         MethodInvocation inv = invocationWith(message(EXCHANGE, null, null, null));
 
         advice(false).invoke(inv);
 
-        assertThat(meters.find(VerifyingListenerAdvice.METRIC)
-                .tag("routing_key", "unknown")
-                .counter()).isNotNull();
+        assertThat(counted("accept_unverified")).isEqualTo(1d);
     }
 }
