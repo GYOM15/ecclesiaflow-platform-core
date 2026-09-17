@@ -189,8 +189,10 @@ public class PlatformRpcAutoConfiguration {
             @Qualifier("platformRpcJwtDecoder") JwtDecoder jwtDecoder,
             S2sProperties props,
             ApplicationEventPublisher events,
-            S2sScopeRegistry scopeRegistry) {
-        return new S2sAuthServerInterceptor(jwtDecoder, props, events, scopeRegistry);
+            S2sScopeRegistry scopeRegistry,
+            org.springframework.beans.factory.ObjectProvider<io.micrometer.core.instrument.MeterRegistry> meterRegistry) {
+        return new S2sAuthServerInterceptor(jwtDecoder, props, events, scopeRegistry,
+                meterRegistry.getIfAvailable());
     }
 
     // ========================================================================

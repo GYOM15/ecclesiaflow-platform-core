@@ -5,7 +5,9 @@ import com.ecclesiaflow.platform.events.signing.DomainEventVerifier;
 import com.ecclesiaflow.platform.events.signing.EventSigningProperties;
 import com.ecclesiaflow.platform.events.signing.amqp.SigningMessagePostProcessor;
 import com.ecclesiaflow.platform.events.signing.amqp.VerifyingListenerAdvice;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.amqp.core.Message;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -75,11 +77,17 @@ public class PlatformEventSigningAutoConfiguration {
             return new SigningMessagePostProcessor(signer);
         }
 
+        /**
+         * The registry is taken through an {@link ObjectProvider} so the advice
+         * stays usable in a consumer with no metrics runtime: absent, the
+         * verification still happens and only the counter is lost.
+         */
         @Bean
         @ConditionalOnMissingBean
         @ConditionalOnBean(DomainEventVerifier.class)
-        public VerifyingListenerAdvice verifyingListenerAdvice(DomainEventVerifier verifier) {
-            return new VerifyingListenerAdvice(verifier);
+        public VerifyingListenerAdvice verifyingListenerAdvice(DomainEventVerifier verifier,
+                                                               ObjectProvider<MeterRegistry> meterRegistry) {
+            return new VerifyingListenerAdvice(verifier, meterRegistry.getIfAvailable());
         }
     }
 }

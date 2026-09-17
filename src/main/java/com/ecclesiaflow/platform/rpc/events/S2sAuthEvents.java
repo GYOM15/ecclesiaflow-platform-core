@@ -36,4 +36,36 @@ public final class S2sAuthEvents {
      * added without its {@code @S2sScopeRequired} annotation.
      */
     public record InboundUnmappedMethod(String fullMethodName) {}
+
+    /**
+     * Emitted when an inbound RPC is rejected because the token's {@code azp}
+     * (authorized party — the Keycloak client it was minted for) is not on the
+     * allow-list. Distinct from {@link InboundMissingScope} on purpose: a
+     * missing scope is a misconfiguration, a foreign client is a token minted
+     * for something that has no business on the gRPC plane at all.
+     *
+     * @param azp the rejected authorized party, or {@code null} when the claim is absent
+     */
+    public record InboundForeignClient(String fullMethodName, String azp) {}
+
+    /**
+     * Emitted when an inbound RPC is <strong>accepted</strong>: token valid,
+     * generic scope present, per-method scope present. Without this the audit
+     * trail records only refusals, so a successful lateral call between modules
+     * leaves no trace at all (finding F045).
+     *
+     * @param subject     the token's {@code sub}, already masked for logging
+     * @param azp         the authorized party the token was minted for
+     * @param methodScope the per-method scope that was satisfied
+     */
+    public record InboundAccepted(String fullMethodName, String subject, String azp, String methodScope) {}
+
+    /**
+     * Emitted when an inbound RPC is accepted through the infrastructure
+     * bypass — a gRPC standard service (Health, Reflection) that carries no
+     * {@code @S2sScopeRequired} annotation because we do not own it.
+     *
+     * @param serviceName the gRPC service the bypass applied to
+     */
+    public record InboundInfrastructureBypass(String fullMethodName, String serviceName, String subject, String azp) {}
 }

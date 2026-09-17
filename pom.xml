@@ -182,6 +182,16 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- Metrics. Optional for the same reason as spring-rabbit: every module that
+             deploys already carries spring-boot-starter-actuator, but a consumer with no
+             metrics runtime must still be able to use the library. Every use site is
+             null-tolerant, so an absent MeterRegistry costs the counter, not the call. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- JWT validation on the server side (reuses Spring's Nimbus-backed JwtDecoder) -->
         <dependency>
             <groupId>org.springframework.security</groupId>

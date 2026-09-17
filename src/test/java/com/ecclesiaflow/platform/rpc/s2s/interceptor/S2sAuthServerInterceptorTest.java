@@ -8,6 +8,8 @@ import io.grpc.MethodDescriptor;
 import io.grpc.ServerCall;
 import io.grpc.ServerCallHandler;
 import io.grpc.Status;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -41,6 +43,7 @@ class S2sAuthServerInterceptorTest {
     private MethodDescriptor methodDescriptor;
     private S2sProperties props;
     private S2sScopeRegistry scopeRegistry;
+    private MeterRegistry meters;
     private S2sAuthServerInterceptor interceptor;
 
     @BeforeEach
@@ -67,7 +70,16 @@ class S2sAuthServerInterceptorTest {
         props.setExpectedAudience("ecclesiaflow-internal");
         props.setGenericScope("ef:s2s");
 
-        interceptor = new S2sAuthServerInterceptor(decoder, props, events, scopeRegistry);
+        meters = new SimpleMeterRegistry();
+        interceptor = new S2sAuthServerInterceptor(decoder, props, events, scopeRegistry, meters);
+    }
+
+    /** Count on {@code ef.s2s.inbound} for one outcome, 0 when the meter was never created. */
+    private double counted(String outcome) {
+        io.micrometer.core.instrument.Counter counter = meters.find(S2sAuthServerInterceptor.METRIC)
+                .tag("outcome", outcome)
+                .counter();
+        return counter == null ? 0d : counter.count();
     }
 
     @Test
@@ -161,7 +173,11 @@ class S2sAuthServerInterceptorTest {
 
         verify(next).startCall(eq(call), eq(headers));
         verify(call, never()).close(any(), any());
-        verify(events, never()).publishEvent(any());
+        // INVERTED. It asserted that an accepted call publishes NOTHING, which is
+        // the finding: every refusal was announced and every success was silent,
+        // so a lateral call between modules left no trace at all (F045).
+        verify(events).publishEvent(any(S2sAuthEvents.InboundAccepted.class));
+        assertThat(counted("accepted")).isEqualTo(1d);
     }
 
     @Test
@@ -180,7 +196,7 @@ class S2sAuthServerInterceptorTest {
         interceptor.interceptCall(call, headers, next);
 
         verify(next).startCall(eq(call), eq(headers));
-        verify(events, never()).publishEvent(any());
+        verify(events).publishEvent(any(S2sAuthEvents.InboundAccepted.class));
     }
 
     @Test
@@ -220,7 +236,7 @@ class S2sAuthServerInterceptorTest {
         interceptor.interceptCall(call, headers, next);
 
         verify(next).startCall(eq(call), eq(headers));
-        verify(events, never()).publishEvent(any());
+        verify(events).publishEvent(any(S2sAuthEvents.InboundAccepted.class));
     }
 
     @Test
@@ -265,7 +281,196 @@ class S2sAuthServerInterceptorTest {
 
         verify(next).startCall(eq(call), eq(headers));
         verify(call, never()).close(any(), any());
-        verify(events, never()).publishEvent(any());
+        // The bypass is announced too, but as its own event: the health probe
+        // fires every few seconds and must not be logged at the same level as a
+        // business call.
+        verify(events).publishEvent(any(S2sAuthEvents.InboundInfrastructureBypass.class));
+        assertThat(counted("infrastructure_bypass")).isEqualTo(1d);
+    }
+
+    // ========================================================================
+    // Allowed authorized parties (F042) — the barrier that does not need the realm
+    // ========================================================================
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void rejectsATokenMintedForAClientThatIsNotOnTheAllowList() {
+        // The realm stamps aud=ecclesiaflow-internal on EVERY client, so a frontend
+        // token that has somehow acquired ef:s2s passes the audience check and both
+        // scope checks. The client id is what actually separates the two planes.
+        props.setAllowedAzp(List.of("ecclesiaflow-church-backend", "ecclesiaflow-members-backend"));
+        interceptor = new S2sAuthServerInterceptor(decoder, props, events, scopeRegistry, meters);
+        Jwt jwt = jwt(Map.of("scope", "ef:s2s ef:members:read", "azp", "ecclesiaflow-frontend"));
+        when(decoder.decode("valid")).thenReturn(jwt);
+        when(scopeRegistry.requiredScope("test.Service/Method"))
+                .thenReturn(java.util.Optional.of("ef:members:read"));
+
+        Metadata headers = new Metadata();
+        headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
+
+        interceptor.interceptCall(call, headers, next);
+
+        ArgumentCaptor<Status> status = ArgumentCaptor.forClass(Status.class);
+        verify(call).close(status.capture(), any(Metadata.class));
+        assertThat(status.getValue().getCode()).isEqualTo(Status.Code.PERMISSION_DENIED);
+        verify(events).publishEvent(any(S2sAuthEvents.InboundForeignClient.class));
+        verify(next, never()).startCall(any(), any());
+        assertThat(counted("foreign_client")).isEqualTo(1d);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void acceptsATokenMintedForAnAllowedClient() {
+        props.setAllowedAzp(List.of("ecclesiaflow-church-backend"));
+        interceptor = new S2sAuthServerInterceptor(decoder, props, events, scopeRegistry, meters);
+        Jwt jwt = jwt(Map.of("scope", "ef:s2s ef:members:read", "azp", "ecclesiaflow-church-backend"));
+        when(decoder.decode("valid")).thenReturn(jwt);
+        when(scopeRegistry.requiredScope("test.Service/Method"))
+                .thenReturn(java.util.Optional.of("ef:members:read"));
+
+        Metadata headers = new Metadata();
+        headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
+
+        interceptor.interceptCall(call, headers, next);
+
+        verify(next).startCall(eq(call), eq(headers));
+        verify(call, never()).close(any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void rejectsATokenWithNoAzpClaimOnceTheAllowListIsSet() {
+        // An absent claim must not read as "allowed" — fail-closed, like everything
+        // else on this plane.
+        props.setAllowedAzp(List.of("ecclesiaflow-church-backend"));
+        interceptor = new S2sAuthServerInterceptor(decoder, props, events, scopeRegistry, meters);
+        when(decoder.decode("valid")).thenReturn(jwt(Map.of("scope", "ef:s2s ef:members:read")));
+
+        Metadata headers = new Metadata();
+        headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
+
+        interceptor.interceptCall(call, headers, next);
+
+        verify(call).close(any(), any(Metadata.class));
+        verify(next, never()).startCall(any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void anEmptyAllowListLeavesTheCheckOff() {
+        // The default: an existing deployment must be unaffected until the
+        // property is set, otherwise shipping this cuts every module off at once.
+        Jwt jwt = jwt(Map.of("scope", "ef:s2s ef:members:read", "azp", "anything-at-all"));
+        when(decoder.decode("valid")).thenReturn(jwt);
+        when(scopeRegistry.requiredScope("test.Service/Method"))
+                .thenReturn(java.util.Optional.of("ef:members:read"));
+
+        Metadata headers = new Metadata();
+        headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
+
+        interceptor.interceptCall(call, headers, next);
+
+        verify(next).startCall(eq(call), eq(headers));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void blankAllowListEntriesAreIgnoredRatherThanLockingEveryoneOut() {
+        // A property set to an empty string binds to [""] — which would otherwise
+        // arm the check with a list nothing can match.
+        props.setAllowedAzp(List.of("", "   "));
+        interceptor = new S2sAuthServerInterceptor(decoder, props, events, scopeRegistry, meters);
+        Jwt jwt = jwt(Map.of("scope", "ef:s2s ef:members:read", "azp", "ecclesiaflow-church-backend"));
+        when(decoder.decode("valid")).thenReturn(jwt);
+        when(scopeRegistry.requiredScope("test.Service/Method"))
+                .thenReturn(java.util.Optional.of("ef:members:read"));
+
+        Metadata headers = new Metadata();
+        headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
+
+        interceptor.interceptCall(call, headers, next);
+
+        verify(next).startCall(eq(call), eq(headers));
+    }
+
+    // ========================================================================
+    // The audit trail itself (F045)
+    // ========================================================================
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void theAcceptedEventCarriesAMaskedSubjectNeverTheRawOne() {
+        Jwt jwt = Jwt.withTokenValue("token")
+                .header("alg", "RS256")
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(300))
+                .issuer("http://kc")
+                .audience(List.of("ecclesiaflow-internal"))
+                .subject("7f3a91c2-0b44-4d1e-9c77-5f2b8e6a1d30")
+                .claims(c -> c.put("scope", "ef:s2s ef:members:read"))
+                .claims(c -> c.put("azp", "ecclesiaflow-church-backend"))
+                .build();
+        when(decoder.decode("valid")).thenReturn(jwt);
+        when(scopeRegistry.requiredScope("test.Service/Method"))
+                .thenReturn(java.util.Optional.of("ef:members:read"));
+
+        Metadata headers = new Metadata();
+        headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
+
+        interceptor.interceptCall(call, headers, next);
+
+        ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
+        verify(events).publishEvent(event.capture());
+        S2sAuthEvents.InboundAccepted accepted = (S2sAuthEvents.InboundAccepted) event.getValue();
+        assertThat(accepted.subject()).doesNotContain("7f3a91c2-0b44-4d1e-9c77-5f2b8e6a1d30");
+        assertThat(accepted.subject()).startsWith("7f3a91c2");
+        assertThat(accepted.azp()).isEqualTo("ecclesiaflow-church-backend");
+        assertThat(accepted.methodScope()).isEqualTo("ef:members:read");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void refusalsAreCountedToo() {
+        Metadata headers = new Metadata();
+
+        interceptor.interceptCall(call, headers, next);
+
+        assertThat(counted("missing_header")).isEqualTo(1d);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void countsAnAbsentAuthorizedPartyAsUnknownRatherThanThrowing() {
+        // A null tag value throws inside Micrometer and would take down the RPC.
+        Jwt jwt = jwt(Map.of("scope", "ef:other"));
+        when(decoder.decode("valid")).thenReturn(jwt);
+
+        Metadata headers = new Metadata();
+        headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
+
+        interceptor.interceptCall(call, headers, next);
+
+        assertThat(meters.find(S2sAuthServerInterceptor.METRIC).tag("azp", "unknown").counter())
+                .isNotNull();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void worksWithoutAMeterRegistry() {
+        // the four-argument constructor is the one consumers without metrics use
+        S2sAuthServerInterceptor noMeters =
+                new S2sAuthServerInterceptor(decoder, props, events, scopeRegistry);
+        Jwt jwt = jwt(Map.of("scope", "ef:s2s ef:members:read"));
+        when(decoder.decode("valid")).thenReturn(jwt);
+        when(scopeRegistry.requiredScope("test.Service/Method"))
+                .thenReturn(java.util.Optional.of("ef:members:read"));
+
+        Metadata headers = new Metadata();
+        headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
+
+        noMeters.interceptCall(call, headers, next);
+
+        verify(next).startCall(eq(call), eq(headers));
     }
 
     /**

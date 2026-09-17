@@ -50,4 +50,41 @@ public class S2sAuthEventListener {
                 + "annotate the RPC with @S2sScopeRequired or whitelist it as infrastructure",
                 event.fullMethodName());
     }
+
+    @EventListener
+    public void onInboundForeignClient(S2sAuthEvents.InboundForeignClient event) {
+        log.warn("S2S-IN: ❌ Rejected {} — token minted for client '{}', which is not on the s2s allow-list",
+                event.fullMethodName(), event.azp() == null ? "<no azp claim>" : event.azp());
+    }
+
+    /**
+     * INFO, not WARN: this is the ordinary case. It exists so the audit trail
+     * shows who called what, and it is the line an operator greps after an
+     * incident to answer « did anything actually get through ».
+     */
+    @EventListener
+    public void onInboundAccepted(S2sAuthEvents.InboundAccepted event) {
+        log.info("S2S-IN: ✅ Accepted {} — client={} subject={} scope={}",
+                event.fullMethodName(), event.azp(), event.subject(), event.methodScope());
+    }
+
+    /**
+     * Split by service, and deliberately not all at the same level. The health
+     * probe fires every few seconds: logging it at WARN would bury every real
+     * signal within the hour, so it goes to DEBUG. Reflection is another matter
+     * — nothing in this fleet calls it in production, so a reflection call is
+     * either a debugging session or someone enumerating the API surface, and
+     * that is worth a WARN.
+     */
+    @EventListener
+    public void onInboundInfrastructureBypass(S2sAuthEvents.InboundInfrastructureBypass event) {
+        if (event.serviceName() != null && event.serviceName().startsWith("grpc.reflection.")) {
+            log.warn("S2S-IN: ⚠ Reflection call {} accepted through the infrastructure bypass — "
+                    + "client={} subject={}. Nothing in production should enumerate the RPC surface.",
+                    event.fullMethodName(), event.azp(), event.subject());
+            return;
+        }
+        log.debug("S2S-IN: ✅ Accepted {} through the infrastructure bypass — client={} subject={}",
+                event.fullMethodName(), event.azp(), event.subject());
+    }
 }

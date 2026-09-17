@@ -38,7 +38,7 @@ class PlatformEventSigningAutoConfigurationTest {
                     assertThat(context.getBean(DomainEventSigner.class).isEnabled()).isFalse();
                     // disabled verifier accepts everything regardless of the strict flag
                     assertThat(context.getBean(DomainEventVerifier.class)
-                            .verify(new byte[]{1}, null).isAccepted()).isTrue();
+                            .verify("ex", "rk", new byte[]{1}, null, null).isAccepted()).isTrue();
                 });
     }
 
@@ -62,7 +62,7 @@ class PlatformEventSigningAutoConfigurationTest {
                 .run(context -> {
                     DomainEventVerifier verifier = context.getBean(DomainEventVerifier.class);
                     // strict mode → unsigned rejected
-                    assertThat(verifier.verify(new byte[]{1}, null).isAccepted()).isFalse();
+                    assertThat(verifier.verify("ex", "rk", new byte[]{1}, null, null).isAccepted()).isFalse();
                 });
     }
 
@@ -72,7 +72,7 @@ class PlatformEventSigningAutoConfigurationTest {
                 .run(context -> {
                     DomainEventVerifier verifier = context.getBean(DomainEventVerifier.class);
                     // default lenient → unsigned accepted (unverified)
-                    assertThat(verifier.verify(new byte[]{1}, null).isAccepted()).isTrue();
+                    assertThat(verifier.verify("ex", "rk", new byte[]{1}, null, null).isAccepted()).isTrue();
                 });
     }
 

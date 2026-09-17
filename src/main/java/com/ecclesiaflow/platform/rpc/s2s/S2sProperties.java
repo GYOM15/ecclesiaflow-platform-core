@@ -5,6 +5,9 @@ import jakarta.validation.constraints.NotBlank;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Configuration for server-to-server gRPC authentication.
  *
@@ -38,16 +41,35 @@ public class S2sProperties {
     private String issuer;
 
     /**
-     * Expected {@code aud} claim on inbound s2s tokens. The realm stamps
-     * {@code aud=ecclesiaflow-internal} on backend service-account clients only,
-     * so this acts as a hard fence keeping frontend/user tokens out of the gRPC
-     * plane even if they somehow carry {@code ef:s2s}.
+     * Expected {@code aud} claim on inbound s2s tokens.
+     *
+     * <p><strong>This is not a fence between frontend and backend tokens, and
+     * the comment that said so was wrong.</strong> The realm's audience mapper
+     * is attached to <em>every</em> client, not to backend service accounts
+     * only ({@code realm-ecclesiaflow.json:284}), so a token minted for the
+     * frontend carries {@code aud=ecclesiaflow-internal} exactly like one minted
+     * for a module. What this property does is pin the audience to a known
+     * value, which stops a token issued by the same realm for an unrelated
+     * audience — real, but a much narrower guarantee than « user tokens cannot
+     * reach the gRPC plane ». The barrier that actually separates callers is
+     * {@link #getAllowedAzp()} (finding F052).</p>
      *
      * <p>Leave <strong>blank</strong> to skip audience validation — an escape
      * hatch for the migration window before the realm re-import lands. The
      * default ({@code ecclesiaflow-internal}) <strong>enforces</strong> it.</p>
      */
     private String expectedAudience = "ecclesiaflow-internal";
+
+    /**
+     * Keycloak client ids ({@code azp} claim) allowed on the inbound gRPC plane.
+     *
+     * <p>Empty (the default) disables the check, so an existing deployment is
+     * unaffected until the list is set. Populate it with the backend service
+     * accounts only — the frontend client must not appear — and a user token
+     * that has somehow acquired {@code ef:s2s} is refused on the client id,
+     * without touching the realm or re-issuing anything (finding F042).</p>
+     */
+    private List<String> allowedAzp = new ArrayList<>();
 
     /** Scope required on every inbound s2s RPC. Defaults to {@code ef:s2s}. */
     @NotBlank
@@ -107,6 +129,14 @@ public class S2sProperties {
 
     public void setExpectedAudience(String expectedAudience) {
         this.expectedAudience = expectedAudience;
+    }
+
+    public List<String> getAllowedAzp() {
+        return allowedAzp;
+    }
+
+    public void setAllowedAzp(List<String> allowedAzp) {
+        this.allowedAzp = allowedAzp == null ? new ArrayList<>() : allowedAzp;
     }
 
     public String getGenericScope() {
