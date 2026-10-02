@@ -12,9 +12,10 @@ import java.util.Optional;
  * twenty controllers.
  *
  * <p>An unknown rule name is a PROGRAMMING error, not a request error: it means
- * a method claims a limit nobody declared. The interceptor refuses to start
- * rather than letting the call through unlimited, because a limit that silently
- * does not apply is worse than no limit — it is a limit everybody believes in.
+ * a method claims a limit nobody declared. {@link RateLimitedHandlerValidator}
+ * refuses to start the application rather than letting the call through unlimited,
+ * because a limit that silently does not apply is worse than no limit — it is a
+ * limit everybody believes in.
  */
 public interface RateLimitRuleRegistry {
 

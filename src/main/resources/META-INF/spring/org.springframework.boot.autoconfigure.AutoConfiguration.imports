@@ -5,3 +5,4 @@ com.ecclesiaflow.platform.events.signing.autoconfigure.PlatformEventSigningAmqpA
 com.ecclesiaflow.platform.storage.autoconfigure.PlatformObjectStorageAutoConfiguration
 com.ecclesiaflow.platform.upload.autoconfigure.PlatformUploadSanitizerAutoConfiguration
 com.ecclesiaflow.platform.ratelimit.autoconfigure.PlatformRateLimitAutoConfiguration
+com.ecclesiaflow.platform.ratelimit.autoconfigure.PlatformRateLimitValidationAutoConfiguration
