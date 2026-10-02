@@ -10,8 +10,9 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import java.time.Clock;
 
 /**
- * Publish-side hook that stamps the {@value DomainEventSigner#SIGNATURE_HEADER}
- * and {@value DomainEventSigner#SIGNED_AT_HEADER} headers onto every outbound
+ * Publish-side hook that stamps the {@value DomainEventSigner#SIGNATURE_HEADER},
+ * {@value DomainEventSigner#SIGNED_AT_HEADER} and
+ * {@value DomainEventSigner#SIGNATURE_VERSION_HEADER} headers onto every outbound
  * domain event (security findings C07 and F054). Wire it into a publisher's
  * domain-events {@link RabbitTemplate} via
  * {@link RabbitTemplate#addBeforePublishPostProcessors} (or
@@ -77,6 +78,8 @@ public class SigningMessagePostProcessor implements MessagePostProcessor {
         String signature = signer.sign(exchange, routingKey, signedAt, message.getBody());
         message.getMessageProperties().setHeader(DomainEventSigner.SIGNED_AT_HEADER, Long.toString(signedAt));
         message.getMessageProperties().setHeader(DomainEventSigner.SIGNATURE_HEADER, signature);
+        message.getMessageProperties().setHeader(
+                DomainEventSigner.SIGNATURE_VERSION_HEADER, DomainEventSigner.SIGNATURE_VERSION);
         return message;
     }
 }

@@ -20,9 +20,10 @@ import java.time.Duration;
  *       should log a warning. Lets a consumer ship before publishers sign.</li>
  *   <li><b>verify-signatures = true</b> (strict): a valid, fresh signature is
  *       {@link Decision#ACCEPT}; a missing signature is
- *       {@link Decision#REJECT_MISSING}, one that does not match is
- *       {@link Decision#REJECT_INVALID}, and one that matches but was signed
- *       outside the freshness window is {@link Decision#REJECT_STALE}.</li>
+ *       {@link Decision#REJECT_MISSING}, one in a format version this consumer
+ *       does not know is {@link Decision#REJECT_UNSUPPORTED_VERSION}, one that
+ *       does not match is {@link Decision#REJECT_INVALID}, and one that matches
+ *       but was signed outside the freshness window is {@link Decision#REJECT_STALE}.</li>
  * </ul>
  *
  * <h2>Why the destination is an argument</h2>
@@ -55,7 +56,12 @@ public class DomainEventVerifier {
          * freshness window — a replay of a genuinely signed event, or a clock
          * badly out of step. Drop either way.
          */
-        REJECT_STALE(false);
+        REJECT_STALE(false),
+        /**
+         * Strict mode, signed in a format version this consumer does not know: its
+         * publisher was upgraded first. Drop, and upgrade the consumer.
+         */
+        REJECT_UNSUPPORTED_VERSION(false);
 
         private final boolean accepted;
 
@@ -106,6 +112,17 @@ public class DomainEventVerifier {
      */
     public Decision verify(String exchange, String routingKey, byte[] body,
                            String signatureHeader, String signedAtHeader) {
+        return verify(exchange, routingKey, body, signatureHeader, signedAtHeader, null);
+    }
+
+    /**
+     * As {@link #verify(String, String, byte[], String, String)}, for a message that may
+     * carry the {@value DomainEventSigner#SIGNATURE_VERSION_HEADER} header.
+     *
+     * @param versionHeader the header value, or {@code null} if absent (version 1)
+     */
+    public Decision verify(String exchange, String routingKey, byte[] body,
+                           String signatureHeader, String signedAtHeader, String versionHeader) {
         if (!signer.isEnabled()) {
             return Decision.ACCEPT;
         }
@@ -113,6 +130,10 @@ public class DomainEventVerifier {
         boolean hasSignature = signatureHeader != null && !signatureHeader.isBlank();
         if (!hasSignature) {
             return verifySignatures ? Decision.REJECT_MISSING : Decision.ACCEPT_UNVERIFIED;
+        }
+
+        if (!isSupportedVersion(versionHeader)) {
+            return verifySignatures ? Decision.REJECT_UNSUPPORTED_VERSION : Decision.ACCEPT_UNVERIFIED;
         }
 
         // A missing or unparseable instant cannot be signed material, so it can
@@ -126,6 +147,11 @@ public class DomainEventVerifier {
             return verifySignatures ? Decision.REJECT_STALE : Decision.ACCEPT_UNVERIFIED;
         }
         return Decision.ACCEPT;
+    }
+
+    private static boolean isSupportedVersion(String versionHeader) {
+        return versionHeader == null || versionHeader.isBlank()
+                || DomainEventSigner.SIGNATURE_VERSION.equals(versionHeader.trim());
     }
 
     private boolean isFresh(String signedAtHeader) {

@@ -68,6 +68,16 @@ public class DomainEventSigner {
      */
     public static final String SIGNED_AT_HEADER = "x-ef-signed-at";
 
+    /**
+     * Header naming the canonical form the signature covers, so that form can change
+     * during a rolling deploy: consumers learn a new version before publishers emit it.
+     * A message without it predates the header and is version 1.
+     */
+    public static final String SIGNATURE_VERSION_HEADER = "x-ef-signature-version";
+
+    /** The canonical form {@link #sign} produces and {@link #matches} checks. */
+    public static final String SIGNATURE_VERSION = "1";
+
     private static final String HMAC_ALGORITHM = "HmacSHA256";
     private static final byte SEPARATOR = 0x00;
 

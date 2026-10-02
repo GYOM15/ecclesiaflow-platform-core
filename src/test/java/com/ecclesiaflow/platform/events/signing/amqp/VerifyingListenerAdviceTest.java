@@ -155,6 +155,41 @@ class VerifyingListenerAdviceTest {
     }
 
     @Test
+    void strictRejectsASignatureVersionItDoesNotKnow() throws Throwable {
+        Message fromANewerPublisher = signedMessage();
+        fromANewerPublisher.getMessageProperties().setHeader("x-ef-signature-version", "2");
+        MethodInvocation inv = invocationWith(fromANewerPublisher);
+
+        assertThatThrownBy(() -> advice(true).invoke(inv))
+                .isInstanceOf(AmqpRejectAndDontRequeueException.class)
+                .hasMessageContaining("signature version");
+        verify(inv, never()).proceed();
+        assertThat(counted("reject_unsupported_version")).isEqualTo(1d);
+    }
+
+    @Test
+    void lenientAcceptsAnUnknownSignatureVersionAsUnverified() throws Throwable {
+        Message fromANewerPublisher = signedMessage();
+        fromANewerPublisher.getMessageProperties().setHeader("x-ef-signature-version", "2");
+        MethodInvocation inv = invocationWith(fromANewerPublisher);
+
+        advice(false).invoke(inv);
+
+        verify(inv, times(1)).proceed();
+        assertThat(counted("accept_unverified")).isEqualTo(1d);
+    }
+
+    @Test
+    void strictAcceptsAMessageLabelledWithTheCurrentVersion() throws Throwable {
+        Message labelled = signedMessage();
+        labelled.getMessageProperties().setHeader("x-ef-signature-version", "1");
+        MethodInvocation inv = invocationWith(labelled);
+
+        assertThat(advice(true).invoke(inv)).isEqualTo("listener-result");
+        assertThat(counted("accept")).isEqualTo(1d);
+    }
+
+    @Test
     void noMessageArgumentIsTransparentPassThrough() throws Throwable {
         // an invocation with no AMQP Message argument must not be blocked
         MethodInvocation inv = invocationWith("not-a-message", 42);

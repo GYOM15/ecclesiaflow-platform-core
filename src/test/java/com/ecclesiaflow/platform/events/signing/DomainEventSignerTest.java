@@ -223,5 +223,7 @@ class DomainEventSignerTest {
         // wire contract: these names must never change without a coordinated migration
         assertThat(DomainEventSigner.SIGNATURE_HEADER).isEqualTo("x-ef-signature");
         assertThat(DomainEventSigner.SIGNED_AT_HEADER).isEqualTo("x-ef-signed-at");
+        assertThat(DomainEventSigner.SIGNATURE_VERSION_HEADER).isEqualTo("x-ef-signature-version");
+        assertThat(DomainEventSigner.SIGNATURE_VERSION).isEqualTo("1");
     }
 }

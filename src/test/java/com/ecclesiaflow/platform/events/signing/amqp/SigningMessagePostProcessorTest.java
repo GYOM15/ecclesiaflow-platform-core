@@ -45,6 +45,13 @@ class SigningMessagePostProcessorTest {
         assertThat(signer.matches(EXCHANGE, ROUTING_KEY, signedAt, out.getBody(), sig)).isTrue();
     }
 
+    @Test
+    void stampsTheFormatVersionOfItsSignature() {
+        Message out = sign(message("body-bytes".getBytes(StandardCharsets.UTF_8)));
+
+        assertThat((Object) out.getMessageProperties().getHeader("x-ef-signature-version")).isEqualTo("1");
+    }
+
     /**
      * The destination reaches a template-wide post-processor only through the
      * four-argument overload. If it ever stopped being bound, every signature
@@ -74,6 +81,7 @@ class SigningMessagePostProcessorTest {
                 message("body".getBytes(StandardCharsets.UTF_8)), null, EXCHANGE, ROUTING_KEY);
         assertThat((Object) out.getMessageProperties().getHeader(DomainEventSigner.SIGNATURE_HEADER)).isNull();
         assertThat((Object) out.getMessageProperties().getHeader(DomainEventSigner.SIGNED_AT_HEADER)).isNull();
+        assertThat((Object) out.getMessageProperties().getHeader("x-ef-signature-version")).isNull();
     }
 
     @Test

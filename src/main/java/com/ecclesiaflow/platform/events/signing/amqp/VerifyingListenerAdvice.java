@@ -23,9 +23,10 @@ import java.util.Locale;
  * <p>Decision flow (delegated to {@link DomainEventVerifier}):</p>
  * <ul>
  *   <li>signing disabled, or signature valid and fresh → proceed to the listener;</li>
- *   <li>lenient mode + missing/invalid/stale signature → proceed, but log a WARN
- *       (so the gap is observable while publishers are migrated);</li>
- *   <li>strict mode + missing/invalid/stale signature → throw
+ *   <li>lenient mode + missing/invalid/stale signature, or one in an unknown format
+ *       version → proceed, but log a WARN (so the gap is observable while publishers
+ *       are migrated);</li>
+ *   <li>strict mode + any of those → throw
  *       {@link AmqpRejectAndDontRequeueException} so the broker dead-letters the
  *       message instead of redelivering it forever.</li>
  * </ul>
@@ -105,10 +106,12 @@ public class VerifyingListenerAdvice implements MethodInterceptor {
                 message.getMessageProperties().getHeader(DomainEventSigner.SIGNATURE_HEADER));
         String signedAt = headerAsString(
                 message.getMessageProperties().getHeader(DomainEventSigner.SIGNED_AT_HEADER));
+        String version = headerAsString(
+                message.getMessageProperties().getHeader(DomainEventSigner.SIGNATURE_VERSION_HEADER));
         byte[] body = message.getBody();
 
         DomainEventVerifier.Decision decision =
-                verifier.verify(exchange, routingKey, body, signature, signedAt);
+                verifier.verify(exchange, routingKey, body, signature, signedAt, version);
         count(decision);
 
         switch (decision) {
@@ -116,7 +119,7 @@ public class VerifyingListenerAdvice implements MethodInterceptor {
             case ACCEPT_UNVERIFIED -> log.warn(
                     "DOMAIN-EVENT-SIGNATURE: accepting UNVERIFIED message exchange={} routing_key={} "
                             + "(verify-signatures=false; signature {}). Sign publishers, then enable strict mode.",
-                    exchange, routingKey, signature == null ? "missing" : "invalid or stale");
+                    exchange, routingKey, signature == null ? "missing" : "invalid, stale or of an unknown version");
             case REJECT_MISSING -> {
                 log.error("DOMAIN-EVENT-SIGNATURE: REJECTING unsigned message exchange={} routing_key={} "
                         + "(verify-signatures=true)", exchange, routingKey);
@@ -137,6 +140,13 @@ public class VerifyingListenerAdvice implements MethodInterceptor {
                 throw new AmqpRejectAndDontRequeueException(
                         "Domain event outside the signature freshness window rejected (verify-signatures=true)");
             }
+            case REJECT_UNSUPPORTED_VERSION -> {
+                log.error("DOMAIN-EVENT-SIGNATURE: REJECTING message signed in an unsupported format version "
+                        + "exchange={} routing_key={} (verify-signatures=true). Upgrade this consumer before "
+                        + "its publishers.", exchange, routingKey);
+                throw new AmqpRejectAndDontRequeueException(
+                        "Domain event with an unsupported signature version rejected (verify-signatures=true)");
+            }
         }
 
         return invocation.proceed();
@@ -146,7 +156,7 @@ public class VerifyingListenerAdvice implements MethodInterceptor {
         if (meterRegistry == null) {
             return;
         }
-        // `decision` only: it is an enum, so the cardinality is five. The routing
+        // `decision` only: it is an enum, so the cardinality is six. The routing
         // key is publisher-controlled — see the javadoc — and tagging with it
         // would let a forger create unbounded, permanent series from rejected
         // messages.
