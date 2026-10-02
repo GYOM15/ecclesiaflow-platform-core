@@ -17,8 +17,9 @@ import java.util.Optional;
  *
  * <p>Keys are opaque, provider-generated, and content-addressed by randomness
  * ({@code <prefix>/<uuid>.<ext>}) so a stored object is immutable: re-uploading
- * yields a NEW key and the caller deletes the old one. That lets every object be
- * served with a long, immutable cache lifetime. The caller persists only the
+ * yields a NEW key and the caller deletes the old one. That lets public objects
+ * be served with a long, immutable cache lifetime; objects holding personal data
+ * are kept out of shared caches by the adapter. The caller persists only the
  * returned {@link StoredObjectRef#key()} — treat it as an opaque token.</p>
  *
  * <p>Adapters must never throw checked exceptions or leak provider types across
@@ -59,6 +60,25 @@ public interface ObjectStorage {
      * @throws ObjectStorageException on a backend failure
      */
     void delete(String key);
+
+    /**
+     * @param key the opaque key previously returned by {@link #put}
+     * @return the public URL the object is served from, or {@link Optional#empty()}
+     *         when this store has no public base or the object must only be
+     *         served through the backend
+     */
+    default Optional<String> publicUrl(String key) {
+        return Optional.empty();
+    }
+
+    /**
+     * @param url an absolute URL supplied by a caller
+     * @return whether {@code url} designates a public object of this store; a
+     *         store without a public base owns no URL
+     */
+    default boolean isOwnPublicUrl(String url) {
+        return false;
+    }
 
     /**
      * @return a short, human-readable provider identifier for diagnostics/logs

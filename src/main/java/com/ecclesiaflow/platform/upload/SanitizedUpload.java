@@ -6,10 +6,10 @@ import java.util.Objects;
  * The safe, server-produced result of running a user upload through a sanitizer.
  *
  * <p>These bytes are NOT the bytes the client sent. For images they are the
- * output of a full decode → resample → native re-encode cycle (see
- * {@link ImageSanitizer}); for non-image files they are the original bytes but
- * only ever after the real media type was proven by content sniffing (see
- * {@link FileSanitizer}). In both cases {@link #contentType()} is the
+ * output of a decode → resample → native re-encode cycle (see
+ * {@link ImageSanitizer}); for non-image files they are the original bytes (a CSV
+ * re-encoded as UTF-8) only ever after the real media type was proven by content
+ * sniffing (see {@link FileSanitizer}). In both cases {@link #contentType()} is the
  * <em>detected</em> type, never a client-declared one — callers persist and
  * serve THIS type, and hand THESE bytes to
  * {@link com.ecclesiaflow.platform.storage.ObjectStorage#put}.</p>

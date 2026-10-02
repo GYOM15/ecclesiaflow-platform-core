@@ -7,8 +7,8 @@ import java.nio.file.Paths;
 import java.util.Optional;
 
 /**
- * Local-disk {@link ObjectStorage} adapter — the default backend for development
- * and tests, so the platform runs with images off the database and without any
+ * Local-disk {@link ObjectStorage} adapter — the backend for development and
+ * tests, so the platform runs with images off the database and without any
  * external service. Objects are written as plain files under a base directory,
  * keyed exactly like the S3 adapter ({@code <prefix>/<uuid>.<ext>}).
  *

@@ -2,6 +2,10 @@ package com.ecclesiaflow.platform.storage;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+
 /**
  * Binds {@code ecclesiaflow.object-storage.*}. A single {@link #provider} knob
  * selects the active {@link ObjectStorage} adapter; the {@code filesystem} and
@@ -28,14 +32,14 @@ public class ObjectStorageProperties {
 
     /** Which adapter backs {@link ObjectStorage}. */
     public enum Provider {
-        /** Local disk — the default for dev/tests; no external service. */
+        /** Local disk, for dev and tests; no external service. */
         FILESYSTEM,
         /** S3-compatible object store (Cloudflare R2, AWS S3, MinIO). */
         S3
     }
 
-    /** Active provider; defaults to {@link Provider#FILESYSTEM} when unset. */
-    private Provider provider = Provider.FILESYSTEM;
+    /** Active provider; unset means no {@link ObjectStorage} adapter is created. */
+    private Provider provider;
 
     private final Filesystem filesystem = new Filesystem();
 
@@ -62,8 +66,8 @@ public class ObjectStorageProperties {
 
         /**
          * Root directory objects are written under. Blank resolves to
-         * {@code <java.io.tmpdir>/ecclesiaflow-object-storage} (a sane dev
-         * default); set explicitly for any persistent use.
+         * {@code <java.io.tmpdir>/ecclesiaflow-object-storage}, which the
+         * {@code prod} profile refuses.
          */
         private String basePath = "";
 
@@ -101,6 +105,14 @@ public class ObjectStorageProperties {
          * access-controlled are proxied through the backend and never use this.
          */
         private String publicBaseUrl;
+
+        /**
+         * Key prefixes of personal data. Their objects are written with
+         * {@code Cache-Control: private, no-store}, so no shared cache (CDN)
+         * keeps a copy past their deletion, and never get a public URL. Setting
+         * this replaces the default rather than adding to it.
+         */
+        private Set<String> privateKeyPrefixes = new LinkedHashSet<>(List.of("member-photos"));
 
         public String getEndpoint() {
             return endpoint;
@@ -156,6 +168,14 @@ public class ObjectStorageProperties {
 
         public void setPublicBaseUrl(String publicBaseUrl) {
             this.publicBaseUrl = publicBaseUrl;
+        }
+
+        public Set<String> getPrivateKeyPrefixes() {
+            return privateKeyPrefixes;
+        }
+
+        public void setPrivateKeyPrefixes(Set<String> privateKeyPrefixes) {
+            this.privateKeyPrefixes = privateKeyPrefixes;
         }
     }
 }

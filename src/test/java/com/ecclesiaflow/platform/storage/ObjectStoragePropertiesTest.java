@@ -44,11 +44,11 @@ class ObjectStoragePropertiesTest {
     }
 
     @Test
-    @DisplayName("defaults: filesystem, R2-style addressing, no public base URL")
+    @DisplayName("defaults: no provider, R2-style addressing, no public base URL")
     void defaults() {
         ObjectStorageProperties props = bind(Map.of());
 
-        assertThat(props.getProvider()).isEqualTo(ObjectStorageProperties.Provider.FILESYSTEM);
+        assertThat(props.getProvider()).isNull();
         assertThat(props.getFilesystem().getBasePath()).isEmpty();
         assertThat(props.getS3().getRegion()).isEqualTo("auto");
         assertThat(props.getS3().isPathStyleAccess()).isTrue();

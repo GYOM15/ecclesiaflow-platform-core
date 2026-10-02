@@ -7,6 +7,7 @@ import com.ecclesiaflow.platform.storage.StoredObject;
 import com.ecclesiaflow.platform.storage.StoredObjectRef;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import software.amazon.awssdk.core.ResponseBytes;
@@ -22,6 +23,9 @@ import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -42,7 +46,23 @@ class S3ObjectStorageTest {
     @BeforeEach
     void setUp() {
         client = mock(S3Client.class);
-        storage = new S3ObjectStorage(client, BUCKET);
+        storage = new S3ObjectStorage(client, props(null));
+    }
+
+    private static ObjectStorageProperties.S3 props(String publicBaseUrl) {
+        ObjectStorageProperties.S3 props = new ObjectStorageProperties.S3();
+        props.setBucket(BUCKET);
+        props.setPublicBaseUrl(publicBaseUrl);
+        return props;
+    }
+
+    private String cacheControlOfPut(ObjectStorage target, String keyPrefix) {
+        when(client.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
+                .thenReturn(PutObjectResponse.builder().build());
+        target.put(keyPrefix, "bytes".getBytes(StandardCharsets.UTF_8), "image/jpeg");
+        ArgumentCaptor<PutObjectRequest> captor = ArgumentCaptor.forClass(PutObjectRequest.class);
+        verify(client).putObject(captor.capture(), any(RequestBody.class));
+        return captor.getValue().cacheControl();
     }
 
     @Test
@@ -51,16 +71,156 @@ class S3ObjectStorageTest {
         when(client.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
                 .thenReturn(PutObjectResponse.builder().build());
 
-        StoredObjectRef ref = storage.put("member-photos", "bytes".getBytes(StandardCharsets.UTF_8), "image/webp");
+        StoredObjectRef ref = storage.put("church-logos", "bytes".getBytes(StandardCharsets.UTF_8), "image/webp");
 
-        assertThat(ref.key()).matches("member-photos/[0-9a-fA-F-]{36}\\.webp");
+        assertThat(ref.key()).matches("church-logos/[0-9a-fA-F-]{36}\\.webp");
         ArgumentCaptor<PutObjectRequest> captor = ArgumentCaptor.forClass(PutObjectRequest.class);
         verify(client).putObject(captor.capture(), any(RequestBody.class));
         PutObjectRequest req = captor.getValue();
         assertThat(req.bucket()).isEqualTo(BUCKET);
         assertThat(req.key()).isEqualTo(ref.key());
         assertThat(req.contentType()).isEqualTo("image/webp");
-        assertThat(req.cacheControl()).contains("immutable");
+        assertThat(req.cacheControl()).isEqualTo("public, max-age=31536000, immutable");
+    }
+
+    @Test
+    @DisplayName("a tenant segment under member-photos keeps the photo private")
+    void tenantSegmentedMemberPhotoPrivate() {
+        assertThat(cacheControlOfPut(storage, "member-photos/3f2a7c1e-0000-0000-0000-000000000001"))
+                .isEqualTo("private, no-store");
+    }
+
+    @Test
+    @DisplayName("a prefix that merely starts like member-photos stays public")
+    void lookalikePrefixPublic() {
+        assertThat(cacheControlOfPut(storage, "member-photos-archive")).contains("public");
+    }
+
+    @Test
+    @DisplayName("configured private prefixes replace the default and are normalised")
+    void configuredPrivatePrefixes() {
+        ObjectStorageProperties.S3 props = props(null);
+        props.setPrivateKeyPrefixes(new HashSet<>(Arrays.asList("/receipts/", " ", null)));
+        ObjectStorage configured = new S3ObjectStorage(client, props);
+
+        assertThat(cacheControlOfPut(configured, "receipts")).isEqualTo("private, no-store");
+    }
+
+    @Test
+    @DisplayName("no private prefix at all makes every object public")
+    void noPrivatePrefixes() {
+        ObjectStorageProperties.S3 props = props(null);
+        props.setPrivateKeyPrefixes(null);
+        ObjectStorage configured = new S3ObjectStorage(client, props);
+
+        assertThat(cacheControlOfPut(configured, "member-photos")).contains("public");
+    }
+
+    @Test
+    @DisplayName("a missing bucket is a configuration error")
+    void missingBucket() {
+        ObjectStorageProperties.S3 props = new ObjectStorageProperties.S3();
+
+        assertThatThrownBy(() -> new S3ObjectStorage(client, props))
+                .isInstanceOf(ObjectStorageException.class)
+                .hasMessageContaining("bucket");
+    }
+
+    @Nested
+    @DisplayName("public URLs")
+    class PublicUrls {
+
+        private final ObjectStorage cdn = new S3ObjectStorage(mock(S3Client.class), props("https://cdn.example.com"));
+
+        @Test
+        @DisplayName("a public object is served under the public base")
+        void publicUrlOfPublicObject() {
+            assertThat(cdn.publicUrl("church-logos/a.png")).contains("https://cdn.example.com/church-logos/a.png");
+        }
+
+        @Test
+        @DisplayName("a base with a trailing slash yields no double slash")
+        void trailingSlashBase() {
+            ObjectStorage slashed = new S3ObjectStorage(mock(S3Client.class), props(" https://cdn.example.com/ "));
+
+            assertThat(slashed.publicUrl("church-logos/a.png")).contains("https://cdn.example.com/church-logos/a.png");
+            assertThat(slashed.isOwnPublicUrl("https://cdn.example.com/images/a.png")).isTrue();
+        }
+
+        @Test
+        @DisplayName("a member photo has no public URL")
+        void memberPhotoHasNoPublicUrl() {
+            assertThat(cdn.publicUrl("member-photos/a.jpg")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("without a public base nothing has a public URL and no URL is ours")
+        void noPublicBase() {
+            ObjectStorage blankBase = new S3ObjectStorage(mock(S3Client.class), props("  "));
+
+            for (ObjectStorage store : new ObjectStorage[]{storage, blankBase}) {
+                assertThat(store.publicUrl("church-logos/a.png")).isEmpty();
+                assertThat(store.isOwnPublicUrl("https://cdn.example.com/church-logos/a.png")).isFalse();
+            }
+        }
+
+        @Test
+        @DisplayName("publicUrl rejects a blank key")
+        void blankKey() {
+            assertThatThrownBy(() -> cdn.publicUrl(" ")).isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        @DisplayName("an object under the public base is ours")
+        void ownUrl() {
+            assertThat(cdn.isOwnPublicUrl("https://cdn.example.com/images/a.png")).isTrue();
+        }
+
+        @Test
+        @DisplayName("look-alike hosts, embedded bases, the bare base and null are not ours")
+        void foreignUrls() {
+            assertThat(cdn.isOwnPublicUrl("https://cdn.example.com.evil.net/images/a.png")).isFalse();
+            assertThat(cdn.isOwnPublicUrl("https://evil.net/https://cdn.example.com/images/a.png")).isFalse();
+            assertThat(cdn.isOwnPublicUrl("https://cdn.example.com@evil.net/a.png")).isFalse();
+            assertThat(cdn.isOwnPublicUrl("https://cdn.example.com/")).isFalse();
+            assertThat(cdn.isOwnPublicUrl("https://cdn.example.com")).isFalse();
+            assertThat(cdn.isOwnPublicUrl(null)).isFalse();
+        }
+
+        @Test
+        @DisplayName("dot segments, encodings, queries and backslashes cannot smuggle a path")
+        void uncleanPathsNotOurs() {
+            assertThat(cdn.isOwnPublicUrl("https://cdn.example.com/church-logos/../member-photos/a.jpg")).isFalse();
+            assertThat(cdn.isOwnPublicUrl("https://cdn.example.com/church-logos/%2e%2e/member-photos/a.jpg"))
+                    .isFalse();
+            assertThat(cdn.isOwnPublicUrl("https://cdn.example.com/./images/a.png")).isFalse();
+            assertThat(cdn.isOwnPublicUrl("https://cdn.example.com/images//a.png")).isFalse();
+            assertThat(cdn.isOwnPublicUrl("https://cdn.example.com/images\\a.png")).isFalse();
+            assertThat(cdn.isOwnPublicUrl("https://cdn.example.com/images/a.png?x=1")).isFalse();
+            assertThat(cdn.isOwnPublicUrl("https://cdn.example.com/images/a.png ")).isFalse();
+        }
+
+        @Test
+        @DisplayName("a URL to a private object is not an acceptable public URL")
+        void privateObjectUrlNotOurs() {
+            assertThat(cdn.isOwnPublicUrl("https://cdn.example.com/member-photos/a.jpg")).isFalse();
+        }
+    }
+
+    @Test
+    @DisplayName("a member photo is never cacheable by a shared cache (CDN)")
+    void memberPhotoNotPubliclyCached() {
+        when(client.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
+                .thenReturn(PutObjectResponse.builder().build());
+
+        storage.put("member-photos", "bytes".getBytes(StandardCharsets.UTF_8), "image/jpeg");
+
+        ArgumentCaptor<PutObjectRequest> captor = ArgumentCaptor.forClass(PutObjectRequest.class);
+        verify(client).putObject(captor.capture(), any(RequestBody.class));
+        assertThat(captor.getValue().cacheControl())
+                .doesNotContain("public")
+                .contains("private")
+                .contains("no-store");
     }
 
     @Test
@@ -167,15 +327,17 @@ class S3ObjectStorageTest {
     @DisplayName("a missing setting names the property to set instead of failing inside the SDK")
     void missingSettingNamesTheProperty() {
         ObjectStorageProperties.S3 props = new ObjectStorageProperties.S3();
-
-        assertThatThrownBy(() -> new S3ObjectStorage(props))
-                .isInstanceOf(ObjectStorageException.class)
-                .hasMessageContaining("ecclesiaflow.object-storage.s3.bucket");
-
-        props.setBucket("ecclesiaflow-media");
         props.setEndpoint(" ");
+
         assertThatThrownBy(() -> new S3ObjectStorage(props))
                 .isInstanceOf(ObjectStorageException.class)
                 .hasMessageContaining("ecclesiaflow.object-storage.s3.endpoint");
+
+        props.setEndpoint("https://account.r2.cloudflarestorage.com");
+        props.setAccessKeyId("key");
+        props.setSecretAccessKey("secret");
+        assertThatThrownBy(() -> new S3ObjectStorage(props))
+                .isInstanceOf(ObjectStorageException.class)
+                .hasMessageContaining("ecclesiaflow.object-storage.s3.bucket");
     }
 }

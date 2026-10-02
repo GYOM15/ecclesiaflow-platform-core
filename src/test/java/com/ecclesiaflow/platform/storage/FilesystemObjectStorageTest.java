@@ -71,6 +71,15 @@ class FilesystemObjectStorageTest {
     }
 
     @Test
+    @DisplayName("a local store has no public URL and owns no URL")
+    void noPublicUrls() {
+        StoredObjectRef ref = storage.put("church-logos", "x".getBytes(StandardCharsets.UTF_8), "image/png");
+
+        assertThat(storage.publicUrl(ref.key())).isEmpty();
+        assertThat(storage.isOwnPublicUrl("https://cdn.example.com/" + ref.key())).isFalse();
+    }
+
+    @Test
     @DisplayName("providerName is filesystem")
     void providerName() {
         assertThat(storage.providerName()).isEqualTo("filesystem");
