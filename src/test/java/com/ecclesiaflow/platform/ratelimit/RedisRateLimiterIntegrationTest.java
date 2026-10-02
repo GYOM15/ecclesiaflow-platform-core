@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** The admission script on a real Redis: what it writes, what it refuses to write, and its expiry. */
-class RedisRateLimiterIT {
+class RedisRateLimiterIntegrationTest {
 
     private static final Duration WINDOW = Duration.ofHours(1);
 
