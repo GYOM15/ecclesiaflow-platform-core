@@ -57,6 +57,17 @@ class OutboxDdlTest {
     }
 
     @Test
+    @DisplayName("Documents how to replay or drop a parked row, on the table's own columns")
+    void documentsParkedRowStatements() {
+        String replay = OutboxDdl.documentedStatement("UPDATE outbox_event");
+        String drop = OutboxDdl.documentedStatement("DELETE FROM outbox_event");
+
+        assertThat(replay).contains("SET status = 'PENDING'").endsWith("WHERE status = 'PARKED' AND id = ?");
+        assertThat(drop).isEqualTo("DELETE FROM outbox_event WHERE status = 'PARKED' AND id = ?");
+        assertThat(OutboxDdl.columns()).containsAll(OutboxDdl.columnsIn(replay)).containsAll(OutboxDdl.columnsIn(drop));
+    }
+
+    @Test
     @DisplayName("Is not a Flyway migration of the library itself")
     void isNotOnTheFlywayPath() {
         assertThat(OutboxDdl.RESOURCE).doesNotStartWith("/db/migration");

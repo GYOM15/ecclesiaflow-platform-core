@@ -9,6 +9,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Reads the DDL the library ships for modules to copy, so the SQL in the adapters can be
@@ -25,8 +26,8 @@ final class OutboxDdl {
     private static final Set<String> SQL_WORDS = Set.of(
             "insert", "into", "values", "select", "from", "where", "and", "or", "update", "set",
             "returning", "with", "as", "materialized", "order", "by", "limit", "for", "skip", "locked",
-            "delete", "in", "cast", "jsonb", "text", "null", "count", "min", "is", "not", "exists", "of", "due",
-            "o", "candidate", "older", "outbox_event");
+            "delete", "in", "cast", "jsonb", "text", "null", "count", "min", "now", "is", "not", "exists", "of",
+            "due", "o", "candidate", "older", "outbox_event");
 
     private OutboxDdl() {
     }
@@ -56,6 +57,23 @@ final class OutboxDdl {
             }
         }
         return columns;
+    }
+
+    /**
+     * The operator statement documented in the DDL's comments that starts with {@code prefix},
+     * with its {@code <id>} placeholder as a JDBC parameter.
+     */
+    static String documentedStatement(String prefix) {
+        String comments = text().lines()
+                .filter(line -> line.startsWith("--"))
+                .map(line -> line.substring(2).strip())
+                .collect(Collectors.joining(" "));
+        int start = comments.indexOf(prefix);
+        int end = start < 0 ? -1 : comments.indexOf(';', start);
+        if (end < 0) {
+            throw new IllegalStateException("no documented statement starting with '" + prefix + "' in " + RESOURCE);
+        }
+        return comments.substring(start, end).replace("<id>", "?");
     }
 
     /** Lower-case identifiers of a statement that are neither SQL words nor quoted literals. */
