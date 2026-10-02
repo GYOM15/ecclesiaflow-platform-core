@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.context.event.EventListener;
+import org.springframework.web.bind.annotation.ControllerAdvice;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -28,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class LoggingConventionTest {
 
     @Test
-    @DisplayName("only aspects, AOP advices, event listeners and auto-configurations declare a logger")
+    @DisplayName("only aspects, AOP advices, event listeners, controller advices and auto-configurations declare a logger")
     void onlyCrossCuttingClassesDeclareALogger() throws Exception {
         List<String> offenders = libraryClasses()
                 .filter(LoggingConventionTest::declaresLogger)
@@ -51,7 +52,9 @@ class LoggingConventionTest {
         return type.isAnnotationPresent(Aspect.class)
                 || MethodInterceptor.class.isAssignableFrom(type)
                 || AnnotatedElementUtils.hasAnnotation(type, Configuration.class)
-                || Arrays.stream(type.getDeclaredMethods()).anyMatch(m -> m.isAnnotationPresent(EventListener.class));
+                || Arrays.stream(type.getDeclaredMethods()).anyMatch(m -> m.isAnnotationPresent(EventListener.class))
+                // A controller advice is where an unexpected failure is logged, once.
+                || AnnotatedElementUtils.hasAnnotation(type, ControllerAdvice.class);
     }
 
     private static Stream<Class<?>> libraryClasses() throws IOException, URISyntaxException {
