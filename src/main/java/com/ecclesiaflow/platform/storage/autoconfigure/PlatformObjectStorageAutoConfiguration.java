@@ -4,6 +4,7 @@ import com.ecclesiaflow.platform.storage.FilesystemObjectStorage;
 import com.ecclesiaflow.platform.storage.ObjectStorage;
 import com.ecclesiaflow.platform.storage.ObjectStorageProperties;
 import com.ecclesiaflow.platform.storage.s3.S3ObjectStorage;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -26,7 +27,11 @@ import org.springframework.context.annotation.Configuration;
  *
  * <p>Both beans are {@code @ConditionalOnMissingBean(ObjectStorage.class)} so a
  * module can still supply its own adapter and win.</p>
+ *
+ * <p>The adapters themselves never log; this class announces, once at startup,
+ * which one it activated.</p>
  */
+@Slf4j
 @AutoConfiguration
 @EnableConfigurationProperties(ObjectStorageProperties.class)
 public class PlatformObjectStorageAutoConfiguration {
@@ -36,7 +41,9 @@ public class PlatformObjectStorageAutoConfiguration {
     @ConditionalOnProperty(name = "ecclesiaflow.object-storage.provider",
             havingValue = "filesystem", matchIfMissing = true)
     public ObjectStorage filesystemObjectStorage(ObjectStorageProperties properties) {
-        return new FilesystemObjectStorage(properties.getFilesystem().getBasePath());
+        FilesystemObjectStorage storage = new FilesystemObjectStorage(properties.getFilesystem().getBasePath());
+        log.info("OBJECT-STORAGE: filesystem adapter active, base={}", storage.baseDir());
+        return storage;
     }
 
     /**
@@ -52,7 +59,10 @@ public class PlatformObjectStorageAutoConfiguration {
         @ConditionalOnMissingBean(ObjectStorage.class)
         @ConditionalOnProperty(name = "ecclesiaflow.object-storage.provider", havingValue = "s3")
         public ObjectStorage s3ObjectStorage(ObjectStorageProperties properties) {
-            return new S3ObjectStorage(properties.getS3());
+            S3ObjectStorage storage = new S3ObjectStorage(properties.getS3());
+            // The bucket only: the endpoint names the account and the keys are secrets.
+            log.info("OBJECT-STORAGE: s3 adapter active, bucket={}", properties.getS3().getBucket());
+            return storage;
         }
     }
 }

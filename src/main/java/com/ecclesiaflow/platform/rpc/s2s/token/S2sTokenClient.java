@@ -67,7 +67,8 @@ public class S2sTokenClient {
         try {
             response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         } catch (IOException e) {
-            throw new S2sTokenException("Failed to contact token endpoint: " + props.getTokenUrl(), e);
+            // The URL stays out: this message travels into logs and gRPC status causes.
+            throw new S2sTokenException("Failed to contact token endpoint", e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new S2sTokenException("Interrupted while contacting token endpoint", e);

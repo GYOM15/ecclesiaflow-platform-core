@@ -1,8 +1,5 @@
 package com.ecclesiaflow.platform.storage;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,8 +17,6 @@ import java.util.Optional;
  */
 public class FilesystemObjectStorage implements ObjectStorage {
 
-    private static final Logger log = LoggerFactory.getLogger(FilesystemObjectStorage.class);
-
     private final Path baseDir;
 
     public FilesystemObjectStorage(String basePath) {
@@ -34,7 +29,11 @@ public class FilesystemObjectStorage implements ObjectStorage {
         } catch (IOException e) {
             throw new ObjectStorageException("could not create object-storage base directory", e);
         }
-        log.info("OBJECT-STORAGE: filesystem adapter active, base={}", baseDir);
+    }
+
+    /** The resolved, absolute directory objects are written under. */
+    public Path baseDir() {
+        return baseDir;
     }
 
     @Override

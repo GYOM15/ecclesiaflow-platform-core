@@ -10,10 +10,16 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /** Every way the token endpoint can fail must surface as an S2sTokenException. */
 class S2sTokenClientTest {
@@ -45,6 +51,22 @@ class S2sTokenClientTest {
         assertThatThrownBy(() -> new S2sTokenClient(props).fetchToken())
                 .isInstanceOf(S2sTokenException.class)
                 .hasMessageContaining("Failed to contact token endpoint")
+                .hasCauseInstanceOf(IOException.class);
+    }
+
+    @Test
+    @DisplayName("an unreachable token endpoint does not put its URL in the exception message")
+    void unreachableEndpointKeepsTheUrlOutOfTheMessage() throws Exception {
+        props.setTokenUrl("http://keycloak:8080/realms/ecclesiaflow/protocol/openid-connect/token");
+        HttpClient http = mock(HttpClient.class);
+        when(http.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenThrow(new IOException("Connection refused"));
+
+        assertThatThrownBy(() -> new S2sTokenClient(props, http).fetchToken())
+                .isInstanceOf(S2sTokenException.class)
+                .hasMessageNotContaining("keycloak")
+                .hasMessageNotContaining("http://")
+                .hasMessageContaining("token endpoint")
                 .hasCauseInstanceOf(IOException.class);
     }
 

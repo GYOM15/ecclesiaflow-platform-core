@@ -1,8 +1,12 @@
 package com.ecclesiaflow.platform.ratelimit;
 
+import com.ecclesiaflow.platform.ratelimit.events.RateLimitEvents;
+import nl.altindag.log.LogCaptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
@@ -32,6 +36,7 @@ class RedisRateLimiterTest {
 
     private StringRedisTemplate redis;
     private ValueOperations<String, String> values;
+    private ApplicationEventPublisher events;
     private RedisRateLimiter limiter;
 
     @BeforeEach
@@ -39,7 +44,8 @@ class RedisRateLimiterTest {
         redis = mock(StringRedisTemplate.class);
         values = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(values);
-        limiter = new RedisRateLimiter(redis);
+        events = mock(ApplicationEventPublisher.class);
+        limiter = new RedisRateLimiter(redis, events);
     }
 
     @Test
@@ -133,6 +139,52 @@ class RedisRateLimiterTest {
 
         assertThat(decision.allowed()).isFalse();
         assertThat(decision.retryAfterSeconds()).isEqualTo(60);
+    }
+
+    @Test
+    @DisplayName("a blind counter is not logged by the limiter itself, and its host never reaches a log")
+    void aBlindCounterIsNotLoggedInline() {
+        try (LogCaptor own = LogCaptor.forClass(RedisRateLimiter.class); LogCaptor all = LogCaptor.forRoot()) {
+            when(values.increment(anyString(), anyLong()))
+                    .thenThrow(new RedisConnectionFailureException("Unable to connect to redis.internal:6379"));
+
+            limiter.consume(RULE, "church-1");
+
+            assertThat(own.getLogs()).isEmpty();
+            assertThat(all.getLogs()).noneMatch(line -> line.contains("redis.internal"));
+        }
+    }
+
+    @Test
+    @DisplayName("a blind counter is reported as an event carrying the rule, its policy and the cause")
+    void aBlindCounterIsPublished() {
+        RedisConnectionFailureException down = new RedisConnectionFailureException("down");
+        when(values.increment(anyString(), anyLong())).thenThrow(down);
+
+        limiter.consume(RULE.failClosed(), "church-1");
+
+        RateLimitEvents.CounterUnavailable event = publishedEvent();
+        assertThat(event.ruleName()).isEqualTo("import");
+        assertThat(event.failOpen()).isFalse();
+        assertThat(event.cause()).isSameAs(down);
+    }
+
+    @Test
+    @DisplayName("a null count is reported as an event with no cause")
+    void aNullCountIsPublishedWithoutCause() {
+        when(values.increment(anyString(), anyLong())).thenReturn(null);
+
+        limiter.consume(RULE, "church-1");
+
+        RateLimitEvents.CounterUnavailable event = publishedEvent();
+        assertThat(event.failOpen()).isTrue();
+        assertThat(event.cause()).isNull();
+    }
+
+    private RateLimitEvents.CounterUnavailable publishedEvent() {
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(events).publishEvent(captor.capture());
+        return (RateLimitEvents.CounterUnavailable) captor.getValue();
     }
 
     @Test

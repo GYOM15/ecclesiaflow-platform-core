@@ -10,8 +10,10 @@ Shared platform library for EcclesiaFlow backend modules. Three concerns:
 2. **Web security helpers** — `KeycloakJwtConverter` extracts roles from a
    Keycloak JWT (direct claim, `realm_access`, `resource_access`) and produces
    a Spring `JwtAuthenticationToken`.
-3. **Logging helpers** — `SecurityMaskingUtils` masks PII (emails, JWTs, IDs)
-   and infrastructure details (URLs, hosts) before they reach a log line.
+3. **Logging helpers** — `SecurityMaskingUtils` masks PII (emails, phone
+   numbers, message bodies, JWTs, IDs) and infrastructure details (URLs, hosts,
+   socket addresses) before they reach a log line. `maskAny` redacts any value
+   it does not recognise.
 
 - **Artifact**: `com.ecclesiaflow:ecclesiaflow-platform-core` — the current version is declared in [`pom.xml`](pom.xml) (development head as `X.Y.Z-SNAPSHOT`, releases pinned as `X.Y.Z`)
 - **Java**: 21

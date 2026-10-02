@@ -1,5 +1,6 @@
 package com.ecclesiaflow.platform.rpc.logging;
 
+import com.ecclesiaflow.platform.logging.SecurityMaskingUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.AfterReturning;
@@ -52,7 +53,7 @@ public class PlatformRpcLoggingAspect {
     public void logFetchFailure(JoinPoint joinPoint, Throwable exception) {
         log.error("S2S: ❌ Failed to obtain s2s token — {}: {}",
                 exception.getClass().getSimpleName(),
-                exception.getMessage());
+                SecurityMaskingUtils.sanitizeInfra(exception.getMessage()));
     }
 
     // ========================================================================
@@ -63,6 +64,7 @@ public class PlatformRpcLoggingAspect {
     public void logProviderFailure(JoinPoint joinPoint, Throwable exception) {
         // Distinct from the client-level message: this tells the operator
         // that a caller couldn't get a token, not just that the network call failed.
-        log.warn("S2S: ❌ getToken() failed for caller — {}", exception.getMessage());
+        log.warn("S2S: ❌ getToken() failed for caller — {}",
+                SecurityMaskingUtils.sanitizeInfra(exception.getMessage()));
     }
 }

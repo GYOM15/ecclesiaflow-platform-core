@@ -6,8 +6,6 @@ import com.ecclesiaflow.platform.storage.ObjectStorageProperties;
 import com.ecclesiaflow.platform.storage.StorageKeys;
 import com.ecclesiaflow.platform.storage.StoredObject;
 import com.ecclesiaflow.platform.storage.StoredObjectRef;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.ResponseBytes;
@@ -40,8 +38,6 @@ import java.util.Optional;
  */
 public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
 
-    private static final Logger log = LoggerFactory.getLogger(S3ObjectStorage.class);
-
     /** One year, immutable — keys are unique per upload so content never changes. */
     private static final String IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
@@ -61,8 +57,6 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
                         .build())
                 .httpClient(UrlConnectionHttpClient.create())
                 .build();
-        // Never log the endpoint host with credentials; bucket name only.
-        log.info("OBJECT-STORAGE: s3 adapter active, bucket={}", bucket);
     }
 
     // Package-visible constructor for tests to inject a mock client.

@@ -1,7 +1,5 @@
 package com.ecclesiaflow.platform.upload;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -28,8 +26,6 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class FileSanitizer {
-
-    private static final Logger log = LoggerFactory.getLogger(FileSanitizer.class);
 
     /**
      * Validates a non-image upload against {@code policy}.
@@ -62,7 +58,6 @@ public class FileSanitizer {
                     "detected media type " + detected + " is not an accepted file type");
         }
 
-        log.debug("UPLOAD-SANITIZE(file): accepted {} ({} bytes)", detected, bytes.length);
         // Return the DETECTED type, never the client-declared one.
         return new SanitizedUpload(bytes, detected, bytes.length);
     }

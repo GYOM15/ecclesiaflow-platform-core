@@ -1,6 +1,6 @@
 package com.ecclesiaflow.platform.rpc.events;
 
-import com.ecclesiaflow.platform.rpc.events.S2sAuthEvents;
+import com.ecclesiaflow.platform.logging.SecurityMaskingUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
 
@@ -23,7 +23,7 @@ public class S2sAuthEventListener {
     @EventListener
     public void onOutboundTokenUnavailable(S2sAuthEvents.OutboundTokenUnavailable event) {
         log.warn("S2S-OUT: ❌ Aborting {} — token unavailable ({})",
-                event.fullMethodName(), event.reason());
+                event.fullMethodName(), SecurityMaskingUtils.sanitizeInfra(event.reason()));
     }
 
     @EventListener
@@ -35,7 +35,7 @@ public class S2sAuthEventListener {
     @EventListener
     public void onInboundInvalidToken(S2sAuthEvents.InboundInvalidToken event) {
         log.warn("S2S-IN: ❌ Rejected {} — invalid JWT ({})",
-                event.fullMethodName(), event.reason());
+                event.fullMethodName(), SecurityMaskingUtils.sanitizeInfra(event.reason()));
     }
 
     @EventListener

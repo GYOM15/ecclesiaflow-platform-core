@@ -1,8 +1,8 @@
 package com.ecclesiaflow.platform.ratelimit;
 
+import com.ecclesiaflow.platform.ratelimit.events.RateLimitEvents;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.time.Duration;
@@ -31,12 +31,11 @@ import java.time.Instant;
 @RequiredArgsConstructor
 public class RedisRateLimiter implements RateLimiter {
 
-    private static final Logger log = LoggerFactory.getLogger(RedisRateLimiter.class);
-
     /** Namespaced so these counters can never collide with a session or a cache. */
     static final String KEY_PREFIX = "ecclesiaflow:ratelimit:";
 
     private final StringRedisTemplate redis;
+    private final ApplicationEventPublisher events;
 
     @Override
     public RateLimitDecision consume(RateLimitRule rule, String subject, int cost) {
@@ -51,7 +50,7 @@ public class RedisRateLimiter implements RateLimiter {
         try {
             Long count = redis.opsForValue().increment(key, cost);
             if (count == null) {
-                return unreadable(rule, "Redis returned no count");
+                return unreadable(rule, null);
             }
             // The expiry is set on the call that CREATED the key, which for a
             // batch is the one whose count lands exactly on its own cost.
@@ -64,7 +63,7 @@ public class RedisRateLimiter implements RateLimiter {
             }
             return RateLimitDecision.allowed(rule.limit(), (int) (rule.limit() - count));
         } catch (RuntimeException e) {
-            return unreadable(rule, e.toString());
+            return unreadable(rule, e);
         }
     }
 
@@ -83,18 +82,14 @@ public class RedisRateLimiter implements RateLimiter {
      *
      * <p>The rule decides, and both answers are defensible for different
      * operations — which is why it is a property of the rule and not of this
-     * class. Either way it is logged at WARN: a limiter silently doing nothing
-     * is indistinguishable from a limiter working, and that is how an outage
-     * goes unnoticed for weeks.
+     * class. Either way an event is published, so the blind spot is reported
+     * rather than looking like a limiter that works.
      */
-    private RateLimitDecision unreadable(RateLimitRule rule, String cause) {
+    private RateLimitDecision unreadable(RateLimitRule rule, RuntimeException cause) {
+        events.publishEvent(new RateLimitEvents.CounterUnavailable(rule.name(), rule.failOpen(), cause));
         if (rule.failOpen()) {
-            log.warn("Rate limit '{}' not enforced — the counter could not be read: {}",
-                    rule.name(), cause);
             return RateLimitDecision.allowed(rule.limit(), rule.limit());
         }
-        log.warn("Rate limit '{}' refusing — the counter could not be read: {}",
-                rule.name(), cause);
         return RateLimitDecision.refused(rule.limit(), rule.window().getSeconds());
     }
 }

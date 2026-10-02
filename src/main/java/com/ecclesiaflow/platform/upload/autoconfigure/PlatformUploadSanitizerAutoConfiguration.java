@@ -2,9 +2,11 @@ package com.ecclesiaflow.platform.upload.autoconfigure;
 
 import com.ecclesiaflow.platform.upload.FileSanitizer;
 import com.ecclesiaflow.platform.upload.ImageSanitizer;
+import com.ecclesiaflow.platform.upload.logging.UploadSanitizerLoggingAspect;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 
 /**
@@ -32,5 +34,13 @@ public class PlatformUploadSanitizerAutoConfiguration {
     @ConditionalOnMissingBean
     public FileSanitizer fileSanitizer() {
         return new FileSanitizer();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "ecclesiaflow.platform.upload.logging", name = "enabled",
+            havingValue = "true", matchIfMissing = true)
+    public UploadSanitizerLoggingAspect uploadSanitizerLoggingAspect() {
+        return new UploadSanitizerLoggingAspect();
     }
 }

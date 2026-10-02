@@ -1,7 +1,5 @@
 package com.ecclesiaflow.platform.upload;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import javax.imageio.ImageIO;
@@ -50,8 +48,6 @@ import java.util.Optional;
  */
 @Component
 public class ImageSanitizer {
-
-    private static final Logger log = LoggerFactory.getLogger(ImageSanitizer.class);
 
     /**
      * Decodes, sanitizes and re-encodes an image upload per {@code policy}.
@@ -115,9 +111,6 @@ public class ImageSanitizer {
         String outputType = policy.outputType() == ImagePolicy.OutputType.JPEG
                 ? MagicBytes.IMAGE_JPEG
                 : MagicBytes.IMAGE_PNG;
-
-        log.debug("UPLOAD-SANITIZE: {} ({} bytes) -> {} ({} bytes)",
-                detected, bytes.length, outputType, reencoded.length);
         return new SanitizedUpload(reencoded, outputType, reencoded.length);
     }
 

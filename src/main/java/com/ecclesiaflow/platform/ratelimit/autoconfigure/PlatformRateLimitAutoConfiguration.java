@@ -5,12 +5,14 @@ import com.ecclesiaflow.platform.ratelimit.RateLimitRuleRegistry;
 import com.ecclesiaflow.platform.ratelimit.RateLimitSubjectResolver;
 import com.ecclesiaflow.platform.ratelimit.RateLimiter;
 import com.ecclesiaflow.platform.ratelimit.RedisRateLimiter;
+import com.ecclesiaflow.platform.ratelimit.events.RateLimitEventListener;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -46,8 +48,14 @@ public class PlatformRateLimitAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnBean(StringRedisTemplate.class)
-    public RateLimiter ecclesiaflowRateLimiter(StringRedisTemplate redis) {
-        return new RedisRateLimiter(redis);
+    public RateLimiter ecclesiaflowRateLimiter(StringRedisTemplate redis, ApplicationEventPublisher events) {
+        return new RedisRateLimiter(redis, events);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RateLimitEventListener rateLimitEventListener() {
+        return new RateLimitEventListener();
     }
 
     /**
