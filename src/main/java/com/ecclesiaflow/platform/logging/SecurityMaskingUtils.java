@@ -2,6 +2,7 @@ package com.ecclesiaflow.platform.logging;
 
 import java.util.Arrays;
 import java.util.UUID;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -10,8 +11,9 @@ import java.util.regex.Pattern;
  * platform.
  *
  * <p>Helpers cover the typical sources of leakage: emails ({@link #maskEmail}),
- * JWTs and tokens ({@link #maskAny}, {@link #maskUrlQueryParam}), database /
- * service identifiers ({@link #maskId}), and exception messages produced by
+ * phone numbers ({@link #maskPhone}), message bodies ({@link #maskBody}), JWTs
+ * and tokens ({@link #maskAny}, {@link #maskUrlQueryParam}), database / service
+ * identifiers ({@link #maskId}), and exception messages produced by
  * infrastructure layers ({@link #sanitizeInfra}, {@link #rootMessage}).
  */
 public final class SecurityMaskingUtils {
@@ -21,12 +23,36 @@ public final class SecurityMaskingUtils {
     private static final String INVALID = "[INVALID_FORMAT]";
     private static final String URL_MASKING_ERROR = "[URL_MASKING_ERROR]";
     private static final String REDACTED = "[REDACTED]";
+    private static final int PHONE_VISIBLE_DIGITS = 2;
 
     private static final Pattern EMAIL_LIKE =
             Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
 
     private static final Pattern JWT_LIKE =
             Pattern.compile("^[A-Za-z0-9\\-_]+\\.[A-Za-z0-9\\-_]+\\.[A-Za-z0-9\\-_]+$");
+
+    private static final Pattern PHONE_LIKE =
+            Pattern.compile("^\\+?[0-9 ()\\-.]{6,20}$");
+
+    // Lookbehinds anchor matches at token starts: linear backtracking, and no match
+    // starting mid-word (how "alice@church.com" used to become "alice@c[HOST]").
+    private static final Pattern BEARER_IN_TEXT =
+            Pattern.compile("(?i)\\bbearer\\s+[A-Za-z0-9._~+/=-]{8,}");
+    private static final Pattern JWT_IN_TEXT =
+            Pattern.compile("\\beyJ[A-Za-z0-9_-]*(?:\\.[A-Za-z0-9_-]*)+");
+    private static final Pattern URI_IN_TEXT =
+            Pattern.compile("\\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\\s\"'<>]+");
+    private static final Pattern EMAIL_IN_TEXT =
+            Pattern.compile("(?<![^\\s@()<>])[^\\s@()<>]+@[^\\s@()<>]+");
+    private static final Pattern E164_IN_TEXT =
+            Pattern.compile("(?<![\\w+])\\+\\d{8,15}(?!\\d)");
+    // InetSocketAddress.toString(): "redis/<unresolved>:6379", "keycloak/172.18.0.3:8080".
+    private static final Pattern SOCKET_ADDRESS_IN_TEXT =
+            Pattern.compile("(?<![a-zA-Z0-9._-])[a-zA-Z0-9._-]*/(?:<unresolved>|[0-9a-fA-F.:]+):\\d{2,5}(?!\\d)");
+    private static final Pattern HOST_PORT_IN_TEXT =
+            Pattern.compile("[a-zA-Z0-9._-]+:\\d{2,5}");
+    private static final Pattern HOST_IN_TEXT =
+            Pattern.compile("(?<![a-zA-Z0-9._-])[a-zA-Z0-9._-]+\\.[a-zA-Z]{2,}(?![a-zA-Z0-9._-])");
 
     private SecurityMaskingUtils() {
     }
@@ -44,6 +70,26 @@ public final class SecurityMaskingUtils {
             return local.charAt(0) + MASK + domain;
         }
         return local.substring(0, 2) + MASK + domain;
+    }
+
+    /** Keeps a leading {@code +} and the last two digits: {@code +33612345678} → {@code +****78}. */
+    public static String maskPhone(String phone) {
+        if (phone == null || phone.isBlank()) return UNKNOWN;
+
+        String digits = phone.replaceAll("[^0-9]", "");
+        if (digits.isEmpty()) return INVALID;
+
+        String prefix = phone.strip().startsWith("+") ? "+" : "";
+        if (digits.length() <= PHONE_VISIBLE_DIGITS) {
+            return prefix + MASK;
+        }
+        return prefix + MASK + digits.substring(digits.length() - PHONE_VISIBLE_DIGITS);
+    }
+
+    /** Keeps only the length of a free-text body (chat message, prayer request...). */
+    public static String maskBody(String body) {
+        if (body == null) return UNKNOWN;
+        return "[BODY length=" + body.length() + "]";
     }
 
     public static String maskUrlQueryParam(String url, String paramName) {
@@ -104,9 +150,22 @@ public final class SecurityMaskingUtils {
         return Arrays.toString(masked);
     }
 
+    /**
+     * Masks a value whose meaning the caller does not know.
+     *
+     * <p>Deny by default: a string that is not recognised is redacted, because a
+     * password, a name or an address looks like any other text. Only numbers,
+     * booleans and enum constants are printed as is; any other object shows its
+     * type, never its {@code toString()}.
+     */
     public static String maskAny(Object value) {
         if (value == null) return UNKNOWN;
-        String raw = String.valueOf(value);
+        if (value instanceof Number || value instanceof Boolean) return String.valueOf(value);
+        if (value instanceof Enum<?> constant) return constant.name();
+        if (value instanceof UUID) return maskId(value);
+        if (!(value instanceof CharSequence)) return typeLabel(value);
+
+        String raw = value.toString();
         if (raw.isBlank()) return UNKNOWN;
 
         if (EMAIL_LIKE.matcher(raw).matches()) {
@@ -121,7 +180,13 @@ public final class SecurityMaskingUtils {
         if (raw.regionMatches(true, 0, "bearer ", 0, 7)) {
             return "Bearer " + MASK;
         }
-        return abbreviate(raw, 120);
+        if (looksLikeUuid(raw)) {
+            return maskId(raw);
+        }
+        if (PHONE_LIKE.matcher(raw).matches()) {
+            return maskPhone(raw);
+        }
+        return REDACTED;
     }
 
     public static String rootMessage(Throwable t) {
@@ -134,34 +199,26 @@ public final class SecurityMaskingUtils {
                 : cur.getClass().getSimpleName();
     }
 
-    /**
-     * The longest infrastructure message this will look at.
-     *
-     * <p>Bounded BEFORE the patterns run, not after. The host patterns below
-     * backtrack on long runs of {@code [a-zA-Z0-9._-]}, so cost grows with the
-     * square of the input: 64 KB took 41 seconds of CPU. The input is an
-     * exception message from a driver or a client library, and an attacker who
-     * can make one of those long — a URL, a header, a payload echoed back —
-     * turns one request into minutes of a thread.
-     *
-     * <p>The patterns themselves are unchanged. Rewriting them to be possessive
-     * was tried and reverted: it made the host pattern stop matching
-     * {@code api.example.com} altogether, because the possessive middle group
-     * swallowed the final label and could not give it back. A masker that
-     * silently stops masking is a worse defect than the one being fixed. At 512
-     * characters the backtracking is measured in microseconds, so the bound is
-     * the whole fix.
-     */
+    // Bounded before the patterns run: the input comes from drivers and remote
+    // services, and an attacker-lengthened message must not cost minutes of regex.
     private static final int MAX_INFRA_MESSAGE = 512;
 
+    /**
+     * Strips what an exception message may carry from the infrastructure or about
+     * a person: bearer tokens and JWTs, URIs of any scheme, emails, E.164 phone
+     * numbers, socket addresses, {@code host:port} and bare host names.
+     */
     public static String sanitizeInfra(String msg) {
         if (msg == null || msg.isBlank()) return msg;
-        // Truncate FIRST. Masking a 64 KB message and then shortening it would
-        // pay the quadratic cost in full before throwing the result away.
         String s = abbreviate(msg, MAX_INFRA_MESSAGE);
-        s = s.replaceAll("https?://[^\\s]+", "[URL]");
-        s = s.replaceAll("[a-zA-Z0-9._-]+:\\d{2,5}", "[HOST:PORT]");
-        s = s.replaceAll("(?<!@)[a-zA-Z0-9._-]+\\.[a-zA-Z]{2,}(?![a-zA-Z0-9._-])", "[HOST]");
+        s = BEARER_IN_TEXT.matcher(s).replaceAll("Bearer " + MASK);
+        s = JWT_IN_TEXT.matcher(s).replaceAll(Matcher.quoteReplacement(REDACTED));
+        s = URI_IN_TEXT.matcher(s).replaceAll(Matcher.quoteReplacement("[URL]"));
+        s = EMAIL_IN_TEXT.matcher(s).replaceAll(m -> Matcher.quoteReplacement(maskEmail(m.group())));
+        s = E164_IN_TEXT.matcher(s).replaceAll(m -> Matcher.quoteReplacement(maskPhone(m.group())));
+        s = SOCKET_ADDRESS_IN_TEXT.matcher(s).replaceAll(Matcher.quoteReplacement("[HOST:PORT]"));
+        s = HOST_PORT_IN_TEXT.matcher(s).replaceAll(Matcher.quoteReplacement("[HOST:PORT]"));
+        s = HOST_IN_TEXT.matcher(s).replaceAll(Matcher.quoteReplacement("[HOST]"));
         return s;
     }
 
@@ -169,6 +226,11 @@ public final class SecurityMaskingUtils {
         if (s == null) return UNKNOWN;
         if (s.length() <= max) return s;
         return s.substring(0, max) + "...";
+    }
+
+    private static String typeLabel(Object value) {
+        String name = value.getClass().getSimpleName();
+        return "[" + (name.isEmpty() ? "Object" : name) + "]";
     }
 
     private static boolean looksLikeUuid(String s) {

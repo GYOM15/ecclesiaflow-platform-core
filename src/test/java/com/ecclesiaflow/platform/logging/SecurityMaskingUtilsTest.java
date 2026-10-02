@@ -132,9 +132,81 @@ class SecurityMaskingUtilsTest {
         }
 
         @Test
-        void abbreviatesLongString() {
-            String s = "a".repeat(150);
-            assertThat(SecurityMaskingUtils.maskAny(s)).hasSize(123).endsWith("...");
+        @DisplayName("an unclassified string is redacted, whatever its length")
+        void redactsUnclassifiedString() {
+            assertThat(SecurityMaskingUtils.maskAny("a".repeat(150))).isEqualTo("[REDACTED]");
+            assertThat(SecurityMaskingUtils.maskAny("short")).isEqualTo("[REDACTED]");
+        }
+
+        @Test
+        @DisplayName("a password never reaches the log")
+        void redactsPassword() {
+            assertThat(SecurityMaskingUtils.maskAny("correct-horse-battery-staple")).isEqualTo("[REDACTED]");
+        }
+
+        @Test
+        @DisplayName("a person's name never reaches the log")
+        void redactsName() {
+            assertThat(SecurityMaskingUtils.maskAny("Jean Dupont")).isEqualTo("[REDACTED]");
+        }
+
+        @Test
+        @DisplayName("a phone number is masked down to its last two digits")
+        void masksPhone() {
+            assertThat(SecurityMaskingUtils.maskAny("+33 6 12 34 56 78")).isEqualTo("+****78");
+            assertThat(SecurityMaskingUtils.maskAny("0612345678")).isEqualTo("****78");
+        }
+
+        @Test
+        @DisplayName("a UUID is masked like an id, as a string or as a UUID")
+        void masksUuid() {
+            UUID id = UUID.fromString("3f2b1c4d-0000-4000-8000-000000000001");
+            assertThat(SecurityMaskingUtils.maskAny(id)).isEqualTo("3f2b1c4d********");
+            assertThat(SecurityMaskingUtils.maskAny(id.toString())).isEqualTo("3f2b1c4d********");
+        }
+
+        @Test
+        @DisplayName("numbers, booleans and enum constants are kept: they carry no personal data")
+        void keepsWhitelistedTypes() {
+            assertThat(SecurityMaskingUtils.maskAny(42)).isEqualTo("42");
+            assertThat(SecurityMaskingUtils.maskAny(7L)).isEqualTo("7");
+            assertThat(SecurityMaskingUtils.maskAny(true)).isEqualTo("true");
+            assertThat(SecurityMaskingUtils.maskAny(java.time.DayOfWeek.MONDAY)).isEqualTo("MONDAY");
+        }
+
+        @Test
+        @DisplayName("any other object shows its type, never its toString")
+        void showsOnlyTheTypeOfOtherObjects() {
+            record Credentials(String email, String password) { }
+
+            String masked = SecurityMaskingUtils.maskAny(new Credentials("alice@church.com", "s3cret"));
+
+            assertThat(masked).isEqualTo("[Credentials]");
+        }
+
+        @Test
+        @DisplayName("an anonymous object has no type name to show")
+        void labelsAnAnonymousObject() {
+            Object anonymous = new Object() {
+                @Override
+                public String toString() {
+                    return "alice@church.com";
+                }
+            };
+
+            assertThat(SecurityMaskingUtils.maskAny(anonymous)).isEqualTo("[Object]");
+        }
+
+        @Test
+        @DisplayName("maskArgs lets no password, phone or name through")
+        void maskArgsLeaksNothing() {
+            Object[] args = { "s3cr3t-Passw0rd", "+33612345678", "Jean Dupont", 7 };
+
+            String result = SecurityMaskingUtils.maskArgs(args);
+
+            assertThat(result)
+                    .doesNotContain("s3cr3t").doesNotContain("33612345678").doesNotContain("Dupont")
+                    .contains("7");
         }
 
         @Test
@@ -231,6 +303,144 @@ class SecurityMaskingUtilsTest {
                     .isEqualTo("DNS lookup failed for [HOST]");
         }
 
+    }
+
+    @Nested
+    @DisplayName("sanitizeInfra - personal data inside exception messages")
+    class SanitizePersonalData {
+
+        @Test
+        @DisplayName("a Postgres unique violation does not leak the email")
+        void postgresDuplicateKey() {
+            String msg = "ERROR: duplicate key value violates unique constraint \"uk_member_email\"\n"
+                    + "  Detail: Key (email)=(alicemartin@church.com) already exists.";
+
+            assertThat(SecurityMaskingUtils.sanitizeInfra(msg))
+                    .doesNotContain("alicemartin")
+                    .contains("uk_member_email").contains("already exists");
+        }
+
+        @Test
+        @DisplayName("an SMTP rejection does not leak the recipient")
+        void smtpRecipientRejected() {
+            String msg = "550 5.1.1 <jdupont@gmail.com>: Recipient address rejected: User unknown";
+
+            assertThat(SecurityMaskingUtils.sanitizeInfra(msg))
+                    .doesNotContain("jdupont")
+                    .contains("Recipient address rejected");
+        }
+
+        @Test
+        @DisplayName("a quoted email is masked too")
+        void quotedEmail() {
+            assertThat(SecurityMaskingUtils.sanitizeInfra("Email 'bobleroy@example.org' is already registered"))
+                    .doesNotContain("bobleroy")
+                    .contains("is already registered");
+        }
+
+        @Test
+        @DisplayName("an E.164 phone number is masked")
+        void e164Phone() {
+            assertThat(SecurityMaskingUtils.sanitizeInfra("The 'To' number +33612345678 is not a valid phone number."))
+                    .doesNotContain("33612345678")
+                    .contains("+****78");
+        }
+
+        @Test
+        @DisplayName("a bearer token is masked")
+        void bearerToken() {
+            assertThat(SecurityMaskingUtils.sanitizeInfra("Rejected header Authorization: Bearer abc123.def-456_ghi"))
+                    .doesNotContain("abc123").doesNotContain("ghi")
+                    .contains("Bearer ****");
+        }
+
+        @Test
+        @DisplayName("a JWT is redacted")
+        void jwt() {
+            String msg = "JWT expired: eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2ln-bmF0_dXJl1";
+
+            assertThat(SecurityMaskingUtils.sanitizeInfra(msg))
+                    .doesNotContain("eyJ").doesNotContain("c2ln")
+                    .contains("[REDACTED]");
+        }
+    }
+
+    @Nested
+    @DisplayName("sanitizeInfra - infrastructure addresses")
+    class SanitizeInfrastructure {
+
+        @Test
+        @DisplayName("an unresolved socket address hides the host name")
+        void unresolvedSocketAddress() {
+            assertThat(SecurityMaskingUtils.sanitizeInfra("Unable to connect to redis/<unresolved>:6379"))
+                    .isEqualTo("Unable to connect to [HOST:PORT]");
+        }
+
+        @Test
+        @DisplayName("a resolved socket address hides both the name and the IP")
+        void resolvedSocketAddress() {
+            assertThat(SecurityMaskingUtils.sanitizeInfra("Connection refused: keycloak/172.18.0.3:8080"))
+                    .isEqualTo("Connection refused: [HOST:PORT]");
+        }
+
+        @Test
+        @DisplayName("a quoted URL is removed without its closing quote")
+        void quotedUrl() {
+            assertThat(SecurityMaskingUtils.sanitizeInfra("I/O error on GET request for \"http://kc:8080/certs\": refused"))
+                    .isEqualTo("I/O error on GET request for \"[URL]\": refused");
+        }
+
+        @Test
+        @DisplayName("a non-HTTP URI with credentials is removed whole")
+        void credentialUri() {
+            assertThat(SecurityMaskingUtils.sanitizeInfra("Cannot connect to redis://default:hunter2@cache.internal:6379/0"))
+                    .doesNotContain("hunter2").doesNotContain("cache.internal")
+                    .isEqualTo("Cannot connect to [URL]");
+        }
+    }
+
+    @Nested
+    @DisplayName("maskPhone")
+    class MaskPhone {
+
+        @Test
+        @DisplayName("keeps the leading plus and the last two digits")
+        void keepsPlusAndLastTwoDigits() {
+            assertThat(SecurityMaskingUtils.maskPhone("+33612345678")).isEqualTo("+****78");
+            assertThat(SecurityMaskingUtils.maskPhone("+33 6 12 34 56 78")).isEqualTo("+****78");
+            assertThat(SecurityMaskingUtils.maskPhone("06.12.34.56.78")).isEqualTo("****78");
+        }
+
+        @Test
+        @DisplayName("a number too short to keep any digit is fully masked")
+        void masksVeryShortNumber() {
+            assertThat(SecurityMaskingUtils.maskPhone("+1")).isEqualTo("+****");
+        }
+
+        @Test
+        @DisplayName("null, blank and digitless input")
+        void handlesDegenerateInput() {
+            assertThat(SecurityMaskingUtils.maskPhone(null)).isEqualTo("[UNKNOWN]");
+            assertThat(SecurityMaskingUtils.maskPhone("  ")).isEqualTo("[UNKNOWN]");
+            assertThat(SecurityMaskingUtils.maskPhone("n/a")).isEqualTo("[INVALID_FORMAT]");
+        }
+    }
+
+    @Nested
+    @DisplayName("maskBody")
+    class MaskBody {
+
+        @Test
+        @DisplayName("keeps only the length of a message body")
+        void keepsOnlyTheLength() {
+            assertThat(SecurityMaskingUtils.maskBody("Prière pour Jean")).isEqualTo("[BODY length=16]");
+        }
+
+        @Test
+        @DisplayName("null body")
+        void handlesNull() {
+            assertThat(SecurityMaskingUtils.maskBody(null)).isEqualTo("[UNKNOWN]");
+        }
     }
 
     @Nested
