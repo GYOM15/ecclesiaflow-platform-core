@@ -57,6 +57,18 @@ public class S2sAuthEventListener {
                 event.fullMethodName(), event.azp() == null ? "<no azp claim>" : event.azp());
     }
 
+    @EventListener
+    public void onInboundAzpPolicy(S2sAuthEvents.InboundAzpPolicy event) {
+        if (event.enforced()) {
+            log.info("S2S-IN: ✅ azp allow-list enforced — clients allowed on this gRPC plane: {}",
+                    event.allowedAzp());
+            return;
+        }
+        log.warn("S2S-IN: ⚠ azp allow-list is empty — any client of the realm holding the generic scope "
+                + "reaches this gRPC plane. Set ecclesiaflow.platform.rpc.s2s.allowed-azp to the backend "
+                + "clients that call this module.");
+    }
+
     /**
      * INFO, not WARN: this is the ordinary case. It exists so the audit trail
      * shows who called what, and it is the line an operator greps after an

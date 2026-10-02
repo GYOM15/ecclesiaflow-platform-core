@@ -7,9 +7,10 @@ Shared platform library for EcclesiaFlow backend modules. Three concerns:
    token in gRPC metadata, and the receiving side validates the token and
    enforces the required scope (generic `ef:s2s` floor + per-method ceiling via
    `@S2sScopeRequired`).
-2. **Web security helpers** — `KeycloakJwtConverter` extracts roles from a
-   Keycloak JWT (direct claim, `realm_access`, `resource_access`) and produces
-   a Spring `JwtAuthenticationToken`.
+2. **Web security helpers** — `KeycloakJwtConverter` turns a Keycloak JWT into
+   a Spring `JwtAuthenticationToken`: `SCOPE_*` from the `scope` claim, `ROLE_*`
+   from the `roles` claim, `realm_access` and the roles of the token's own client
+   in `resource_access` (`azp`). The principal name is `sub`.
 3. **Logging helpers** — `SecurityMaskingUtils` masks PII (emails, phone
    numbers, message bodies, JWTs, IDs) and infrastructure details (URLs, hosts,
    socket addresses) before they reach a log line. `maskAny` redacts any value
@@ -24,15 +25,20 @@ Shared platform library for EcclesiaFlow backend modules. Three concerns:
 
 ## What this gives you
 
-- A `S2sTokenProvider` that fetches and caches a JWT, refreshing it
-  proactively before expiry.
-- A `S2sAuthClientInterceptor` you plug on every outgoing `ManagedChannel`.
+- A `S2sTokenProvider` that fetches and caches a JWT: one refresh at a time,
+  ahead of expiry, never awaited past the caller's gRPC deadline, and not
+  retried before a short backoff after a failure.
+- A `S2sAuthClientInterceptor` you plug on every outgoing `ManagedChannel`. A
+  token the server answers `UNAUTHENTICATED` to is dropped for the next call.
 - A `S2sAuthServerInterceptor` you plug on every gRPC `Server`. It validates
-  the token against the Keycloak JWKS endpoint and enforces a generic
-  `ef:s2s` scope on every call.
+  the token against the Keycloak JWKS endpoint, checks the caller's client id
+  against `allowed-azp` when set, and enforces a generic `ef:s2s` scope on
+  every call.
 
 Per-method scope enforcement (e.g. `@S2sScopeRequired("ef:members:write")`)
-is enforced via `S2sScopeRegistry` since `0.2.0`.
+is enforced via `S2sScopeRegistry` since `0.2.0`. The registry refuses to
+start when an RPC of a scanned service carries no annotation, or when an
+annotation names no RPC of its service.
 
 ## Configuration
 
@@ -44,6 +50,11 @@ ecclesiaflow.platform.rpc.s2s.client-secret=${KEYCLOAK_BACKEND_CLIENT_SECRET}
 ecclesiaflow.platform.rpc.s2s.token-url=${KEYCLOAK_ISSUER_URI}/protocol/openid-connect/token
 ecclesiaflow.platform.rpc.s2s.jwks-uri=${KEYCLOAK_JWKS_URI}
 ecclesiaflow.platform.rpc.s2s.issuer=${KEYCLOAK_ISSUER_URI}
+# Backend clients allowed to call this module's gRPC server (azp claim).
+# Empty = any client of the realm holding ef:s2s; the posture is logged at startup.
+ecclesiaflow.platform.rpc.s2s.allowed-azp=${S2S_ALLOWED_AZP:}
+# Fail at startup when the list above is empty (set it where the list is deployed).
+ecclesiaflow.platform.rpc.s2s.require-allowed-azp=${S2S_REQUIRE_ALLOWED_AZP:false}
 # Optional overrides
 # ecclesiaflow.platform.rpc.s2s.generic-scope=ef:s2s
 # ecclesiaflow.platform.rpc.s2s.refresh-leeway-seconds=30
@@ -51,6 +62,9 @@ ecclesiaflow.platform.rpc.s2s.issuer=${KEYCLOAK_ISSUER_URI}
 
 Auto-configuration kicks in as soon as `client-id` is set. Beans are
 contributed only when missing, so you can override any of them locally.
+No bean of type `JwtDecoder` is published: the s2s decoder is an
+`S2sJwtDecoder`, so the module's REST resource server keeps Spring Boot's
+decoder, or the one the module declares.
 
 ## Wiring the interceptors
 

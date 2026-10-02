@@ -6,6 +6,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.util.Set;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class S2sAuthEventListenerTest {
@@ -52,6 +54,29 @@ class S2sAuthEventListenerTest {
                     .contains("Couldn't retrieve remote JWK set")
                     .doesNotContain("keycloak")
                     .doesNotContain("172.18.0.3");
+        }
+    }
+
+    @Nested
+    @DisplayName("the inbound azp policy is stated once at startup")
+    class AzpPolicy {
+
+        @Test
+        @DisplayName("an open plane is a warning")
+        void anOpenPlaneIsAWarning() {
+            listener.onInboundAzpPolicy(new S2sAuthEvents.InboundAzpPolicy(Set.of()));
+
+            assertThat(logs.getWarnLogs()).singleElement().asString().contains("allowed-azp");
+            assertThat(logs.getInfoLogs()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("an enforced list names the clients it lets in")
+        void anEnforcedListNamesTheClientsItLetsIn() {
+            listener.onInboundAzpPolicy(new S2sAuthEvents.InboundAzpPolicy(Set.of("ecclesiaflow-auth-backend")));
+
+            assertThat(logs.getInfoLogs()).singleElement().asString().contains("ecclesiaflow-auth-backend");
+            assertThat(logs.getWarnLogs()).isEmpty();
         }
     }
 }

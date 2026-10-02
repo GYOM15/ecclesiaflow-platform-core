@@ -1,5 +1,7 @@
 package com.ecclesiaflow.platform.rpc.events;
 
+import java.util.Set;
+
 /**
  * Application events emitted by the platform's gRPC interceptors when an
  * authentication or authorization decision is made.
@@ -47,6 +49,23 @@ public final class S2sAuthEvents {
      * @param azp the rejected authorized party, or {@code null} when the claim is absent
      */
     public record InboundForeignClient(String fullMethodName, String azp) {}
+
+    /**
+     * Published once at startup with the inbound {@code azp} allow-list in force, so an
+     * open gRPC plane is stated in the logs rather than implied by a missing property.
+     *
+     * @param allowedAzp the client ids allowed in; empty when the check is off
+     */
+    public record InboundAzpPolicy(Set<String> allowedAzp) {
+
+        public InboundAzpPolicy {
+            allowedAzp = Set.copyOf(allowedAzp);
+        }
+
+        public boolean enforced() {
+            return !allowedAzp.isEmpty();
+        }
+    }
 
     /**
      * Emitted when an inbound RPC is <strong>accepted</strong>: token valid,

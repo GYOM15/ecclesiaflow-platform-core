@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -371,6 +372,15 @@ class S2sAuthServerInterceptorTest {
         interceptor.interceptCall(call, headers, next);
 
         verify(next).startCall(eq(call), eq(headers));
+    }
+
+    @Test
+    void aRequiredAllowListThatIsEmptyRefusesToBuild() {
+        props.setRequireAllowedAzp(true);
+
+        assertThatThrownBy(() -> new S2sAuthServerInterceptor(decoder, props, events, scopeRegistry, meters))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("allowed-azp");
     }
 
     @Test

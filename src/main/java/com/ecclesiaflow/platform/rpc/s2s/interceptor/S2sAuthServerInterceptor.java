@@ -20,7 +20,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -48,12 +47,12 @@ import java.util.Set;
  * <p><strong>Allowed authorized parties.</strong> On top of the two scope
  * checks, the interceptor can pin the token's {@code azp} claim — the Keycloak
  * client the token was minted for — to an explicit allow-list
- * ({@code ecclesiaflow.platform.rpc.s2s.allowed-azp}). This is the barrier that
- * does not depend on the realm: the audience claim is stamped on every client in
- * the realm, so {@code aud} alone does not separate a backend service account
- * from a frontend token, while the client id does. Empty list (the default)
- * leaves the check off, so existing deployments are unaffected until the
- * property is set (finding F042).</p>
+ * ({@code ecclesiaflow.platform.rpc.s2s.allowed-azp}, see {@link S2sAzpAllowList}).
+ * This is the barrier that does not depend on the realm: the audience claim is
+ * stamped on every client in the realm, so {@code aud} alone does not separate a
+ * backend service account from a frontend token, while the client id does. An
+ * empty list leaves the check off so a module that has not set it keeps working;
+ * {@code require-allowed-azp=true} turns an empty list into a startup failure.</p>
  *
  * <p><strong>Accepted calls are announced too.</strong> Refusals alone leave a
  * successful lateral call between modules with no trace; every accept publishes
@@ -72,7 +71,7 @@ public class S2sAuthServerInterceptor implements ServerInterceptor {
 
     private final JwtDecoder jwtDecoder;
     private final String requiredScope;
-    private final Set<String> allowedAzp;
+    private final S2sAzpAllowList allowedAzp;
     private final ApplicationEventPublisher events;
     private final S2sScopeRegistry scopeRegistry;
     private final MeterRegistry meterRegistry;
@@ -92,23 +91,10 @@ public class S2sAuthServerInterceptor implements ServerInterceptor {
                                     MeterRegistry meterRegistry) {
         this.jwtDecoder = jwtDecoder;
         this.requiredScope = props.getGenericScope();
-        this.allowedAzp = normalizeAzp(props.getAllowedAzp());
+        this.allowedAzp = S2sAzpAllowList.from(props);
         this.events = events;
         this.scopeRegistry = scopeRegistry;
         this.meterRegistry = meterRegistry;
-    }
-
-    private static Set<String> normalizeAzp(List<String> configured) {
-        if (configured == null || configured.isEmpty()) {
-            return Collections.emptySet();
-        }
-        Set<String> result = new HashSet<>();
-        for (String entry : configured) {
-            if (entry != null && !entry.isBlank()) {
-                result.add(entry.trim());
-            }
-        }
-        return result;
     }
 
     @Override
@@ -140,11 +126,11 @@ public class S2sAuthServerInterceptor implements ServerInterceptor {
         String azpTag = (azp == null || azp.isBlank()) ? UNKNOWN_AZP : azp;
         String subject = SecurityMaskingUtils.maskId(jwt.getSubject());
 
-        // 1. Authorized party (off by default). The realm stamps aud=ecclesiaflow-internal
-        //    on every client, so the audience does not separate a backend service account
-        //    from a frontend token — the client id does. Checked before the scopes: a token
-        //    minted for something with no business on this plane is refused whatever it carries.
-        if (!allowedAzp.isEmpty() && (azp == null || !allowedAzp.contains(azp))) {
+        // 1. Authorized party. The realm stamps aud=ecclesiaflow-internal on every client, so
+        //    the audience does not separate a backend service account from a frontend token —
+        //    the client id does. Checked before the scopes: a token minted for something with
+        //    no business on this plane is refused whatever it carries.
+        if (!allowedAzp.permits(azp)) {
             events.publishEvent(new S2sAuthEvents.InboundForeignClient(fullMethodName, azp));
             count(fullMethodName, azpTag, "foreign_client");
             return abort(call, Status.PERMISSION_DENIED.withDescription("Client not allowed on the s2s plane"));

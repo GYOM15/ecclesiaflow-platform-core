@@ -63,13 +63,18 @@ public class S2sProperties {
     /**
      * Keycloak client ids ({@code azp} claim) allowed on the inbound gRPC plane.
      *
-     * <p>Empty (the default) disables the check, so an existing deployment is
-     * unaffected until the list is set. Populate it with the backend service
-     * accounts only — the frontend client must not appear — and a user token
-     * that has somehow acquired {@code ef:s2s} is refused on the client id,
-     * without touching the realm or re-issuing anything (finding F042).</p>
+     * <p>Empty (the default) leaves the check off so a module that has not set it keeps
+     * working; the posture is announced at startup either way. List the backend service
+     * accounts that call this module, never the frontend client: a user token that has
+     * somehow acquired {@code ef:s2s} is then refused on its client id.</p>
      */
     private List<String> allowedAzp = new ArrayList<>();
+
+    /**
+     * Refuses to start while {@link #getAllowedAzp()} is empty, so a lost environment
+     * variable cannot silently reopen the plane once the list is deployed.
+     */
+    private boolean requireAllowedAzp;
 
     /** Scope required on every inbound s2s RPC. Defaults to {@code ef:s2s}. */
     @NotBlank
@@ -137,6 +142,14 @@ public class S2sProperties {
 
     public void setAllowedAzp(List<String> allowedAzp) {
         this.allowedAzp = allowedAzp == null ? new ArrayList<>() : allowedAzp;
+    }
+
+    public boolean isRequireAllowedAzp() {
+        return requireAllowedAzp;
+    }
+
+    public void setRequireAllowedAzp(boolean requireAllowedAzp) {
+        this.requireAllowedAzp = requireAllowedAzp;
     }
 
     public String getGenericScope() {

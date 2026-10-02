@@ -12,8 +12,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 
 /**
  * Talks to Keycloak's token endpoint over the {@code client_credentials} grant.
@@ -33,15 +33,20 @@ public class S2sTokenClient {
 
     private final S2sProperties props;
     private final HttpClient httpClient;
+    private final Clock clock;
 
     public S2sTokenClient(S2sProperties props) {
         this(props, HttpClient.newBuilder().connectTimeout(HTTP_TIMEOUT).build());
     }
 
-    /** Test-only constructor: lets the caller inject a mocked or instrumented HttpClient. */
     public S2sTokenClient(S2sProperties props, HttpClient httpClient) {
+        this(props, httpClient, Clock.systemUTC());
+    }
+
+    public S2sTokenClient(S2sProperties props, HttpClient httpClient, Clock clock) {
         this.props = props;
         this.httpClient = httpClient;
+        this.clock = clock;
     }
 
     /**
@@ -91,7 +96,7 @@ public class S2sTokenClient {
             throw new S2sTokenException("Token endpoint response missing access_token or expires_in");
         }
 
-        return new S2sToken(accessToken, Instant.now().plusSeconds(expiresIn));
+        return new S2sToken(accessToken, clock.instant().plusSeconds(expiresIn));
     }
 
     private static String extractErrorCode(String body) {

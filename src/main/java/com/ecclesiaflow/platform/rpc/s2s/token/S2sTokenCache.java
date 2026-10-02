@@ -1,6 +1,6 @@
 package com.ecclesiaflow.platform.rpc.s2s.token;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -19,6 +19,15 @@ import java.util.concurrent.atomic.AtomicReference;
 public class S2sTokenCache {
 
     private final AtomicReference<S2sToken> ref = new AtomicReference<>();
+    private final Clock clock;
+
+    public S2sTokenCache() {
+        this(Clock.systemUTC());
+    }
+
+    public S2sTokenCache(Clock clock) {
+        this.clock = clock;
+    }
 
     /**
      * Returns the cached token if it is still valid more than {@code leewaySeconds} from now.
@@ -32,7 +41,7 @@ public class S2sTokenCache {
         if (snapshot == null) {
             return Optional.empty();
         }
-        if (Instant.now().plusSeconds(leewaySeconds).isBefore(snapshot.expiry())) {
+        if (clock.instant().plusSeconds(leewaySeconds).isBefore(snapshot.expiry())) {
             return Optional.of(snapshot);
         }
         return Optional.empty();
@@ -43,7 +52,7 @@ public class S2sTokenCache {
         ref.set(token);
     }
 
-    /** Drops the cached token. Visible for testing and admin endpoints. */
+    /** Drops the cached token. */
     public void invalidate() {
         ref.set(null);
     }

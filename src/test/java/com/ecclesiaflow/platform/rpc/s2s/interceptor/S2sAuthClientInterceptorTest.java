@@ -1,4 +1,7 @@
 package com.ecclesiaflow.platform.rpc.s2s.interceptor;
+import com.ecclesiaflow.platform.rpc.s2s.token.S2sToken;
+import com.ecclesiaflow.platform.rpc.s2s.token.S2sTokenCache;
+import com.ecclesiaflow.platform.rpc.s2s.token.S2sTokenClient;
 import com.ecclesiaflow.platform.rpc.s2s.token.S2sTokenException;
 import com.ecclesiaflow.platform.rpc.s2s.token.S2sTokenProvider;
 
@@ -17,9 +20,16 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -95,6 +105,108 @@ class S2sAuthClientInterceptorTest {
                     assertThat(evt.fullMethodName()).isEqualTo("test.Service/Method");
                     assertThat(evt.reason()).isEqualTo("keycloak down");
                 });
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aCallerIsNotHeldPastItsDeadlineByAHangingTokenEndpoint() {
+        S2sProperties props = new S2sProperties();
+        props.setClientId("ecclesiaflow-church-backend");
+        props.setClientSecret("x");
+        props.setTokenUrl("http://localhost:1/token");
+        CountDownLatch keycloakAnswers = new CountDownLatch(1);
+        S2sTokenClient hanging = new S2sTokenClient(props) {
+            @Override
+            public S2sToken fetchToken() {
+                try {
+                    keycloakAnswers.await(3, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return new S2sToken("late", Instant.now().plusSeconds(300));
+            }
+        };
+        S2sTokenProvider realProvider = new S2sTokenProvider(hanging, new S2sTokenCache(), props);
+        CallOptions withDeadline = CallOptions.DEFAULT.withDeadlineAfter(200, TimeUnit.MILLISECONDS);
+        when(next.newCall(METHOD, withDeadline)).thenReturn(delegate);
+        ClientCall<Object, Object> intercepted = new S2sAuthClientInterceptor(realProvider, events)
+                .interceptCall(METHOD, withDeadline, next);
+
+        long started = System.nanoTime();
+        Throwable thrown;
+        try {
+            thrown = catchThrowable(() -> intercepted.start(new ClientCall.Listener<>() {}, new Metadata()));
+        } finally {
+            keycloakAnswers.countDown();
+        }
+        long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+
+        assertThat(elapsedMillis).isLessThan(1_500);
+        assertThat(thrown).isInstanceOf(StatusRuntimeException.class);
+        assertThat(((StatusRuntimeException) thrown).getStatus().getCode()).isEqualTo(Status.Code.DEADLINE_EXCEEDED);
+        verify(delegate, never()).start(any(), any());
+    }
+
+    @Test
+    void aCallWithADeadlineWaitsForTheTokenNoLongerThanTheTimeItHasLeft() {
+        CallOptions withDeadline = CallOptions.DEFAULT.withDeadlineAfter(5, TimeUnit.SECONDS);
+        when(next.newCall(METHOD, withDeadline)).thenReturn(delegate);
+        when(provider.getToken(any(Duration.class))).thenReturn("jwt");
+
+        new S2sAuthClientInterceptor(provider, events)
+                .interceptCall(METHOD, withDeadline, next)
+                .start(new ClientCall.Listener<>() {}, new Metadata());
+
+        ArgumentCaptor<Duration> bound = ArgumentCaptor.forClass(Duration.class);
+        verify(provider).getToken(bound.capture());
+        assertThat(bound.getValue()).isPositive().isLessThanOrEqualTo(Duration.ofSeconds(5));
+        verify(provider, never()).getToken();
+    }
+
+    @Test
+    void aTokenFailureBeforeTheDeadlineIsUnavailable() {
+        CallOptions withDeadline = CallOptions.DEFAULT.withDeadlineAfter(5, TimeUnit.SECONDS);
+        when(next.newCall(METHOD, withDeadline)).thenReturn(delegate);
+        when(provider.getToken(any(Duration.class))).thenThrow(new S2sTokenException("keycloak down"));
+        ClientCall<Object, Object> intercepted = new S2sAuthClientInterceptor(provider, events)
+                .interceptCall(METHOD, withDeadline, next);
+
+        assertThatThrownBy(() -> intercepted.start(new ClientCall.Listener<>() {}, new Metadata()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .satisfies(t -> assertThat(((StatusRuntimeException) t).getStatus().getCode())
+                        .isEqualTo(Status.Code.UNAVAILABLE));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aTokenTheServerRejectsIsDroppedForTheNextCall() {
+        when(provider.getToken()).thenReturn("revoked-jwt");
+        ClientCall<Object, Object> intercepted = new S2sAuthClientInterceptor(provider, events)
+                .interceptCall(METHOD, CallOptions.DEFAULT, next);
+
+        intercepted.start(new ClientCall.Listener<>() {}, new Metadata());
+        ArgumentCaptor<ClientCall.Listener<Object>> forwarded = ArgumentCaptor.forClass(ClientCall.Listener.class);
+        verify(delegate).start(forwarded.capture(), any(Metadata.class));
+        forwarded.getValue().onClose(Status.UNAUTHENTICATED, new Metadata());
+
+        verify(provider).invalidate();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void otherOutcomesKeepTheToken() {
+        when(provider.getToken()).thenReturn("jwt");
+        ClientCall<Object, Object> intercepted = new S2sAuthClientInterceptor(provider, events)
+                .interceptCall(METHOD, CallOptions.DEFAULT, next);
+        ClientCall.Listener<Object> caller = mock(ClientCall.Listener.class);
+
+        intercepted.start(caller, new Metadata());
+        ArgumentCaptor<ClientCall.Listener<Object>> forwarded = ArgumentCaptor.forClass(ClientCall.Listener.class);
+        verify(delegate).start(forwarded.capture(), any(Metadata.class));
+        forwarded.getValue().onClose(Status.PERMISSION_DENIED, new Metadata());
+
+        verify(provider, never()).invalidate();
+        verify(caller).onClose(eq(Status.PERMISSION_DENIED), any(Metadata.class));
     }
 
     private static final class NoopMarshaller implements MethodDescriptor.Marshaller<Object> {
