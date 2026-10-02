@@ -6,108 +6,73 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 
 import java.util.Collection;
-import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.Set;
 
 /**
- * Converts a Keycloak JWT into a Spring Security {@link JwtAuthenticationToken},
- * extracting roles from three locations:
+ * Converts a Keycloak JWT into a Spring Security {@link JwtAuthenticationToken}.
  *
+ * <p>Authorities:
  * <ul>
- *   <li>The direct {@code roles} claim (used when a custom Keycloak mapper
- *       flattens roles to the top level).</li>
- *   <li>{@code realm_access.roles} — realm-level roles.</li>
- *   <li>{@code resource_access.&lt;client&gt;.roles} — per-client roles.</li>
+ *   <li>{@code SCOPE_<scope>} for every entry of the {@code scope} / {@code scp} claim;</li>
+ *   <li>{@code ROLE_<role>} for the top-level {@code roles} claim and {@code realm_access.roles};</li>
+ *   <li>{@code ROLE_<role>} for {@code resource_access.<azp>.roles} — the roles of the client the
+ *       token was issued to, and of no other client.</li>
  * </ul>
  *
- * Role names are prefixed with {@code ROLE_} as Spring Security requires; the
- * principal is the {@code email} claim if present, otherwise the {@code sub}.
+ * <p>The principal name is the {@code sub} claim.
  *
- * <p>Auto-registered as a Spring bean by
- * {@code com.ecclesiaflow.platform.security.autoconfigure.PlatformSecurityAutoConfiguration}.
- * Consumers can override by declaring their own bean of this type.
+ * <p>Auto-registered by
+ * {@code com.ecclesiaflow.platform.security.autoconfigure.PlatformSecurityAutoConfiguration};
+ * a consumer bean of this type takes precedence.
  */
 public class KeycloakJwtConverter implements Converter<Jwt, AbstractAuthenticationToken> {
 
     private static final String ROLE_PREFIX = "ROLE_";
-    private static final String ROLES_CLAIM = "roles";
+    private static final String ROLES = "roles";
     private static final String REALM_ACCESS_CLAIM = "realm_access";
     private static final String RESOURCE_ACCESS_CLAIM = "resource_access";
+    private static final String AUTHORIZED_PARTY_CLAIM = "azp";
+
+    private final JwtGrantedAuthoritiesConverter scopeAuthorities = new JwtGrantedAuthoritiesConverter();
 
     @Override
     public AbstractAuthenticationToken convert(Jwt jwt) {
-        Collection<GrantedAuthority> authorities = extractAuthorities(jwt);
-        return new JwtAuthenticationToken(jwt, authorities, extractPrincipalName(jwt));
+        Set<GrantedAuthority> authorities = new LinkedHashSet<>(scopeAuthorities.convert(jwt));
+        addRoles(authorities, jwt.getClaims().get(ROLES));
+        addRoles(authorities, rolesOf(jwt.getClaims().get(REALM_ACCESS_CLAIM)));
+        addRoles(authorities, clientRolesOf(jwt));
+        return new JwtAuthenticationToken(jwt, authorities, jwt.getSubject());
     }
 
-    private Collection<GrantedAuthority> extractAuthorities(Jwt jwt) {
-        return Stream.of(
-                        extractDirectRoles(jwt).stream(),
-                        extractRealmAccessRoles(jwt).stream(),
-                        extractResourceAccessRoles(jwt).stream())
-                .flatMap(s -> s)
-                .distinct()
-                .collect(Collectors.toList());
-    }
-
-    @SuppressWarnings("unchecked")
-    private Collection<GrantedAuthority> extractDirectRoles(Jwt jwt) {
-        Object rolesObj = jwt.getClaim(ROLES_CLAIM);
-        if (rolesObj instanceof List) {
-            return ((List<String>) rolesObj).stream()
-                    .map(role -> new SimpleGrantedAuthority(prefixRole(role)))
-                    .collect(Collectors.toList());
+    // Every other client in resource_access (realm-management, account, ...) is ignored:
+    // flattening them would let a role defined on any client become a platform role.
+    private static Object clientRolesOf(Jwt jwt) {
+        String azp = jwt.getClaimAsString(AUTHORIZED_PARTY_CLAIM);
+        if (azp == null || !(jwt.getClaims().get(RESOURCE_ACCESS_CLAIM) instanceof Map<?, ?> clients)) {
+            return null;
         }
-        return Collections.emptyList();
+        return rolesOf(clients.get(azp));
     }
 
-    @SuppressWarnings("unchecked")
-    private Collection<GrantedAuthority> extractRealmAccessRoles(Jwt jwt) {
-        Map<String, Object> realmAccess = jwt.getClaim(REALM_ACCESS_CLAIM);
-        if (realmAccess == null) {
-            return Collections.emptyList();
+    private static Object rolesOf(Object access) {
+        return access instanceof Map<?, ?> map ? map.get(ROLES) : null;
+    }
+
+    private static void addRoles(Collection<GrantedAuthority> authorities, Object roles) {
+        if (!(roles instanceof List<?> list)) {
+            return;
         }
-        Object rolesObj = realmAccess.get("roles");
-        if (rolesObj instanceof List) {
-            return ((List<String>) rolesObj).stream()
-                    .map(role -> new SimpleGrantedAuthority(prefixRole(role)))
-                    .collect(Collectors.toList());
+        for (Object role : list) {
+            if (role instanceof String name && !name.isBlank()) {
+                authorities.add(new SimpleGrantedAuthority(
+                        name.startsWith(ROLE_PREFIX) ? name : ROLE_PREFIX + name));
+            }
         }
-        return Collections.emptyList();
-    }
-
-    @SuppressWarnings("unchecked")
-    private Collection<GrantedAuthority> extractResourceAccessRoles(Jwt jwt) {
-        Map<String, Object> resourceAccess = jwt.getClaim(RESOURCE_ACCESS_CLAIM);
-        if (resourceAccess == null) {
-            return Collections.emptyList();
-        }
-        return resourceAccess.values().stream()
-                .filter(Map.class::isInstance)
-                .map(client -> (Map<String, Object>) client)
-                .filter(client -> client.containsKey("roles"))
-                .flatMap(client -> {
-                    Object rolesObj = client.get("roles");
-                    if (rolesObj instanceof List) {
-                        return ((List<String>) rolesObj).stream();
-                    }
-                    return Stream.empty();
-                })
-                .map(role -> new SimpleGrantedAuthority(prefixRole(role)))
-                .collect(Collectors.toList());
-    }
-
-    private String prefixRole(String role) {
-        return role.startsWith(ROLE_PREFIX) ? role : ROLE_PREFIX + role;
-    }
-
-    private String extractPrincipalName(Jwt jwt) {
-        String email = jwt.getClaimAsString("email");
-        return (email != null && !email.isBlank()) ? email : jwt.getSubject();
     }
 }
