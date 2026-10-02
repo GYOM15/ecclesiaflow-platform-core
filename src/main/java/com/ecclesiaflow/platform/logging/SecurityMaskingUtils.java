@@ -19,6 +19,7 @@ import java.util.regex.Pattern;
 public final class SecurityMaskingUtils {
 
     private static final String MASK = "****";
+    private static final String EMAIL_MASK = "***";
     private static final String UNKNOWN = "[UNKNOWN]";
     private static final String INVALID = "[INVALID_FORMAT]";
     private static final String URL_MASKING_ERROR = "[URL_MASKING_ERROR]";
@@ -27,6 +28,8 @@ public final class SecurityMaskingUtils {
 
     private static final Pattern EMAIL_LIKE =
             Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
+
+    private static final Pattern TLD = Pattern.compile("[A-Za-z]{2,63}");
 
     private static final Pattern JWT_LIKE =
             Pattern.compile("^[A-Za-z0-9\\-_]+\\.[A-Za-z0-9\\-_]+\\.[A-Za-z0-9\\-_]+$");
@@ -57,19 +60,30 @@ public final class SecurityMaskingUtils {
     private SecurityMaskingUtils() {
     }
 
+    /** {@code alice@church.com} → {@code a***e@***.com}. */
     public static String maskEmail(String email) {
         if (email == null || email.isBlank()) return UNKNOWN;
 
         int atIndex = email.indexOf('@');
         if (atIndex <= 0) return INVALID;
 
-        String local = email.substring(0, atIndex);
-        String domain = email.substring(atIndex);
+        return maskLocalPart(email.substring(0, atIndex)) + "@" + maskDomain(email.substring(atIndex + 1));
+    }
 
-        if (local.length() <= 2) {
-            return local.charAt(0) + MASK + domain;
+    // With one or two characters, first-and-last would give the whole local part back.
+    private static String maskLocalPart(String local) {
+        String first = local.substring(0, local.offsetByCodePoints(0, 1));
+        if (local.codePointCount(0, local.length()) <= 2) {
+            return first + EMAIL_MASK;
         }
-        return local.substring(0, 2) + MASK + domain;
+        return first + EMAIL_MASK + local.substring(local.offsetByCodePoints(local.length(), -1));
+    }
+
+    // A family or parish domain identifies a person as surely as the local part.
+    private static String maskDomain(String domain) {
+        int lastDot = domain.lastIndexOf('.');
+        String tld = lastDot < 0 ? "" : domain.substring(lastDot + 1);
+        return TLD.matcher(tld).matches() ? EMAIL_MASK + "." + tld : EMAIL_MASK;
     }
 
     /** Keeps a leading {@code +} and the last two digits: {@code +33612345678} → {@code +****78}. */
@@ -214,7 +228,7 @@ public final class SecurityMaskingUtils {
         s = BEARER_IN_TEXT.matcher(s).replaceAll("Bearer " + MASK);
         s = JWT_IN_TEXT.matcher(s).replaceAll(Matcher.quoteReplacement(REDACTED));
         s = URI_IN_TEXT.matcher(s).replaceAll(Matcher.quoteReplacement("[URL]"));
-        s = EMAIL_IN_TEXT.matcher(s).replaceAll(m -> Matcher.quoteReplacement(maskEmail(m.group())));
+        s = EMAIL_IN_TEXT.matcher(s).replaceAll(m -> Matcher.quoteReplacement(maskEmailInText(m.group())));
         s = E164_IN_TEXT.matcher(s).replaceAll(m -> Matcher.quoteReplacement(maskPhone(m.group())));
         s = SOCKET_ADDRESS_IN_TEXT.matcher(s).replaceAll(Matcher.quoteReplacement("[HOST:PORT]"));
         s = HOST_PORT_IN_TEXT.matcher(s).replaceAll(Matcher.quoteReplacement("[HOST:PORT]"));
@@ -226,6 +240,21 @@ public final class SecurityMaskingUtils {
         if (s == null) return UNKNOWN;
         if (s.length() <= max) return s;
         return s.substring(0, max) + "...";
+    }
+
+    // The text match can take in the quotes or punctuation around an address;
+    // they stay readable, and out of the TLD the mask keeps.
+    private static String maskEmailInText(String match) {
+        int at = match.indexOf('@');
+        int start = 0;
+        while (start < at && isPunctuation(match.charAt(start))) start++;
+        int end = match.length();
+        while (end > at + 1 && isPunctuation(match.charAt(end - 1))) end--;
+        return match.substring(0, start) + maskEmail(match.substring(start, end)) + match.substring(end);
+    }
+
+    private static boolean isPunctuation(char c) {
+        return !Character.isLetterOrDigit(c) && !Character.isSurrogate(c);
     }
 
     private static String typeLabel(Object value) {

@@ -14,14 +14,46 @@ class SecurityMaskingUtilsTest {
     @DisplayName("maskEmail")
     class MaskEmail {
         @Test
-        void masksLongLocalPart() {
-            assertThat(SecurityMaskingUtils.maskEmail("alice@example.com"))
-                    .isEqualTo("al****@example.com");
+        @DisplayName("keeps the first and last letter of the local part and only the TLD of the domain")
+        void masksLocalPartAndDomain() {
+            assertThat(SecurityMaskingUtils.maskEmail("alice@church.com")).isEqualTo("a***e@***.com");
         }
 
         @Test
+        @DisplayName("a family domain names a person: nothing of it survives but the TLD")
+        void masksAFamilyDomain() {
+            assertThat(SecurityMaskingUtils.maskEmail("jean@dupont-famille.fr"))
+                    .isEqualTo("j***n@***.fr")
+                    .doesNotContain("dupont");
+        }
+
+        @Test
+        @DisplayName("subdomains are masked with the rest of the domain")
+        void masksSubdomains() {
+            assertThat(SecurityMaskingUtils.maskEmail("alice@mail.eglise-saint-paul.org"))
+                    .isEqualTo("a***e@***.org");
+        }
+
+        @Test
+        @DisplayName("a local part of one or two characters keeps only its first one")
         void masksShortLocalPart() {
-            assertThat(SecurityMaskingUtils.maskEmail("ab@x.com")).isEqualTo("a****@x.com");
+            assertThat(SecurityMaskingUtils.maskEmail("ab@x.com")).isEqualTo("a***@***.com");
+            assertThat(SecurityMaskingUtils.maskEmail("a@x.com")).isEqualTo("a***@***.com");
+        }
+
+        @Test
+        @DisplayName("a domain without a letters-only TLD is masked whole")
+        void masksADomainWithoutTld() {
+            assertThat(SecurityMaskingUtils.maskEmail("alice@localhost")).isEqualTo("a***e@***");
+            assertThat(SecurityMaskingUtils.maskEmail("alice@[10.0.0.7]")).isEqualTo("a***e@***");
+            assertThat(SecurityMaskingUtils.maskEmail("alice@")).isEqualTo("a***e@***");
+        }
+
+        @Test
+        @DisplayName("a character outside the BMP is kept whole, never split in half")
+        void keepsSupplementaryCharactersWhole() {
+            assertThat(SecurityMaskingUtils.maskEmail("\uD835\uDC00lice\uD835\uDC01@x.com"))
+                    .isEqualTo("\uD835\uDC00***\uD835\uDC01@***.com");
         }
 
         @Test
@@ -113,7 +145,7 @@ class SecurityMaskingUtilsTest {
     class MaskAny {
         @Test
         void detectsEmail() {
-            assertThat(SecurityMaskingUtils.maskAny("alice@x.com")).isEqualTo("al****@x.com");
+            assertThat(SecurityMaskingUtils.maskAny("alice@church.com")).isEqualTo("a***e@***.com");
         }
 
         @Test
@@ -220,7 +252,7 @@ class SecurityMaskingUtilsTest {
             assertThat(SecurityMaskingUtils.maskArgs(null)).isEqualTo("[]");
             Object[] args = { "alice@x.com", "Bearer abc", null };
             String result = SecurityMaskingUtils.maskArgs(args);
-            assertThat(result).contains("al****@x.com").contains("Bearer ****").contains("[UNKNOWN]");
+            assertThat(result).contains("a***e@***.com").contains("Bearer ****").contains("[UNKNOWN]");
         }
 
         @Test
@@ -318,6 +350,54 @@ class SecurityMaskingUtilsTest {
             assertThat(SecurityMaskingUtils.sanitizeInfra(msg))
                     .doesNotContain("alicemartin")
                     .contains("uk_member_email").contains("already exists");
+        }
+
+        @Test
+        @DisplayName("an email inside a message gets the same mask as maskEmail, domain included")
+        void emailInTextIsMaskedLikeMaskEmail() {
+            String msg = "Detail: Key (email)=(alicemartin@famille-martin.fr) already exists.";
+
+            assertThat(SecurityMaskingUtils.sanitizeInfra(msg))
+                    .isEqualTo("Detail: Key (email)=(a***n@***.fr) already exists.");
+        }
+
+        @Test
+        @DisplayName("quotes and punctuation around an email stay outside its mask")
+        void punctuationAroundAnEmailIsKept() {
+            assertThat(SecurityMaskingUtils.sanitizeInfra("Email 'bobleroy@famille-leroy.fr' is already registered"))
+                    .isEqualTo("Email 'b***y@***.fr' is already registered");
+            assertThat(SecurityMaskingUtils.sanitizeInfra("550 5.1.1 <jdupont@gmail.com>: rejected"))
+                    .isEqualTo("550 5.1.1 <j***t@***.com>: rejected");
+            assertThat(SecurityMaskingUtils.sanitizeInfra("Write to alice@church.com."))
+                    .isEqualTo("Write to a***e@***.com.");
+        }
+
+        @Test
+        @DisplayName("a letter outside the BMP at the edge of an address is part of it, not punctuation")
+        void supplementaryLetterAtTheEdge() {
+            assertThat(SecurityMaskingUtils.sanitizeInfra("from 𝐀lice@church.com"))
+                    .isEqualTo("from 𝐀***e@***.com");
+        }
+
+        @Test
+        @DisplayName("an address with no local part still loses its domain")
+        void noLocalPart() {
+            assertThat(SecurityMaskingUtils.sanitizeInfra("Rejected '@famille-leroy.fr'"))
+                    .isEqualTo("Rejected '[INVALID_FORMAT]'");
+        }
+
+        @Test
+        @DisplayName("an address whose domain is only punctuation keeps the punctuation outside the mask")
+        void punctuationOnlyDomain() {
+            assertThat(SecurityMaskingUtils.sanitizeInfra("Unknown recipient alice@..."))
+                    .isEqualTo("Unknown recipient a***e@***...");
+        }
+
+        @Test
+        @DisplayName("credentials written as user:password@host lose both the password and the host")
+        void credentialsBeforeAHost() {
+            assertThat(SecurityMaskingUtils.sanitizeInfra("auth failed for default:hunter2@cache.internal:6379"))
+                    .doesNotContain("hunter2").doesNotContain("cache").doesNotContain("6379");
         }
 
         @Test
