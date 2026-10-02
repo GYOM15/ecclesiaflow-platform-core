@@ -89,11 +89,21 @@ class JdbcOutboxRepositoryTest {
             assertThat(repository.claimDue(NOW, LEASE_UNTIL, 50)).isEmpty();
 
             assertThat(JdbcOutboxRepository.CLAIM_SQL)
-                    .contains("FOR UPDATE SKIP LOCKED")
+                    .contains("FOR UPDATE OF candidate SKIP LOCKED")
                     .contains("status = 'PENDING'")
                     .contains("next_attempt_at <= ?")
                     .contains("LIMIT ?");
             assertThat(transactions.executions).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Claims a keyed row only once no older row of its key is pending or parked")
+        void holdsKeyBehindOlderUnsentRow() {
+            assertThat(JdbcOutboxRepository.CLAIM_SQL)
+                    .contains("candidate.aggregate_key IS NULL OR NOT EXISTS")
+                    .contains("older.aggregate_key = candidate.aggregate_key")
+                    .contains("older.id < candidate.id")
+                    .contains("older.status IN ('PENDING', 'PARKED')");
         }
 
         @Test

@@ -27,8 +27,8 @@ class OutboxDdlTest {
         }
         assertThat(OutboxDdl.columns()).containsExactly(
                 "id", "exchange", "routing_key", "payload", "content_type", "content_encoding", "message_id",
-                "headers", "status", "attempts", "next_attempt_at", "last_error", "created_at", "sent_at",
-                "parked_at");
+                "headers", "aggregate_key", "status", "attempts", "next_attempt_at", "last_error", "created_at",
+                "sent_at", "parked_at");
     }
 
     @Test
@@ -44,6 +44,16 @@ class OutboxDdlTest {
                 .contains("ON outbox_event (next_attempt_at, id) WHERE status = 'PENDING'")
                 .contains("ON outbox_event (sent_at) WHERE status = 'SENT'")
                 .contains("ON outbox_event (parked_at) WHERE status = 'PARKED'");
+    }
+
+    @Test
+    @DisplayName("Indexes each key's unsent rows under the very predicate the claim filters on")
+    void indexesUnsentRowsByKey() {
+        // A partial index serves the claim's subquery only if the planner can prove its predicate.
+        String unsent = "status IN ('PENDING', 'PARKED')";
+
+        assertThat(OutboxDdl.text()).contains("ON outbox_event (aggregate_key, id) WHERE " + unsent);
+        assertThat(JdbcOutboxRepository.CLAIM_SQL).contains("older." + unsent);
     }
 
     @Test

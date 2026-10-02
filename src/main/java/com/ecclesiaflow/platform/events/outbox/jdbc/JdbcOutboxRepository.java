@@ -24,13 +24,20 @@ public class JdbcOutboxRepository implements OutboxRepository {
     static final int MAX_ERROR_LENGTH = 1_000;
 
     // MATERIALIZED keeps PostgreSQL from inlining the locking subquery into the UPDATE.
+    // A keyed row waits until no older row of its key is pending or parked, so at most one row per
+    // key is claimed; that check needs no lock, as a row another relay holds is still PENDING.
     static final String CLAIM_SQL = """
             WITH due AS MATERIALIZED (
-                SELECT id FROM outbox_event
-                WHERE status = 'PENDING' AND next_attempt_at <= ?
-                ORDER BY next_attempt_at, id
+                SELECT candidate.id FROM outbox_event candidate
+                WHERE candidate.status = 'PENDING' AND candidate.next_attempt_at <= ?
+                  AND (candidate.aggregate_key IS NULL OR NOT EXISTS (
+                        SELECT 1 FROM outbox_event older
+                        WHERE older.aggregate_key = candidate.aggregate_key
+                          AND older.id < candidate.id
+                          AND older.status IN ('PENDING', 'PARKED')))
+                ORDER BY candidate.next_attempt_at, candidate.id
                 LIMIT ?
-                FOR UPDATE SKIP LOCKED)
+                FOR UPDATE OF candidate SKIP LOCKED)
             UPDATE outbox_event o
             SET next_attempt_at = ?
             FROM due

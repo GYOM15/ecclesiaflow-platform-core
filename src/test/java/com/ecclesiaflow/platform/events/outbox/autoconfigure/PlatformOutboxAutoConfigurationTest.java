@@ -172,11 +172,11 @@ class PlatformOutboxAutoConfigurationTest {
         void backsOffForModuleBean() {
             OutboxPublisher own = new OutboxPublisher() {
                 @Override
-                public void append(String exchange, String routingKey, Object event) {
+                public void append(String exchange, String routingKey, Object event, String aggregateKey) {
                 }
 
                 @Override
-                public void append(OutboxMessage message) {
+                public void append(OutboxMessage message, String aggregateKey) {
                 }
             };
             module.withBean(OutboxPublisher.class, () -> own)

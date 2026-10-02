@@ -25,8 +25,8 @@ final class OutboxDdl {
     private static final Set<String> SQL_WORDS = Set.of(
             "insert", "into", "values", "select", "from", "where", "and", "or", "update", "set",
             "returning", "with", "as", "materialized", "order", "by", "limit", "for", "skip", "locked",
-            "delete", "in", "cast", "jsonb", "text", "null", "count", "min", "is", "not", "due", "o",
-            "outbox_event");
+            "delete", "in", "cast", "jsonb", "text", "null", "count", "min", "is", "not", "exists", "of", "due",
+            "o", "candidate", "older", "outbox_event");
 
     private OutboxDdl() {
     }

@@ -10,7 +10,8 @@ public interface OutboxRepository {
 
     /**
      * Claims up to {@code limit} pending rows due at {@code now}, skipping rows another relay
-     * holds, and keeps them out of reach until {@code leaseUntil}.
+     * holds and keyed rows behind an older unsent row of their key, and keeps them out of reach
+     * until {@code leaseUntil}.
      */
     List<ClaimedOutboxMessage> claimDue(Instant now, Instant leaseUntil, int limit);
 

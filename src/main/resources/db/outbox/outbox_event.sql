@@ -12,11 +12,20 @@
 --   SENT     the broker confirmed the message and routed it to a queue. Deleted after
 --            ecclesiaflow.events.outbox.sent-retention (7 days by default).
 --   PARKED   max-attempts failures at the broker (nack, no confirm, no bound queue). Never retried
---            nor purged: fix the cause, then replay it by hand:
+--            nor purged, and it holds back every later row of its aggregate_key: fix the cause, then
+--            replay it by hand, or drop it to let its key move on:
 --
 --              UPDATE outbox_event
 --              SET status = 'PENDING', parked_at = NULL, attempts = 0, next_attempt_at = now()
 --              WHERE status = 'PARKED' AND id = <id>;
+--
+--              DELETE FROM outbox_event WHERE status = 'PARKED' AND id = <id>;
+--
+-- Ordering: rows sharing an aggregate_key are relayed one at a time, in id order. A keyed row is
+-- claimed only once every older row of its key is SENT, so a retry holds back the next row of its
+-- key and a PARKED row blocks its key until it is replayed or dropped. That is deliberate: relaying
+-- past it would let consumers apply a later change of the entity before an earlier one. Rows
+-- without a key are relayed as soon as they are due.
 --
 -- Delivery is at least once: a relay that stops between the broker's confirm and its own
 -- bookkeeping publishes the row again after the lease. Consumers dedupe by event id.
@@ -30,6 +39,7 @@ CREATE TABLE outbox_event (
     content_encoding text,
     message_id       text,
     headers          jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    aggregate_key    text,
     status           text        NOT NULL DEFAULT 'PENDING',
     attempts         integer     NOT NULL DEFAULT 0,
     next_attempt_at  timestamptz NOT NULL,
@@ -45,6 +55,8 @@ CREATE TABLE outbox_event (
 
 -- The relay's claim, the pending gauges.
 CREATE INDEX ix_outbox_event_pending ON outbox_event (next_attempt_at, id) WHERE status = 'PENDING';
+-- The claim's check for an older unsent row of the same key.
+CREATE INDEX ix_outbox_event_unsent_key ON outbox_event (aggregate_key, id) WHERE status IN ('PENDING', 'PARKED');
 -- The purge of relayed rows.
 CREATE INDEX ix_outbox_event_sent ON outbox_event (sent_at) WHERE status = 'SENT';
 -- The parked gauge, and the operator's list of rows to replay.

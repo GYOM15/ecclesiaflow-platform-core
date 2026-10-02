@@ -26,7 +26,10 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -38,6 +41,9 @@ class JdbcOutboxPublisherTest {
     private static final OutboxMessage MESSAGE = new OutboxMessage("ecclesiaflow.domain-events",
             "auth.setup-token.issued.v1", new byte[]{1, 2, 3}, "application/x-protobuf", null, null,
             Map.of("__TypeId__", "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent"));
+    private static final String HEADERS_JSON =
+            "{\"__TypeId__\":\"com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent\"}";
+    private static final String KEY = "chat.group:42:member:7";
 
     @Mock
     private JdbcTemplate jdbcTemplate;
@@ -125,16 +131,25 @@ class JdbcOutboxPublisherTest {
         }
 
         @Test
-        @DisplayName("Inserts a pending row due now, on the transaction's connection")
+        @DisplayName("Inserts a pending row due now, on the transaction's connection, with no ordering key")
         void insertsPendingRow() {
             publisher.append(MESSAGE);
 
             Timestamp now = Timestamp.from(NOW);
             verify(jdbcTemplate).update(JdbcOutboxPublisher.INSERT_SQL,
                     "ecclesiaflow.domain-events", "auth.setup-token.issued.v1", new byte[]{1, 2, 3},
-                    "application/x-protobuf", null, null,
-                    "{\"__TypeId__\":\"com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent\"}",
-                    now, now);
+                    "application/x-protobuf", null, null, HEADERS_JSON, null, now, now);
+        }
+
+        @Test
+        @DisplayName("Stores the ordering key with the row")
+        void storesOrderingKey() {
+            publisher.append(MESSAGE, KEY);
+
+            Timestamp now = Timestamp.from(NOW);
+            verify(jdbcTemplate).update(JdbcOutboxPublisher.INSERT_SQL,
+                    "ecclesiaflow.domain-events", "auth.setup-token.issued.v1", new byte[]{1, 2, 3},
+                    "application/x-protobuf", null, null, HEADERS_JSON, KEY, now, now);
         }
 
         @Test
@@ -145,7 +160,34 @@ class JdbcOutboxPublisherTest {
 
             publisher.append("ecclesiaflow.domain-events", "auth.setup-token.issued.v1", "event");
 
-            verify(jdbcTemplate).update(anyString(), any(Object[].class));
+            verify(jdbcTemplate).update(eq(JdbcOutboxPublisher.INSERT_SQL), any(), any(), any(), any(), any(), any(),
+                    any(), isNull(), any(), any());
+        }
+
+        @Test
+        @DisplayName("Stages an event under its ordering key")
+        void stagesConvertedEventUnderKey() {
+            when(mapper.toOutboxMessage("ecclesiaflow.domain-events", "auth.setup-token.issued.v1", "event"))
+                    .thenReturn(MESSAGE);
+
+            publisher.append("ecclesiaflow.domain-events", "auth.setup-token.issued.v1", "event", KEY);
+
+            verify(jdbcTemplate).update(eq(JdbcOutboxPublisher.INSERT_SQL), any(), any(), any(), any(), any(), any(),
+                    any(), eq(KEY), any(), any());
+        }
+
+        @Test
+        @DisplayName("Rejects a blank ordering key, which would chain unrelated messages together")
+        void rejectsBlankKey() {
+            assertThatThrownBy(() -> publisher.append(MESSAGE, " "))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("blank");
+            assertThatThrownBy(() -> publisher.append("ex", "rk", "event", ""))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("blank");
+
+            verifyNoInteractions(mapper);
+            verify(jdbcTemplate, never()).update(anyString(), any(Object[].class));
         }
 
         @Test

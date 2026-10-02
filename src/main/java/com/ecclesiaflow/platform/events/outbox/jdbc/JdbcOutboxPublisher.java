@@ -19,8 +19,8 @@ public class JdbcOutboxPublisher implements OutboxPublisher {
     static final String INSERT_SQL = """
             INSERT INTO outbox_event
                 (exchange, routing_key, payload, content_type, content_encoding, message_id, headers,
-                 status, attempts, next_attempt_at, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, CAST(? AS jsonb), 'PENDING', 0, ?, ?)""";
+                 aggregate_key, status, attempts, next_attempt_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, 'PENDING', 0, ?, ?)""";
 
     private final JdbcTemplate jdbcTemplate;
     private final AmqpOutboxMessageMapper mapper;
@@ -33,18 +33,31 @@ public class JdbcOutboxPublisher implements OutboxPublisher {
     }
 
     @Override
-    public void append(String exchange, String routingKey, Object event) {
+    public void append(String exchange, String routingKey, Object event, String aggregateKey) {
         requireWritableTransaction();
-        append(mapper.toOutboxMessage(exchange, routingKey, event));
+        requireUsableKey(aggregateKey);
+        insert(mapper.toOutboxMessage(exchange, routingKey, event), aggregateKey);
     }
 
     @Override
-    public void append(OutboxMessage message) {
+    public void append(OutboxMessage message, String aggregateKey) {
         requireWritableTransaction();
+        requireUsableKey(aggregateKey);
+        insert(message, aggregateKey);
+    }
+
+    private void insert(OutboxMessage message, String aggregateKey) {
         Timestamp now = Timestamp.from(clock.instant());
         jdbcTemplate.update(INSERT_SQL, message.exchange(), message.routingKey(), message.payload(),
                 message.contentType(), message.contentEncoding(), message.messageId(),
-                HeadersJson.write(message.headers()), now, now);
+                HeadersJson.write(message.headers()), aggregateKey, now, now);
+    }
+
+    // A blank key is almost always an unset id; it would queue unrelated messages behind each other.
+    private static void requireUsableKey(String aggregateKey) {
+        if (aggregateKey != null && aggregateKey.isBlank()) {
+            throw new IllegalArgumentException("An outbox ordering key must not be blank; pass null for none");
+        }
     }
 
     private void requireWritableTransaction() {
