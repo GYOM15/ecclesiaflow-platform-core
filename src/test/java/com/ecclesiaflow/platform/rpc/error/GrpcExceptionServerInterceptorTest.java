@@ -1,5 +1,6 @@
 package com.ecclesiaflow.platform.rpc.error;
 
+import com.ecclesiaflow.platform.error.DataIntegrityTestData;
 import com.ecclesiaflow.platform.error.ErrorCategory;
 import com.ecclesiaflow.platform.error.ErrorCategoryResolver;
 import com.ecclesiaflow.platform.error.ExceptionClassifier;
@@ -183,6 +184,51 @@ class GrpcExceptionServerInterceptorTest {
                 assertThat(failed.code()).isEqualTo(Status.Code.INTERNAL);
                 assertThat(failed.error()).isSameAs(boom);
             });
+        }
+
+        @Test
+        @DisplayName("a unique violation reaches the caller as ALREADY_EXISTS")
+        void uniqueViolationIsAlreadyExists() throws IOException {
+            serve((request, responses) -> {
+                throw DataIntegrityTestData.uniqueViolation();
+            });
+
+            assertThat(statusOfCall().getCode()).isEqualTo(Status.Code.ALREADY_EXISTS);
+            assertThat(failures()).singleElement()
+                    .satisfies(failed -> assertThat(failed.code()).isEqualTo(Status.Code.ALREADY_EXISTS));
+        }
+
+        @Test
+        @DisplayName("a foreign key violation is INTERNAL, opaque, and reported exactly once")
+        void foreignKeyViolationIsInternal() throws IOException {
+            RuntimeException violation = DataIntegrityTestData.foreignKeyViolation();
+            serve((request, responses) -> {
+                throw violation;
+            });
+
+            Status status = statusOfCall();
+
+            assertThat(status.getCode()).isEqualTo(Status.Code.INTERNAL);
+            assertThat(status.getDescription()).isEqualTo("Internal error");
+            assertThat(failures()).singleElement().satisfies(failed -> {
+                assertThat(failed.code()).isEqualTo(Status.Code.INTERNAL);
+                assertThat(failed.error()).isSameAs(violation);
+            });
+        }
+
+        @Test
+        @DisplayName("a NOT NULL violation is INTERNAL, opaque, and reported exactly once")
+        void notNullViolationIsInternal() throws IOException {
+            serve((request, responses) -> {
+                throw DataIntegrityTestData.notNullViolation();
+            });
+
+            Status status = statusOfCall();
+
+            assertThat(status.getCode()).isEqualTo(Status.Code.INTERNAL);
+            assertThat(status.getDescription()).isEqualTo("Internal error");
+            assertThat(failures()).singleElement()
+                    .satisfies(failed -> assertThat(failed.code()).isEqualTo(Status.Code.INTERNAL));
         }
 
         @Test

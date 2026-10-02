@@ -20,6 +20,8 @@ import java.io.UncheckedIOException;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpConnectTimeoutException;
+import java.sql.BatchUpdateException;
+import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -122,10 +124,8 @@ class ErrorCategoryResolverTest {
         }
 
         @Test
-        @DisplayName("a unique or integrity violation is a conflict, a lost optimistic lock is ABORTED")
-        void dataConflicts() {
-            assertThat(defaults.resolve(new DuplicateKeyException("dup"))).isEqualTo(ErrorCategory.ALREADY_EXISTS);
-            assertThat(defaults.resolve(new DataIntegrityViolationException("uk_email"))).isEqualTo(ErrorCategory.ALREADY_EXISTS);
+        @DisplayName("a lost optimistic lock is ABORTED")
+        void optimisticLock() {
             assertThat(defaults.resolve(new OptimisticLockingFailureException("stale"))).isEqualTo(ErrorCategory.ABORTED);
         }
 
@@ -162,6 +162,83 @@ class ErrorCategoryResolverTest {
             a.initCause(b);
 
             assertThat(defaults.resolve(a)).isEqualTo(ErrorCategory.INTERNAL);
+        }
+    }
+
+    @Nested
+    @DisplayName("an integrity violation")
+    class IntegrityViolation {
+
+        @Test
+        @DisplayName("on a unique index is ALREADY_EXISTS: a lost race, not a bug")
+        void uniqueIsAConflict() {
+            assertThat(defaults.resolve(DataIntegrityTestData.uniqueViolation())).isEqualTo(ErrorCategory.ALREADY_EXISTS);
+            assertThat(defaults.resolve(new DuplicateKeyException("dup"))).isEqualTo(ErrorCategory.ALREADY_EXISTS);
+        }
+
+        @Test
+        @DisplayName("on a unique index is recognised with the driver exception as direct cause, as JDBC raises it")
+        void uniqueFromJdbc() {
+            DataIntegrityViolationException jdbc = new DataIntegrityViolationException("PreparedStatementCallback",
+                    new SQLException("duplicate key", DataIntegrityTestData.UNIQUE_VIOLATION));
+
+            assertThat(defaults.resolve(jdbc)).isEqualTo(ErrorCategory.ALREADY_EXISTS);
+        }
+
+        @Test
+        @DisplayName("on a unique index is recognised when an adapter wraps it")
+        void uniqueWrapped() {
+            Throwable wrapped = new AdapterException("save failed", DataIntegrityTestData.uniqueViolation());
+
+            assertThat(defaults.resolve(wrapped)).isEqualTo(ErrorCategory.ALREADY_EXISTS);
+        }
+
+        @Test
+        @DisplayName("on a unique index is recognised from a failed JDBC batch")
+        void uniqueInABatch() {
+            DataIntegrityViolationException batch = new DataIntegrityViolationException("batch", new BatchUpdateException(
+                    "Batch entry 0 was aborted", DataIntegrityTestData.UNIQUE_VIOLATION, new int[0]));
+
+            assertThat(defaults.resolve(batch)).isEqualTo(ErrorCategory.ALREADY_EXISTS);
+        }
+
+        @Test
+        @DisplayName("on a foreign key is INTERNAL: the write referenced a row that does not exist")
+        void foreignKeyIsInternal() {
+            assertThat(defaults.resolve(DataIntegrityTestData.foreignKeyViolation())).isEqualTo(ErrorCategory.INTERNAL);
+        }
+
+        @Test
+        @DisplayName("on a NOT NULL column is INTERNAL: the write left out a required value")
+        void notNullIsInternal() {
+            assertThat(defaults.resolve(DataIntegrityTestData.notNullViolation())).isEqualTo(ErrorCategory.INTERNAL);
+        }
+
+        @Test
+        @DisplayName("on a check constraint, or with no SQLState to read, is INTERNAL")
+        void otherViolationsAreInternal() {
+            assertThat(defaults.resolve(DataIntegrityTestData.violation("23514", "check_amount_positive")))
+                    .isEqualTo(ErrorCategory.INTERNAL);
+            assertThat(defaults.resolve(new DataIntegrityViolationException("uk_email"))).isEqualTo(ErrorCategory.INTERNAL);
+            assertThat(defaults.resolve(DataIntegrityTestData.violation(null, "no state"))).isEqualTo(ErrorCategory.INTERNAL);
+        }
+
+        @Test
+        @DisplayName("is INTERNAL even when an adapter wraps it")
+        void foreignKeyWrapped() {
+            Throwable wrapped = new AdapterException("save failed", DataIntegrityTestData.foreignKeyViolation());
+
+            assertThat(defaults.resolve(wrapped)).isEqualTo(ErrorCategory.INTERNAL);
+        }
+
+        @Test
+        @DisplayName("can still be given a meaning by a module classifier")
+        void moduleClassifierWins() {
+            ExceptionClassifier finance = error -> error instanceof DataIntegrityViolationException
+                    ? Optional.of(ErrorCategory.FAILED_PRECONDITION) : Optional.empty();
+
+            assertThat(new ErrorCategoryResolver(List.of(finance)).resolve(DataIntegrityTestData.foreignKeyViolation()))
+                    .isEqualTo(ErrorCategory.FAILED_PRECONDITION);
         }
     }
 

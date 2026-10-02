@@ -1,5 +1,6 @@
 package com.ecclesiaflow.platform.rpc.error;
 
+import com.ecclesiaflow.platform.error.DataIntegrityTestData;
 import com.ecclesiaflow.platform.error.ErrorCategory;
 import com.ecclesiaflow.platform.error.ErrorCategoryResolver;
 import com.ecclesiaflow.platform.error.ExceptionClassifier;
@@ -49,6 +50,31 @@ class GrpcStatusMapperTest {
     @DisplayName("an internal failure never reveals its message to the caller")
     void internalIsOpaque() {
         Status status = mapper.toStatus(new RuntimeException("password authentication failed for user ef_app"));
+
+        assertThat(status.getCode()).isEqualTo(Status.Code.INTERNAL);
+        assertThat(status.getDescription()).isEqualTo("Internal error");
+    }
+
+    @Test
+    @DisplayName("a unique violation is ALREADY_EXISTS")
+    void uniqueViolation() {
+        assertThat(mapper.toStatus(DataIntegrityTestData.uniqueViolation()).getCode())
+                .isEqualTo(Status.Code.ALREADY_EXISTS);
+    }
+
+    @Test
+    @DisplayName("a foreign key violation is INTERNAL and opaque, never ALREADY_EXISTS")
+    void foreignKeyViolation() {
+        Status status = mapper.toStatus(DataIntegrityTestData.foreignKeyViolation());
+
+        assertThat(status.getCode()).isEqualTo(Status.Code.INTERNAL);
+        assertThat(status.getDescription()).isEqualTo("Internal error");
+    }
+
+    @Test
+    @DisplayName("a NOT NULL violation is INTERNAL and opaque, never ALREADY_EXISTS")
+    void notNullViolation() {
+        Status status = mapper.toStatus(DataIntegrityTestData.notNullViolation());
 
         assertThat(status.getCode()).isEqualTo(Status.Code.INTERNAL);
         assertThat(status.getDescription()).isEqualTo("Internal error");

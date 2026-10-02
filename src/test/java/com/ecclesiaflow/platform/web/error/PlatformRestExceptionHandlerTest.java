@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.ecclesiaflow.platform.error.DataIntegrityTestData;
 import com.ecclesiaflow.platform.error.ErrorCategory;
 import com.ecclesiaflow.platform.error.ErrorCategoryResolver;
 import com.ecclesiaflow.platform.error.ExceptionClassifier;
@@ -21,7 +22,6 @@ import org.mockito.Answers;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.support.DefaultMessageSourceResolvable;
 import org.springframework.core.MethodParameter;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.http.HttpHeaders;
@@ -409,7 +409,7 @@ class PlatformRestExceptionHandlerTest {
         @Test
         @DisplayName("a unique-index race is 409 and does not echo the SQL")
         void uniqueViolation() throws Exception {
-            failNextWith(new DataIntegrityViolationException(
+            failNextWith(DataIntegrityTestData.violation(DataIntegrityTestData.UNIQUE_VIOLATION,
                     "duplicate key value violates unique constraint \"uk_member_email\" Detail: (email)=(alice@church.org)"));
 
             mvc.perform(get("/members/" + UUID.randomUUID()))
@@ -420,6 +420,34 @@ class PlatformRestExceptionHandlerTest {
                 assertThat(line.getLevel()).isEqualTo(Level.WARN);
                 assertThat(line.getFormattedMessage()).doesNotContain("alice@church.org");
             });
+        }
+
+        @Test
+        @DisplayName("a foreign key violation is a bug: 500, opaque, logged once at ERROR")
+        void foreignKeyViolation() throws Exception {
+            failNextWith(DataIntegrityTestData.foreignKeyViolation());
+
+            mvc.perform(get("/members/" + UUID.randomUUID()))
+                    .andExpect(status().isInternalServerError())
+                    .andExpect(jsonPath("$.errorCode").value("INTERNAL_ERROR"))
+                    .andExpect(jsonPath("$.message").value("An unexpected error occurred."));
+            assertThat(logs.list).singleElement().satisfies(line -> {
+                assertThat(line.getLevel()).isEqualTo(Level.ERROR);
+                assertThat(line.getThrowableProxy()).isNotNull();
+                assertThat(line.getFormattedMessage()).contains("DataIntegrityViolationException");
+            });
+        }
+
+        @Test
+        @DisplayName("a NOT NULL violation is a bug: 500, opaque, logged once at ERROR")
+        void notNullViolation() throws Exception {
+            failNextWith(DataIntegrityTestData.notNullViolation());
+
+            mvc.perform(get("/members/" + UUID.randomUUID()))
+                    .andExpect(status().isInternalServerError())
+                    .andExpect(jsonPath("$.errorCode").value("INTERNAL_ERROR"))
+                    .andExpect(jsonPath("$.message").value("An unexpected error occurred."));
+            assertThat(logs.list).singleElement().satisfies(line -> assertThat(line.getLevel()).isEqualTo(Level.ERROR));
         }
 
         @Test

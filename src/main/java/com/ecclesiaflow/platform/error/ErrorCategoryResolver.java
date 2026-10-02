@@ -6,6 +6,7 @@ import io.grpc.Status;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
 
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -40,9 +41,13 @@ public final class ErrorCategoryResolver {
             "feign.FeignException$FeignServerException",
             "io.github.resilience4j.circuitbreaker.CallNotPermittedException");
 
-    // Unique indexes are what raises these here; a lost race on one is a conflict, not a bug.
-    private static final Map<String, ErrorCategory> DATA_CONFLICTS = Map.of(
-            "org.springframework.dao.DataIntegrityViolationException", ErrorCategory.ALREADY_EXISTS,
+    // Only a unique index makes an integrity violation a lost race. A foreign key or a NOT NULL
+    // column refused is a bug in the write, and must stay visible as one.
+    private static final String DUPLICATE_KEY = "org.springframework.dao.DuplicateKeyException";
+    private static final String DATA_INTEGRITY_VIOLATION = "org.springframework.dao.DataIntegrityViolationException";
+    private static final String UNIQUE_VIOLATION_SQL_STATE = "23505";
+
+    private static final Map<String, ErrorCategory> CONCURRENCY_FAILURES = Map.of(
             "org.springframework.dao.ConcurrencyFailureException", ErrorCategory.ABORTED,
             "jakarta.persistence.OptimisticLockException", ErrorCategory.ABORTED);
 
@@ -75,14 +80,38 @@ public final class ErrorCategoryResolver {
         if (error instanceof RateLimitExceededException) {
             return ErrorCategory.RESOURCE_EXHAUSTED;
         }
-        for (Throwable link : chain) {
-            Optional<ErrorCategory> category = byTypeName(link, DATA_CONFLICTS)
+        for (int i = 0; i < chain.size(); i++) {
+            Throwable link = chain.get(i);
+            List<Throwable> causes = chain.subList(i, chain.size());
+            Optional<ErrorCategory> category = integrityViolation(link, causes)
+                    .or(() -> byTypeName(link, CONCURRENCY_FAILURES))
                     .or(() -> byTypeName(link, SECURITY_REFUSALS));
             if (category.isPresent()) {
                 return category.get();
             }
         }
         return ErrorCategory.INTERNAL;
+    }
+
+    private static Optional<ErrorCategory> integrityViolation(Throwable link, List<Throwable> causes) {
+        if (isA(link, DUPLICATE_KEY)) {
+            return Optional.of(ErrorCategory.ALREADY_EXISTS);
+        }
+        if (!isA(link, DATA_INTEGRITY_VIOLATION)) {
+            return Optional.empty();
+        }
+        boolean unique = causes.stream().anyMatch(cause -> cause instanceof SQLException sql
+                && UNIQUE_VIOLATION_SQL_STATE.equals(sql.getSQLState()));
+        return Optional.of(unique ? ErrorCategory.ALREADY_EXISTS : ErrorCategory.INTERNAL);
+    }
+
+    private static boolean isA(Throwable error, String typeName) {
+        for (Class<?> type = error.getClass(); type != null; type = type.getSuperclass()) {
+            if (type.getName().equals(typeName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isDependencyFailure(Throwable error) {
