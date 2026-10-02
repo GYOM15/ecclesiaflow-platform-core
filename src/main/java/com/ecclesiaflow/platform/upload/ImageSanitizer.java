@@ -14,8 +14,11 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Iterator;
 import java.util.Optional;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Turns an untrusted user-uploaded image into a safe, freshly re-encoded image
@@ -49,6 +52,12 @@ import java.util.Optional;
  * → subsampled decode → resample into a fresh raster → native ImageIO re-encode
  * to the policy's output format. The output type is authoritative and sniffed,
  * never the client's declaration.</p>
+ *
+ * <p>Subsampling bounds one decode, not a burst of them: every decode from the
+ * header guard to the re-encode holds one of a fixed number of slots, waits a
+ * bounded time for one, and is refused with
+ * {@link ImageDecodeCapacityExceededException} when none frees up. The slots belong
+ * to the instance, so the auto-configured bean is the one to share.</p>
  */
 @Component
 public class ImageSanitizer {
@@ -61,6 +70,47 @@ public class ImageSanitizer {
     static final long WEBP_MAX_INPUT_PIXELS = 4_000_000L;
 
     /**
+     * One decode at a time. A WebP at its cap holds about 90 MB, so two would take
+     * nearly two thirds of the 288 MB heap a 384 MB container gets; with one CPU per
+     * container, a second slot would add that risk without adding throughput.
+     */
+    public static final int DEFAULT_MAX_CONCURRENT_DECODES = 1;
+
+    /**
+     * Covers a few large decodes queued ahead, and keeps the answer well inside the
+     * 20 s the web front end gives an image upload.
+     */
+    public static final Duration DEFAULT_DECODE_WAIT = Duration.ofSeconds(5);
+
+    private final Semaphore decodeSlots;
+    private final int maxConcurrentDecodes;
+    private final Duration decodeWait;
+
+    /** A sanitizer with the default decode bound and wait. */
+    public ImageSanitizer() {
+        this(DEFAULT_MAX_CONCURRENT_DECODES, DEFAULT_DECODE_WAIT);
+    }
+
+    /**
+     * @param maxConcurrentDecodes how many decodes may run at once; at least 1
+     * @param decodeWait           how long an upload waits for a slot before it is
+     *                             refused; zero refuses at once
+     */
+    public ImageSanitizer(int maxConcurrentDecodes, Duration decodeWait) {
+        if (maxConcurrentDecodes < 1) {
+            throw new IllegalArgumentException(
+                    "maxConcurrentDecodes must be at least 1, was " + maxConcurrentDecodes);
+        }
+        if (decodeWait == null || decodeWait.isNegative()) {
+            throw new IllegalArgumentException("decodeWait must be zero or positive, was " + decodeWait);
+        }
+        this.maxConcurrentDecodes = maxConcurrentDecodes;
+        this.decodeWait = decodeWait;
+        // Fair, so an upload that has waited is not overtaken by one that just arrived.
+        this.decodeSlots = new Semaphore(maxConcurrentDecodes, true);
+    }
+
+    /**
      * Decodes, sanitizes and re-encodes an image upload per {@code policy}.
      *
      * @param bytes  the raw upload bytes exactly as received (declared type is
@@ -70,6 +120,8 @@ public class ImageSanitizer {
      *         authoritative output content type
      * @throws UploadRejectedException if the upload is too large, of an
      *         unsupported type, claims too many pixels, or cannot be decoded
+     * @throws ImageDecodeCapacityExceededException if no decode slot freed up
+     *         within the allowed wait
      * @throws IllegalStateException   if the JVM has no writer for the target
      *         format (a server misconfiguration, not the uploader's fault)
      */
@@ -93,19 +145,39 @@ public class ImageSanitizer {
                     "detected media type " + detected + " is not an accepted image input");
         }
 
-        // 3) + 4) Pixel-bomb guard on the header, then a subsampled decode.
         long maxPixels = MagicBytes.IMAGE_WEBP.equals(detected)
                 ? Math.min(policy.maxInputPixels(), WEBP_MAX_INPUT_PIXELS)
                 : policy.maxInputPixels();
-        DecodedImage source = decodeWithinLimits(bytes, maxPixels, policy.maxDimension());
+        // The slot is held until the re-encode: the decoded source stays live until then.
+        acquireDecodeSlot();
+        try {
+            // 3) + 4) Pixel-bomb guard on the header, then a subsampled decode.
+            DecodedImage source = decodeWithinLimits(bytes, maxPixels, policy.maxDimension());
 
-        // 5) + 6) Resample into a fresh raster (kills steganography, strips
-        //          metadata, neutralises polyglots) and re-encode natively.
-        byte[] reencoded = redrawAndEncode(source, policy);
-        String outputType = policy.outputType() == ImagePolicy.OutputType.JPEG
-                ? MagicBytes.IMAGE_JPEG
-                : MagicBytes.IMAGE_PNG;
-        return new SanitizedUpload(reencoded, outputType, reencoded.length);
+            // 5) + 6) Resample into a fresh raster (kills steganography, strips
+            //          metadata, neutralises polyglots) and re-encode natively.
+            byte[] reencoded = redrawAndEncode(source, policy);
+            String outputType = policy.outputType() == ImagePolicy.OutputType.JPEG
+                    ? MagicBytes.IMAGE_JPEG
+                    : MagicBytes.IMAGE_PNG;
+            return new SanitizedUpload(reencoded, outputType, reencoded.length);
+        } finally {
+            decodeSlots.release();
+        }
+    }
+
+    private void acquireDecodeSlot() {
+        try {
+            if (decodeSlots.tryAcquire(decodeWait.toNanos(), TimeUnit.NANOSECONDS)) {
+                return;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ImageDecodeCapacityExceededException(
+                    "interrupted while waiting for an image decode slot", e);
+        }
+        throw new ImageDecodeCapacityExceededException("all " + maxConcurrentDecodes
+                + " image decode slots stayed busy for " + decodeWait.toMillis() + " ms");
     }
 
     /**
@@ -225,7 +297,9 @@ public class ImageSanitizer {
 
     /**
      * Convenience overload that returns {@link Optional#empty()} instead of
-     * throwing, for call sites that prefer to branch on success rather than catch.
+     * throwing an {@link UploadRejectedException}, for call sites that prefer to
+     * branch on success rather than catch. A full decoder still throws: the upload
+     * was not judged, so an empty answer would misreport it as rejected.
      */
     public Optional<SanitizedUpload> trySanitize(byte[] bytes, ImagePolicy policy) {
         try {

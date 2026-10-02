@@ -1,5 +1,8 @@
 package com.ecclesiaflow.platform.upload;
 
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -15,7 +18,16 @@ import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.CRC32;
 import java.util.zip.Deflater;
 import java.util.zip.DeflaterOutputStream;
@@ -348,6 +360,210 @@ class ImageSanitizerTest {
             long before = threads.getCurrentThreadAllocatedBytes();
             action.run();
             return threads.getCurrentThreadAllocatedBytes() - before;
+        }
+    }
+
+    @Nested
+    @DisplayName("concurrent decodes")
+    class ConcurrentDecodes {
+
+        private static final Duration LONG_ENOUGH_TO_SHOW_A_LEAK = Duration.ofMillis(500);
+        private static final long MB = 1024L * 1024L;
+
+        private GatedImageDecoder decoder;
+        private ExecutorService pool;
+
+        @BeforeEach
+        void installGate() {
+            decoder = GatedImageDecoder.install();
+            pool = Executors.newCachedThreadPool();
+        }
+
+        @AfterEach
+        void removeGate() {
+            decoder.close();
+            pool.shutdownNow();
+        }
+
+        @Test
+        @DisplayName("a burst of uploads never decodes more images at once than the default bound")
+        void aBurstStaysWithinTheDefaultBound() throws Exception {
+            ImageSanitizer defaults = new ImageSanitizer();
+
+            List<Future<SanitizedUpload>> uploads = submit(6, defaults);
+
+            assertThat(decoder.awaitInFlight(1, Duration.ofSeconds(5))).isTrue();
+            assertThat(decoder.awaitInFlight(2, LONG_ENOUGH_TO_SHOW_A_LEAK))
+                    .as("a second decode started while the first still held its raster")
+                    .isFalse();
+            decoder.open();
+            assertThat(completed(uploads)).allMatch(upload -> upload.contentType().equals(MagicBytes.IMAGE_JPEG));
+            assertThat(decoder.maxInFlight()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("a configured bound is filled, and never exceeded")
+        void aConfiguredBoundIsHeldExactly() throws Exception {
+            ImageSanitizer three = new ImageSanitizer(3, Duration.ofSeconds(10));
+
+            List<Future<SanitizedUpload>> uploads = submit(8, three);
+
+            assertThat(decoder.awaitInFlight(3, Duration.ofSeconds(5))).isTrue();
+            assertThat(decoder.awaitInFlight(4, LONG_ENOUGH_TO_SHOW_A_LEAK)).isFalse();
+            decoder.open();
+            assertThat(completed(uploads)).hasSize(8);
+            assertThat(decoder.maxInFlight()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("an upload that finds every slot busy for the whole wait is refused, never decoded")
+        void aFullDecoderRefusesAfterTheWait() throws Exception {
+            ImageSanitizer one = new ImageSanitizer(1, Duration.ofMillis(200));
+            byte[] image = decoder.markedPng();
+            Future<SanitizedUpload> holder = pool.submit(() -> one.sanitize(image, ImagePolicy.avatar()));
+            assertThat(decoder.awaitInFlight(1, Duration.ofSeconds(5))).isTrue();
+
+            Future<Long> late = pool.submit(() -> {
+                long start = System.nanoTime();
+                assertThatThrownBy(() -> one.sanitize(image, ImagePolicy.avatar()))
+                        .isInstanceOf(ImageDecodeCapacityExceededException.class)
+                        .isNotInstanceOf(UploadRejectedException.class)
+                        .hasMessage("all 1 image decode slots stayed busy for 200 ms");
+                return Duration.ofNanos(System.nanoTime() - start).toMillis();
+            });
+
+            assertThat(late.get(5, TimeUnit.SECONDS)).as("waited the configured time first").isGreaterThanOrEqualTo(200L);
+            decoder.open();
+            assertThat(holder.get(5, TimeUnit.SECONDS).contentType()).isEqualTo(MagicBytes.IMAGE_JPEG);
+            assertThat(decoder.maxInFlight()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("a zero wait refuses at once while the slot is taken")
+        void aZeroWaitRefusesAtOnce() throws Exception {
+            ImageSanitizer impatient = new ImageSanitizer(1, Duration.ZERO);
+            List<Future<SanitizedUpload>> holder = submit(1, impatient);
+            assertThat(decoder.awaitInFlight(1, Duration.ofSeconds(5))).isTrue();
+
+            assertThatThrownBy(() -> impatient.sanitize(pngBytes(10, 10, false), ImagePolicy.avatar()))
+                    .isInstanceOf(ImageDecodeCapacityExceededException.class);
+
+            decoder.open();
+            assertThat(completed(holder)).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("the slot is given back whether the decode succeeds or the upload is rejected")
+        void theSlotIsGivenBackWhateverTheOutcome() throws Exception {
+            ImageSanitizer impatient = new ImageSanitizer(1, Duration.ZERO);
+            byte[] corrupt = {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4, 5, 6, 7, 8};
+            ImagePolicy fiftyPixels = new ImagePolicy(
+                    MB, Set.of(MagicBytes.IMAGE_PNG), 50L, 512, ImagePolicy.OutputType.JPEG, false);
+
+            assertRejected(() -> impatient.sanitize(corrupt, ImagePolicy.avatar()),
+                    UploadRejectedException.Reason.UNREADABLE);
+            assertRejected(() -> impatient.sanitize(pngBytes(10, 10, false), fiftyPixels),
+                    UploadRejectedException.Reason.TOO_MANY_PIXELS);
+
+            assertThat(impatient.sanitize(pngBytes(10, 10, false), ImagePolicy.avatar()).contentType())
+                    .isEqualTo(MagicBytes.IMAGE_JPEG);
+        }
+
+        @Test
+        @DisplayName("an upload refused on its size or type never waits for a slot")
+        void cheapRejectionsTakeNoSlot() throws Exception {
+            ImageSanitizer impatient = new ImageSanitizer(1, Duration.ZERO);
+            List<Future<SanitizedUpload>> holder = submit(1, impatient);
+            assertThat(decoder.awaitInFlight(1, Duration.ofSeconds(5))).isTrue();
+
+            assertRejected(() -> impatient.sanitize(new byte[3 * (int) MB], ImagePolicy.avatar()),
+                    UploadRejectedException.Reason.TOO_LARGE);
+            assertRejected(() -> impatient.sanitize("not an image".getBytes(StandardCharsets.US_ASCII),
+                    ImagePolicy.avatar()), UploadRejectedException.Reason.UNSUPPORTED_TYPE);
+
+            decoder.open();
+            assertThat(completed(holder)).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("an upload interrupted while it waits is refused and keeps its interrupt")
+        void anInterruptedWaitIsRefused() throws Exception {
+            ImageSanitizer patient = new ImageSanitizer(1, Duration.ofSeconds(30));
+            List<Future<SanitizedUpload>> holder = submit(1, patient);
+            assertThat(decoder.awaitInFlight(1, Duration.ofSeconds(5))).isTrue();
+            AtomicReference<Throwable> refusal = new AtomicReference<>();
+            AtomicBoolean interruptKept = new AtomicBoolean();
+
+            Thread waiter = new Thread(() -> {
+                try {
+                    patient.sanitize(pngBytes(10, 10, false), ImagePolicy.avatar());
+                } catch (Throwable e) {
+                    refusal.set(e);
+                    interruptKept.set(Thread.currentThread().isInterrupted());
+                }
+            });
+            waiter.start();
+            waiter.interrupt();
+            waiter.join(5_000);
+
+            assertThat(refusal.get())
+                    .isInstanceOf(ImageDecodeCapacityExceededException.class)
+                    .hasCauseInstanceOf(InterruptedException.class);
+            assertThat(interruptKept).isTrue();
+            decoder.open();
+            assertThat(completed(holder)).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("trySanitize still throws when no slot frees up: the upload was not judged")
+        void trySanitizeDoesNotHideAFullDecoder() throws Exception {
+            ImageSanitizer impatient = new ImageSanitizer(1, Duration.ZERO);
+            List<Future<SanitizedUpload>> holder = submit(1, impatient);
+            assertThat(decoder.awaitInFlight(1, Duration.ofSeconds(5))).isTrue();
+
+            assertThatThrownBy(() -> impatient.trySanitize(pngBytes(10, 10, false), ImagePolicy.avatar()))
+                    .isInstanceOf(ImageDecodeCapacityExceededException.class);
+
+            decoder.open();
+            assertThat(completed(holder)).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("a bound below one, or a negative or missing wait, is refused at construction")
+        void refusesAnUnusableBound() {
+            assertThatThrownBy(() -> new ImageSanitizer(0, Duration.ofSeconds(1)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("maxConcurrentDecodes");
+            assertThatThrownBy(() -> new ImageSanitizer(1, Duration.ofMillis(-1)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("decodeWait");
+            assertThatThrownBy(() -> new ImageSanitizer(1, null))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("decodeWait");
+        }
+
+        private void assertRejected(ThrowingCallable upload, UploadRejectedException.Reason reason) {
+            assertThatThrownBy(upload)
+                    .isInstanceOf(UploadRejectedException.class)
+                    .extracting(e -> ((UploadRejectedException) e).getReason())
+                    .isEqualTo(reason);
+        }
+
+        private List<Future<SanitizedUpload>> submit(int count, ImageSanitizer target) {
+            byte[] image = decoder.markedPng();
+            List<Future<SanitizedUpload>> uploads = new ArrayList<>();
+            for (int i = 0; i < count; i++) {
+                uploads.add(pool.submit(() -> target.sanitize(image, ImagePolicy.avatar())));
+            }
+            return uploads;
+        }
+
+        private static List<SanitizedUpload> completed(List<Future<SanitizedUpload>> uploads) throws Exception {
+            List<SanitizedUpload> results = new ArrayList<>();
+            for (Future<SanitizedUpload> upload : uploads) {
+                results.add(upload.get(10, TimeUnit.SECONDS));
+            }
+            return results;
         }
     }
 
