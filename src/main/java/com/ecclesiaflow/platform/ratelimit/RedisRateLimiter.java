@@ -4,13 +4,20 @@ import com.ecclesiaflow.platform.ratelimit.events.RateLimitEvents;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 
-import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
 /**
- * A fixed-window counter in Redis: one {@code INCRBY}, an {@code EXPIRE} on the
- * call that created the key, and a {@code DECRBY} giving back a refused call's cost.
+ * A fixed-window counter in Redis, admitted by one Lua script: the cost is added
+ * only if it fits under the limit, and the window's expiry is set on the write
+ * that created the key.
+ *
+ * <p><strong>Why a script.</strong> Adding first and giving a refused cost back
+ * afterwards left a gap in which a concurrent caller saw that cost and was refused
+ * although the window still had room. Redis runs a script without interleaving
+ * any other command, so a refused call never touches the counter.
  *
  * <p><strong>Why the expiry is set only on the first hit.</strong> Refreshing it
  * on every call would let a steady stream hold the window open for ever, so the
@@ -34,6 +41,24 @@ public class RedisRateLimiter implements RateLimiter {
     /** Namespaced so these counters can never collide with a session or a cache. */
     static final String KEY_PREFIX = "ecclesiaflow:ratelimit:";
 
+    /** What the script answers for a refused call; an admitted one gets the new count, at least 1. */
+    static final long REFUSED = -1L;
+
+    // ARGV: cost, limit, window in seconds. Only a key with no expiry gets one, so a
+    // steady stream never extends the window and a key left without one still dies.
+    static final RedisScript<Long> CONSUME_SCRIPT = RedisScript.of("""
+            local cost = tonumber(ARGV[1])
+            local count = tonumber(redis.call('GET', KEYS[1]) or '0')
+            if count + cost > tonumber(ARGV[2]) then
+              return -1
+            end
+            count = redis.call('INCRBY', KEYS[1], cost)
+            if redis.call('TTL', KEYS[1]) < 0 then
+              redis.call('EXPIRE', KEYS[1], ARGV[3])
+            end
+            return count
+            """, Long.class);
+
     private final StringRedisTemplate redis;
     private final ApplicationEventPublisher events;
 
@@ -48,32 +73,18 @@ public class RedisRateLimiter implements RateLimiter {
         String key = KEY_PREFIX + rule.name() + ':' + subject + ':' + windowNumber;
 
         try {
-            Long count = redis.opsForValue().increment(key, cost);
+            // String arguments: the template's serializer only takes strings.
+            Long count = redis.execute(CONSUME_SCRIPT, List.of(key),
+                    String.valueOf(cost), String.valueOf(rule.limit()), String.valueOf(windowSeconds));
             if (count == null) {
                 return unreadable(rule, null);
             }
-            // The expiry is set on the call that CREATED the key, which for a
-            // batch is the one whose count lands exactly on its own cost.
-            if (count == cost) {
-                redis.expire(key, Duration.ofSeconds(windowSeconds));
-            }
-            if (count > rule.limit()) {
-                refund(key, cost);
+            if (count == REFUSED) {
                 return RateLimitDecision.refused(rule.limit(), windowSeconds - (now % windowSeconds));
             }
             return RateLimitDecision.allowed(rule.limit(), (int) (rule.limit() - count));
         } catch (RuntimeException e) {
             return unreadable(rule, e);
-        }
-    }
-
-    // A refused call admitted nothing, so it must not spend the window. Between the
-    // increment and this refund a concurrent caller may see the cost and be refused.
-    private void refund(String key, int cost) {
-        try {
-            redis.opsForValue().decrement(key, cost);
-        } catch (RuntimeException e) {
-            // The refusal stands; the unrefunded cost only lasts until the window ends.
         }
     }
 
