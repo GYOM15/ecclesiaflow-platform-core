@@ -4,8 +4,13 @@ import com.ecclesiaflow.platform.events.signing.DomainEventSigner;
 import com.ecclesiaflow.platform.events.signing.DomainEventVerifier;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import nl.altindag.log.LogCaptor;
 import org.aopalliance.intercept.MethodInvocation;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
@@ -18,6 +23,8 @@ import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -267,5 +274,51 @@ class VerifyingListenerAdviceTest {
         advice(false).invoke(inv);
 
         assertThat(counted("accept_unverified")).isEqualTo(1d);
+    }
+
+    @Nested
+    @DisplayName("log lines")
+    class LogLines {
+
+        private static final String FORGED = "2026-09-17T09:00:00Z INFO granted ADMIN to mallory";
+
+        private VerifyingListenerAdvice deciding(DomainEventVerifier.Decision decision) {
+            DomainEventVerifier verifier = mock(DomainEventVerifier.class);
+            when(verifier.verify(any(), any(), any(), any(), any(), any())).thenReturn(decision);
+            return new VerifyingListenerAdvice(verifier);
+        }
+
+        @ParameterizedTest
+        @EnumSource(value = DomainEventVerifier.Decision.class, names = "ACCEPT", mode = EnumSource.Mode.EXCLUDE)
+        @DisplayName("a CR/LF or escape sequence from the publisher cannot forge or rewrite a log line")
+        void noValueFromTheMessageBreaksALogLine(DomainEventVerifier.Decision decision) throws Throwable {
+            Message hostile = message(EXCHANGE + "\u001b[2K", ROUTING_KEY + "\r\n" + FORGED,
+                    signature(), "1\n" + FORGED);
+
+            try (LogCaptor logs = LogCaptor.forClass(VerifyingListenerAdvice.class)) {
+                Throwable thrown = catchThrowable(() -> deciding(decision).invoke(invocationWith(hostile)));
+
+                assertThat(thrown == null).isEqualTo(decision.isAccepted());
+                assertThat(logs.getLogs()).singleElement().asString()
+                        .doesNotContain("\r").doesNotContain("\n").doesNotContain("\u001b")
+                        .contains("exchange=" + EXCHANGE + "\\u001B[2K")
+                        .contains("routing_key=" + ROUTING_KEY + "\\r\\n" + FORGED);
+            }
+        }
+
+        @Test
+        @DisplayName("signed_at is escaped like the routing key")
+        void signedAtIsEscaped() throws Throwable {
+            Message replayed = message(EXCHANGE, ROUTING_KEY, signature(), "1\r\n" + FORGED);
+
+            try (LogCaptor logs = LogCaptor.forClass(VerifyingListenerAdvice.class)) {
+                assertThatThrownBy(() -> deciding(DomainEventVerifier.Decision.REJECT_STALE)
+                        .invoke(invocationWith(replayed)))
+                        .isInstanceOf(AmqpRejectAndDontRequeueException.class);
+
+                assertThat(logs.getErrorLogs()).singleElement().asString()
+                        .contains("signed_at=1\\r\\n" + FORGED);
+            }
+        }
     }
 }

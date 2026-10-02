@@ -13,8 +13,9 @@ import java.util.regex.Pattern;
  * <p>Helpers cover the typical sources of leakage: emails ({@link #maskEmail}),
  * phone numbers ({@link #maskPhone}), message bodies ({@link #maskBody}), JWTs
  * and tokens ({@link #maskAny}, {@link #maskUrlQueryParam}), database / service
- * identifiers ({@link #maskId}), and exception messages produced by
- * infrastructure layers ({@link #sanitizeInfra}, {@link #rootMessage}).
+ * identifiers ({@link #maskId}), exception messages produced by
+ * infrastructure layers ({@link #sanitizeInfra}, {@link #rootMessage}), and
+ * values a remote party chose, such as message headers ({@link #escapeControlChars}).
  */
 public final class SecurityMaskingUtils {
 
@@ -234,6 +235,42 @@ public final class SecurityMaskingUtils {
         s = HOST_PORT_IN_TEXT.matcher(s).replaceAll(Matcher.quoteReplacement("[HOST:PORT]"));
         s = HOST_IN_TEXT.matcher(s).replaceAll(Matcher.quoteReplacement("[HOST]"));
         return s;
+    }
+
+    /**
+     * Escapes what would let an untrusted value forge or disguise a log line:
+     * {@code "a\r\nb"} → {@code "a\\r\\nb"}, other controls, line and paragraph
+     * separators and invisible format characters → {@code \\uXXXX}.
+     */
+    public static String escapeControlChars(String value) {
+        if (value == null || value.codePoints().noneMatch(SecurityMaskingUtils::isLogControl)) return value;
+
+        StringBuilder escaped = new StringBuilder(value.length() + 16);
+        value.codePoints().forEach(cp -> appendEscaped(escaped, cp));
+        return escaped.toString();
+    }
+
+    private static void appendEscaped(StringBuilder out, int cp) {
+        if (!isLogControl(cp)) {
+            out.appendCodePoint(cp);
+            return;
+        }
+        switch (cp) {
+            case '\r' -> out.append("\\r");
+            case '\n' -> out.append("\\n");
+            case '\t' -> out.append("\\t");
+            default -> {
+                for (char unit : Character.toChars(cp)) out.append(String.format("\\u%04X", (int) unit));
+            }
+        }
+    }
+
+    // Line breaks start a forged line; the other controls and the format
+    // characters (bidi overrides, tags) rewrite how the real one reads.
+    private static boolean isLogControl(int cp) {
+        int type = Character.getType(cp);
+        return type == Character.CONTROL || type == Character.FORMAT
+                || type == Character.LINE_SEPARATOR || type == Character.PARAGRAPH_SEPARATOR;
     }
 
     public static String abbreviate(String s, int max) {

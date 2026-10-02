@@ -524,6 +524,55 @@ class SecurityMaskingUtilsTest {
     }
 
     @Nested
+    @DisplayName("escapeControlChars")
+    class EscapeControlChars {
+
+        @Test
+        @DisplayName("CR, LF and tab are written as their escapes: no new line can start")
+        void escapesLineBreaksAndTab() {
+            assertThat(SecurityMaskingUtils.escapeControlChars("auth.v1\r\nINFO forged\tline"))
+                    .isEqualTo("auth.v1\\r\\nINFO forged\\tline");
+        }
+
+        @Test
+        @DisplayName("other controls, such as an ANSI escape or NEL, become \\uXXXX")
+        void escapesOtherControls() {
+            assertThat(SecurityMaskingUtils.escapeControlChars("a\u001b[2Kb\u0085c\u0000"))
+                    .isEqualTo("a\\u001B[2Kb\\u0085c\\u0000");
+        }
+
+        @Test
+        @DisplayName("Unicode line and paragraph separators are escaped")
+        void escapesUnicodeSeparators() {
+            assertThat(SecurityMaskingUtils.escapeControlChars("a\u2028b\u2029c"))
+                    .isEqualTo("a\\u2028b\\u2029c");
+        }
+
+        @Test
+        @DisplayName("invisible format characters that disguise a line are escaped, outside the BMP too")
+        void escapesFormatCharacters() {
+            assertThat(SecurityMaskingUtils.escapeControlChars("ok\u202Edetaerc"))
+                    .isEqualTo("ok\\u202Edetaerc");
+            assertThat(SecurityMaskingUtils.escapeControlChars("x" + new String(Character.toChars(0xE0041))))
+                    .isEqualTo("x\\uDB40\\uDC41");
+        }
+
+        @Test
+        @DisplayName("printable text, accents and emoji included, is returned as is")
+        void keepsPrintableText() {
+            String plain = "église.membre-créé.v1 \uD83D\uDE4F";
+
+            assertThat(SecurityMaskingUtils.escapeControlChars(plain)).isSameAs(plain);
+        }
+
+        @Test
+        @DisplayName("null stays null")
+        void passesNullThrough() {
+            assertThat(SecurityMaskingUtils.escapeControlChars(null)).isNull();
+        }
+    }
+
+    @Nested
     @DisplayName("abbreviate")
     class Abbreviate {
         @Test

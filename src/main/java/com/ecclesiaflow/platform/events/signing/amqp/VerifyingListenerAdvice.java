@@ -13,6 +13,8 @@ import org.springframework.amqp.core.Message;
 
 import java.util.Locale;
 
+import static com.ecclesiaflow.platform.logging.SecurityMaskingUtils.escapeControlChars;
+
 /**
  * Consume-side verification hook for {@code @RabbitListener} containers
  * (security findings C07 and F054). Add it to a listener container factory's
@@ -119,16 +121,18 @@ public class VerifyingListenerAdvice implements MethodInterceptor {
             case ACCEPT_UNVERIFIED -> log.warn(
                     "DOMAIN-EVENT-SIGNATURE: accepting UNVERIFIED message exchange={} routing_key={} "
                             + "(verify-signatures=false; signature {}). Sign publishers, then enable strict mode.",
-                    exchange, routingKey, signature == null ? "missing" : "invalid, stale or of an unknown version");
+                    escapeControlChars(exchange), escapeControlChars(routingKey),
+                    signature == null ? "missing" : "invalid, stale or of an unknown version");
             case REJECT_MISSING -> {
                 log.error("DOMAIN-EVENT-SIGNATURE: REJECTING unsigned message exchange={} routing_key={} "
-                        + "(verify-signatures=true)", exchange, routingKey);
+                        + "(verify-signatures=true)", escapeControlChars(exchange), escapeControlChars(routingKey));
                 throw new AmqpRejectAndDontRequeueException(
                         "Unsigned domain event rejected (verify-signatures=true)");
             }
             case REJECT_INVALID -> {
                 log.error("DOMAIN-EVENT-SIGNATURE: REJECTING message with INVALID signature "
-                        + "exchange={} routing_key={} (verify-signatures=true)", exchange, routingKey);
+                        + "exchange={} routing_key={} (verify-signatures=true)",
+                        escapeControlChars(exchange), escapeControlChars(routingKey));
                 throw new AmqpRejectAndDontRequeueException(
                         "Domain event with invalid signature rejected (verify-signatures=true)");
             }
@@ -136,14 +140,14 @@ public class VerifyingListenerAdvice implements MethodInterceptor {
                 log.error("DOMAIN-EVENT-SIGNATURE: REJECTING REPLAYED message exchange={} routing_key={} "
                         + "signed_at={} — signature is genuine but outside the freshness window "
                         + "(verify-signatures=true). Either a replay, or this host's clock is adrift.",
-                        exchange, routingKey, signedAt);
+                        escapeControlChars(exchange), escapeControlChars(routingKey), escapeControlChars(signedAt));
                 throw new AmqpRejectAndDontRequeueException(
                         "Domain event outside the signature freshness window rejected (verify-signatures=true)");
             }
             case REJECT_UNSUPPORTED_VERSION -> {
                 log.error("DOMAIN-EVENT-SIGNATURE: REJECTING message signed in an unsupported format version "
                         + "exchange={} routing_key={} (verify-signatures=true). Upgrade this consumer before "
-                        + "its publishers.", exchange, routingKey);
+                        + "its publishers.", escapeControlChars(exchange), escapeControlChars(routingKey));
                 throw new AmqpRejectAndDontRequeueException(
                         "Domain event with an unsupported signature version rejected (verify-signatures=true)");
             }
