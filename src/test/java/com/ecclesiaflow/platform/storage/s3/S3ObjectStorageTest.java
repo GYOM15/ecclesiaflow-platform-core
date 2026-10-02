@@ -2,6 +2,7 @@ package com.ecclesiaflow.platform.storage.s3;
 
 import com.ecclesiaflow.platform.storage.ObjectStorage;
 import com.ecclesiaflow.platform.storage.ObjectStorageException;
+import com.ecclesiaflow.platform.storage.ObjectStorageProperties;
 import com.ecclesiaflow.platform.storage.StoredObject;
 import com.ecclesiaflow.platform.storage.StoredObjectRef;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @DisplayName("S3ObjectStorage - S3/R2 adapter (mocked client)")
@@ -123,5 +125,57 @@ class S3ObjectStorageTest {
     @DisplayName("providerName is s3")
     void providerName() {
         assertThat(storage.providerName()).isEqualTo("s3");
+    }
+
+    @Test
+    @DisplayName("empty or missing bytes are refused before any call to the bucket")
+    void emptyDataRejected() {
+        assertThatThrownBy(() -> storage.put("logos", new byte[0], "image/png"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> storage.put("logos", null, "image/png"))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    @DisplayName("a blank or missing key is refused before any call to the bucket")
+    void blankKeyRejected() {
+        assertThatThrownBy(() -> storage.get(" ")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> storage.delete(null)).isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    @DisplayName("read and delete failures surface as ObjectStorageException too")
+    void readAndDeleteFailuresWrapped() {
+        when(client.getObjectAsBytes(any(GetObjectRequest.class)))
+                .thenThrow(S3Exception.builder().message("boom").build());
+        when(client.deleteObject(any(DeleteObjectRequest.class)))
+                .thenThrow(S3Exception.builder().message("boom").build());
+
+        assertThatThrownBy(() -> storage.get("logos/a.png"))
+                .isInstanceOf(ObjectStorageException.class)
+                .hasMessageContaining("read")
+                .hasCauseInstanceOf(S3Exception.class);
+        assertThatThrownBy(() -> storage.delete("logos/a.png"))
+                .isInstanceOf(ObjectStorageException.class)
+                .hasMessageContaining("delete")
+                .hasCauseInstanceOf(S3Exception.class);
+    }
+
+    @Test
+    @DisplayName("a missing setting names the property to set instead of failing inside the SDK")
+    void missingSettingNamesTheProperty() {
+        ObjectStorageProperties.S3 props = new ObjectStorageProperties.S3();
+
+        assertThatThrownBy(() -> new S3ObjectStorage(props))
+                .isInstanceOf(ObjectStorageException.class)
+                .hasMessageContaining("ecclesiaflow.object-storage.s3.bucket");
+
+        props.setBucket("ecclesiaflow-media");
+        props.setEndpoint(" ");
+        assertThatThrownBy(() -> new S3ObjectStorage(props))
+                .isInstanceOf(ObjectStorageException.class)
+                .hasMessageContaining("ecclesiaflow.object-storage.s3.endpoint");
     }
 }

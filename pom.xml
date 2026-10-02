@@ -272,10 +272,8 @@
                     </execution>
                 </executions>
             </plugin>
-            <!-- JaCoCo: enforce the project-wide 90% line+branch bar on the new
-                 domain-event signing code (C07). Scoped via <includes> to the
-                 signing package so the gate is real for what this branch adds,
-                 without retroactively gating pre-existing untested classes. -->
+            <!-- JaCoCo: 90% line + 90% branch on the whole library. No <includes> on a BUNDLE
+                 rule: JaCoCo matches them against the bundle name, so a package pattern gates nothing. -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
@@ -304,7 +302,7 @@
                         </configuration>
                     </execution>
                     <execution>
-                        <id>jacoco-check-event-signing</id>
+                        <id>jacoco-check</id>
                         <phase>verify</phase>
                         <goals>
                             <goal>check</goal>
@@ -314,9 +312,6 @@
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>
-                                    <includes>
-                                        <include>com.ecclesiaflow.platform.events.signing.*</include>
-                                    </includes>
                                     <limits>
                                         <limit>
                                             <counter>LINE</counter>

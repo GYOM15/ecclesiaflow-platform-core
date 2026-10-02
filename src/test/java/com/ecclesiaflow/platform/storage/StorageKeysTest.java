@@ -69,4 +69,28 @@ class StorageKeysTest {
         assertThat(StorageKeys.contentTypeForKey("noextension")).isEqualTo("application/octet-stream");
         assertThat(StorageKeys.contentTypeForKey(null)).isEqualTo("application/octet-stream");
     }
+
+    @Test
+    @DisplayName("a prefix made only of slashes, or none at all, is rejected")
+    void prefixWithNothingLeftAfterNormalisingIsRejected() {
+        assertThatThrownBy(() -> StorageKeys.newKey("///", "image/png"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("keyPrefix");
+        assertThatThrownBy(() -> StorageKeys.newKey(null, "image/png"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("extensionFor reads a bare subtype and falls back to bin when nothing safe remains")
+    void extensionForEdgeShapes() {
+        assertThat(StorageKeys.extensionFor("jpeg")).isEqualTo("jpeg");
+        assertThat(StorageKeys.extensionFor("image/***")).isEqualTo("bin");
+        assertThat(StorageKeys.extensionFor("image/+xml")).isEqualTo("bin");
+    }
+
+    @Test
+    @DisplayName("a key ending in a dot has no extension to read")
+    void contentTypeForKeyWithTrailingDot() {
+        assertThat(StorageKeys.contentTypeForKey("x/y.")).isEqualTo("application/octet-stream");
+    }
 }

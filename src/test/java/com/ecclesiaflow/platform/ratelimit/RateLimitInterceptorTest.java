@@ -98,7 +98,12 @@ class RateLimitInterceptorTest {
 
         assertThatThrownBy(() -> interceptor.preHandle(request, response, handler("limited")))
                 .isInstanceOf(RateLimitExceededException.class)
-                .hasMessageContaining("import");
+                .hasMessageContaining("import")
+                .satisfies(refusal -> {
+                    RateLimitExceededException exceeded = (RateLimitExceededException) refusal;
+                    assertThat(exceeded.getRule()).isEqualTo("import");
+                    assertThat(exceeded.getRetryAfterSeconds()).isEqualTo(42);
+                });
 
         verify(response).setHeader("Retry-After", "42");
     }

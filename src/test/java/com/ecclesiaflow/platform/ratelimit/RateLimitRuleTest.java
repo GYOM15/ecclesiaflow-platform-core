@@ -43,6 +43,26 @@ class RateLimitRuleTest {
     }
 
     @Test
+    @DisplayName("a missing name or window is refused, not deferred to the first count")
+    void refusesMissingParts() {
+        assertThatThrownBy(() -> new RateLimitRule(null, 1, Duration.ofSeconds(1),
+                RateLimitScope.PER_CHURCH, true))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("name");
+        assertThatThrownBy(() -> new RateLimitRule("a", 1, null, RateLimitScope.PER_CHURCH, true))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("window");
+    }
+
+    @Test
+    @DisplayName("a rule must say whose calls it counts")
+    void refusesAMissingScope() {
+        assertThatThrownBy(() -> new RateLimitRule("a", 1, Duration.ofSeconds(1), null, true))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("scope");
+    }
+
+    @Test
     @DisplayName("a limit below one would refuse everything, including the first call")
     void refusesAZeroLimit() {
         assertThatThrownBy(() -> new RateLimitRule("a", 0, Duration.ofSeconds(1),

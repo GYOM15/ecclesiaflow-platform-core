@@ -10,8 +10,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -79,6 +83,18 @@ class S2sTokenProviderTest {
     }
 
     @Test
+    void invalidateForcesTheNextCallToFetchAFreshToken() {
+        keycloak.enqueue(jsonResponse(200, "{\"access_token\":\"jwt-1\",\"expires_in\":300}"));
+        keycloak.enqueue(jsonResponse(200, "{\"access_token\":\"jwt-2\",\"expires_in\":300}"));
+
+        assertThat(provider.getToken()).isEqualTo("jwt-1");
+        provider.invalidate();
+
+        assertThat(provider.getToken()).isEqualTo("jwt-2");
+        assertThat(keycloak.getRequestCount()).isEqualTo(2);
+    }
+
+    @Test
     void rejectedCredentialsThrowsS2sTokenException() {
         keycloak.enqueue(jsonResponse(401, "{\"error\":\"invalid_client\",\"error_description\":\"bad secret\"}"));
 
@@ -98,29 +114,30 @@ class S2sTokenProviderTest {
     }
 
     @Test
-    void concurrentCallsResultInSingleFetch() throws InterruptedException {
+    void concurrentCallsResultInSingleFetch() throws Exception {
         keycloak.enqueue(jsonResponse(200, "{\"access_token\":\"jwt-1\",\"expires_in\":300}"));
 
         int callers = 16;
         CountDownLatch start = new CountDownLatch(1);
-        CountDownLatch done = new CountDownLatch(callers);
-        var pool = Executors.newFixedThreadPool(callers);
-
-        for (int i = 0; i < callers; i++) {
-            pool.submit(() -> {
-                try {
+        ExecutorService pool = Executors.newFixedThreadPool(callers);
+        try {
+            List<Future<String>> tokens = new ArrayList<>();
+            for (int i = 0; i < callers; i++) {
+                tokens.add(pool.submit(() -> {
                     start.await();
-                    assertThat(provider.getToken()).isEqualTo("jwt-1");
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                } finally {
-                    done.countDown();
-                }
-            });
+                    return provider.getToken();
+                }));
+            }
+            start.countDown();
+
+            // Read back on this thread: an assertion or exception inside a pooled task
+            // only reaches the test through Future.get.
+            for (Future<String> token : tokens) {
+                assertThat(token.get(5, TimeUnit.SECONDS)).isEqualTo("jwt-1");
+            }
+        } finally {
+            pool.shutdownNow();
         }
-        start.countDown();
-        assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
-        pool.shutdown();
 
         // Exactly one network call: subsequent callers read the cache populated by the first refresh.
         assertThat(keycloak.getRequestCount()).isEqualTo(1);

@@ -5,7 +5,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -72,5 +74,54 @@ class FilesystemObjectStorageTest {
     @DisplayName("providerName is filesystem")
     void providerName() {
         assertThat(storage.providerName()).isEqualTo("filesystem");
+    }
+
+    @Test
+    @DisplayName("null data is rejected like empty data")
+    void nullDataRejected() {
+        assertThatThrownBy(() -> storage.put("logos", null, "image/png"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("a blank or missing key is a caller error, on read and on delete")
+    void blankKeyRejected() {
+        assertThatThrownBy(() -> storage.get(" ")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> storage.get(null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> storage.delete("")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("a base path that is a file fails at startup, not at the first upload")
+    void unusableBaseDirectoryFailsAtConstruction() throws IOException {
+        Path occupied = Files.writeString(tmp.resolve("occupied"), "not a directory");
+
+        assertThatThrownBy(() -> new FilesystemObjectStorage(occupied.toString()))
+                .isInstanceOf(ObjectStorageException.class)
+                .hasMessageContaining("base directory")
+                .hasCauseInstanceOf(IOException.class);
+    }
+
+    @Test
+    @DisplayName("a write the disk refuses surfaces as ObjectStorageException")
+    void failedWriteIsWrapped() throws IOException {
+        Files.writeString(tmp.resolve("logos"), "a file where the prefix directory should be");
+
+        assertThatThrownBy(() -> storage.put("logos", new byte[]{1}, "image/png"))
+                .isInstanceOf(ObjectStorageException.class)
+                .hasMessageContaining("write")
+                .hasCauseInstanceOf(IOException.class);
+    }
+
+    @Test
+    @DisplayName("deleting a whole prefix is refused, not performed")
+    void deletingAPrefixIsRefused() {
+        storage.put("logos", new byte[]{1}, "image/png");
+
+        assertThatThrownBy(() -> storage.delete("logos"))
+                .isInstanceOf(ObjectStorageException.class)
+                .hasMessageContaining("delete")
+                .hasCauseInstanceOf(IOException.class);
+        assertThat(tmp.resolve("logos")).isDirectory();
     }
 }
