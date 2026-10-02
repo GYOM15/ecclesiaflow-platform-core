@@ -15,7 +15,7 @@ class PlatformEventSigningAutoConfigurationTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(
                     PlatformEventSigningAutoConfiguration.class,
-                    PlatformEventSigningAutoConfiguration.AmqpHelpers.class));
+                    PlatformEventSigningAmqpAutoConfiguration.class));
 
     @Test
     void inertWhenSecretUnset() {
