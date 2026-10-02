@@ -173,6 +173,14 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- Transactional outbox. Optional: every module that enables it already carries
+             spring-jdbc through spring-data-jpa. -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- Metrics. Optional for the same reason as spring-rabbit: every module that
              deploys already carries spring-boot-starter-actuator, but a consumer with no
              metrics runtime must still be able to use the library. Every use site is

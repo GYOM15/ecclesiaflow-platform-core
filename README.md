@@ -96,6 +96,42 @@ public Server grpcServer(BindableService impl, S2sAuthServerInterceptor s2sAuth,
 }
 ```
 
+## Transactional outbox for domain events (opt-in)
+
+A domain event staged with `OutboxPublisher.append(...)` is written to the module's
+`outbox_event` table inside the business transaction, then published by a relay that
+waits for the broker's confirm and retries until it gets one. The event leaves if and
+only if the business change commits; delivery is at least once.
+
+Adopting it in a module:
+
+1. Copy `src/main/resources/db/outbox/outbox_event.sql` (in this jar) into the module's
+   next Flyway migration. The library ships no migration of its own.
+2. Make the domain-events template reliable, otherwise the startup fails:
+   `spring.rabbitmq.publisher-confirm-type=correlated`, `spring.rabbitmq.publisher-returns=true`,
+   `template.setMandatory(true)`, `template.setReturnsCallback(returned -> { })`, and the
+   `SigningMessagePostProcessor` registered when `ecclesiaflow.events.hmac-secret` is set.
+3. Enable it and stage events where the business transaction runs:
+
+```properties
+ecclesiaflow.events.outbox.enabled=true
+# ecclesiaflow.events.outbox.rabbit-template=domainEventsRabbitTemplate   (default)
+```
+
+```java
+@Transactional
+public void removeFromGroup(...) {
+    // business change ...
+    outbox.append(domainEventsExchange, "church.member.removed-from-group.v1", event);
+}
+```
+
+`append` outside a writable transaction on the primary DataSource throws
+`IllegalTransactionStateException`. A message that fails at the broker `max-attempts` times
+(10 by default, about half an hour) is parked; an unreachable broker parks nothing. Watch
+`ecclesiaflow_outbox_oldest_pending_age_seconds` and `ecclesiaflow_outbox_parked`; the replay
+statement for a parked row is in the DDL file.
+
 ## Consuming the library (downstream modules)
 
 The artifact is published on **GitHub Packages**, in two flavours:

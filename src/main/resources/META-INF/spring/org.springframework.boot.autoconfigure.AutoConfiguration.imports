@@ -6,3 +6,4 @@ com.ecclesiaflow.platform.storage.autoconfigure.PlatformObjectStorageAutoConfigu
 com.ecclesiaflow.platform.upload.autoconfigure.PlatformUploadSanitizerAutoConfiguration
 com.ecclesiaflow.platform.ratelimit.autoconfigure.PlatformRateLimitAutoConfiguration
 com.ecclesiaflow.platform.ratelimit.autoconfigure.PlatformRateLimitValidationAutoConfiguration
+com.ecclesiaflow.platform.events.outbox.autoconfigure.PlatformOutboxAutoConfiguration
