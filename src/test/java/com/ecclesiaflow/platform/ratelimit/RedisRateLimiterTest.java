@@ -8,6 +8,9 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -15,6 +18,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -176,5 +180,42 @@ class RedisRateLimiterTest {
     void aCostBelowOneIsRefusedOutright() {
         assertThatThrownBy(() -> limiter.consume(RULE, "church-1", 0))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("a refused batch does not spend the window: what was left stays available")
+    void aRefusedBatchDoesNotConsumeTheWindow() {
+        Map<String, AtomicLong> counters = backValuesWithCounters();
+
+        assertThat(limiter.consume(RULE, "church-1", 2).allowed()).isTrue();
+        assertThat(limiter.consume(RULE, "church-1", 5).allowed()).isFalse();
+
+        assertThat(limiter.consume(RULE, "church-1", 1).allowed())
+                .as("2 of 3 used before the refused batch, so one unit is still free")
+                .isTrue();
+        assertThat(counters.values().stream().mapToLong(AtomicLong::get).sum()).isEqualTo(3L);
+    }
+
+    @Test
+    @DisplayName("a refused batch stays refused when its cost cannot be given back")
+    void aRefusedBatchStaysRefusedWhenTheRefundFails() {
+        when(values.increment(anyString(), anyLong())).thenReturn(8L);
+        doThrow(new RedisConnectionFailureException("down")).when(values).decrement(anyString(), anyLong());
+
+        RateLimitDecision decision = limiter.consume(RULE, "church-1", 5);
+
+        assertThat(decision.allowed()).isFalse();
+        assertThat(decision.retryAfterSeconds()).isBetween(1L, 60L);
+    }
+
+    private Map<String, AtomicLong> backValuesWithCounters() {
+        Map<String, AtomicLong> counters = new ConcurrentHashMap<>();
+        when(values.increment(anyString(), anyLong())).thenAnswer(call -> counters
+                .computeIfAbsent(call.getArgument(0), key -> new AtomicLong())
+                .addAndGet(call.<Long>getArgument(1)));
+        when(values.decrement(anyString(), anyLong())).thenAnswer(call -> counters
+                .computeIfAbsent(call.getArgument(0), key -> new AtomicLong())
+                .addAndGet(-call.<Long>getArgument(1)));
+        return counters;
     }
 }

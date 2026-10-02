@@ -9,8 +9,8 @@ import java.time.Duration;
 import java.time.Instant;
 
 /**
- * A fixed-window counter in Redis: one {@code INCR}, and an {@code EXPIRE} on
- * the call that created the key.
+ * A fixed-window counter in Redis: one {@code INCRBY}, an {@code EXPIRE} on the
+ * call that created the key, and a {@code DECRBY} giving back a refused call's cost.
  *
  * <p><strong>Why the expiry is set only on the first hit.</strong> Refreshing it
  * on every call would let a steady stream hold the window open for ever, so the
@@ -39,11 +39,6 @@ public class RedisRateLimiter implements RateLimiter {
     private final StringRedisTemplate redis;
 
     @Override
-    public RateLimitDecision consume(RateLimitRule rule, String subject) {
-        return consume(rule, subject, 1);
-    }
-
-    @Override
     public RateLimitDecision consume(RateLimitRule rule, String subject, int cost) {
         if (cost < 1) {
             throw new IllegalArgumentException("cost must be at least 1, was " + cost);
@@ -64,11 +59,22 @@ public class RedisRateLimiter implements RateLimiter {
                 redis.expire(key, Duration.ofSeconds(windowSeconds));
             }
             if (count > rule.limit()) {
+                refund(key, cost);
                 return RateLimitDecision.refused(rule.limit(), windowSeconds - (now % windowSeconds));
             }
             return RateLimitDecision.allowed(rule.limit(), (int) (rule.limit() - count));
         } catch (RuntimeException e) {
             return unreadable(rule, e.toString());
+        }
+    }
+
+    // A refused call admitted nothing, so it must not spend the window. Between the
+    // increment and this refund a concurrent caller may see the cost and be refused.
+    private void refund(String key, int cost) {
+        try {
+            redis.opsForValue().decrement(key, cost);
+        } catch (RuntimeException e) {
+            // The refusal stands; the unrefunded cost only lasts until the window ends.
         }
     }
 
