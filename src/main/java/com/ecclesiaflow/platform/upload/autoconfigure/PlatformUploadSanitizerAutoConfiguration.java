@@ -2,11 +2,13 @@ package com.ecclesiaflow.platform.upload.autoconfigure;
 
 import com.ecclesiaflow.platform.upload.FileSanitizer;
 import com.ecclesiaflow.platform.upload.ImageSanitizer;
+import com.ecclesiaflow.platform.upload.UploadProperties;
 import com.ecclesiaflow.platform.upload.logging.UploadSanitizerLoggingAspect;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
 /**
@@ -22,12 +24,14 @@ import org.springframework.context.annotation.Bean;
  */
 @AutoConfiguration
 @ConditionalOnClass(name = "javax.imageio.ImageIO")
+@EnableConfigurationProperties(UploadProperties.class)
 public class PlatformUploadSanitizerAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ImageSanitizer imageSanitizer() {
-        return new ImageSanitizer();
+    public ImageSanitizer imageSanitizer(UploadProperties properties) {
+        UploadProperties.Image image = properties.getImage();
+        return new ImageSanitizer(image.getMaxConcurrentDecodes(), image.getDecodeWait());
     }
 
     @Bean

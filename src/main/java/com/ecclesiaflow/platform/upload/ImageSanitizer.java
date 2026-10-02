@@ -1,7 +1,5 @@
 package com.ecclesiaflow.platform.upload;
 
-import org.springframework.stereotype.Component;
-
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReadParam;
 import javax.imageio.ImageReader;
@@ -59,7 +57,6 @@ import java.util.concurrent.TimeUnit;
  * {@link ImageDecodeCapacityExceededException} when none frees up. The slots belong
  * to the instance, so the auto-configured bean is the one to share.</p>
  */
-@Component
 public class ImageSanitizer {
 
     /**
