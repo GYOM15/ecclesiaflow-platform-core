@@ -1,8 +1,7 @@
 package com.ecclesiaflow.platform.upload;
 
-import java.nio.charset.CharacterCodingException;
-import java.nio.charset.CodingErrorAction;
-import java.nio.charset.StandardCharsets;
+import com.ecclesiaflow.platform.upload.text.TextUploadDecoder;
+
 import java.util.Optional;
 
 /**
@@ -25,12 +24,13 @@ import java.util.Optional;
  *       (XLSX) — the ZIP local-header magic {@code 50 4B 03 04} AND an
  *       {@code "xl/"} entry name somewhere in the bytes (what distinguishes an
  *       XLSX workbook from any other ZIP such as a DOCX or a JAR).</li>
- *   <li>{@code text/csv} — the fallback: decodes cleanly as strict UTF-8 and
- *       contains no NUL byte, and matched none of the binary signatures above.</li>
+ *   <li>{@code text/csv} — the fallback: matched none of the binary signatures
+ *       above and decodes as text, in UTF-8 or Windows-1252
+ *       ({@link TextUploadDecoder}).</li>
  * </ul>
  *
  * <p>Anything else — including a ZIP that is not an XLSX, or binary junk that is
- * not valid UTF-8 — returns {@link Optional#empty()} (unknown/unsupported).</p>
+ * not text — returns {@link Optional#empty()} (unknown/unsupported).</p>
  */
 public final class MagicBytes {
 
@@ -88,10 +88,8 @@ public final class MagicBytes {
         if (startsWith(bytes, ZIP_LOCAL_HEADER) && contains(bytes, XL_ENTRY)) {
             return Optional.of(XLSX);
         }
-        // Fallback: treat as CSV/text only if it is genuinely textual — strict
-        // UTF-8 and free of NUL bytes (a NUL is the classic "this is binary"
-        // tell). This deliberately runs last so no binary above is mislabelled.
-        if (isProbablyUtf8Text(bytes)) {
+        // Runs last so that no binary format above is mislabelled as text.
+        if (TextUploadDecoder.decode(bytes).isPresent()) {
             return Optional.of(TEXT_CSV);
         }
         return Optional.empty();
@@ -131,26 +129,5 @@ public final class MagicBytes {
             return true;
         }
         return false;
-    }
-
-    /**
-     * @return {@code true} iff the bytes decode as strict UTF-8 (rejecting any
-     *         malformed or unmappable sequence) and contain no NUL (0x00) byte.
-     */
-    private static boolean isProbablyUtf8Text(byte[] bytes) {
-        for (byte b : bytes) {
-            if (b == 0x00) {
-                return false;
-            }
-        }
-        var decoder = StandardCharsets.UTF_8.newDecoder()
-                .onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT);
-        try {
-            decoder.decode(java.nio.ByteBuffer.wrap(bytes));
-            return true;
-        } catch (CharacterCodingException e) {
-            return false;
-        }
     }
 }

@@ -1,6 +1,9 @@
 package com.ecclesiaflow.platform.upload;
 
+import com.ecclesiaflow.platform.upload.text.TextUploadDecoder;
 import org.springframework.stereotype.Component;
+
+import java.nio.charset.StandardCharsets;
 
 /**
  * Validates an untrusted NON-image file upload (today: CSV / XLSX spreadsheet
@@ -19,10 +22,12 @@ import org.springframework.stereotype.Component;
  *       persisted downstream is never the client's word.</li>
  * </ul>
  *
- * <p>The bytes are returned unchanged; it is the caller's parser (e.g. the POI /
- * CSV reader) that must itself be run defensively. This component guarantees the
- * bytes are of an allowed type and within the size cap, not that their internal
- * content is benign.</p>
+ * <p>An XLSX is returned unchanged. A CSV is returned as UTF-8 without a BOM,
+ * whatever its source encoding (UTF-8 or Windows-1252, see
+ * {@link TextUploadDecoder}), so the caller always decodes it as UTF-8. It is the
+ * caller's parser (e.g. the POI / CSV reader) that must itself be run
+ * defensively. This component guarantees the bytes are of an allowed type and
+ * within the size cap, not that their internal content is benign.</p>
  */
 @Component
 public class FileSanitizer {
@@ -33,8 +38,8 @@ public class FileSanitizer {
      * @param bytes  the raw upload bytes exactly as received (declared type is
      *               ignored — the real type is sniffed here)
      * @param policy the size cap and accepted-type set for this upload class
-     * @return a {@link SanitizedUpload} carrying the original bytes and the
-     *         <em>detected</em> content type
+     * @return a {@link SanitizedUpload} carrying the bytes (a CSV re-encoded as
+     *         UTF-8) and the <em>detected</em> content type
      * @throws UploadRejectedException if the upload exceeds the size cap
      *         ({@link UploadRejectedException.Reason#TOO_LARGE}) or its sniffed
      *         type is not allowed
@@ -58,7 +63,10 @@ public class FileSanitizer {
                     "detected media type " + detected + " is not an accepted file type");
         }
 
+        byte[] data = MagicBytes.TEXT_CSV.equals(detected)
+                ? TextUploadDecoder.decode(bytes).map(text -> text.getBytes(StandardCharsets.UTF_8)).orElse(bytes)
+                : bytes;
         // Return the DETECTED type, never the client-declared one.
-        return new SanitizedUpload(bytes, detected, bytes.length);
+        return new SanitizedUpload(data, detected, data.length);
     }
 }

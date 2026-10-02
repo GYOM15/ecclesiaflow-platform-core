@@ -100,6 +100,25 @@ class MagicBytesTest {
     }
 
     @Test
+    @DisplayName("a Windows-1252 CSV (Excel FR default export) is text/csv")
+    void windows1252Csv() {
+        // "Nom;Prénom\r\nCœur;Garçon 10€\r\n" as Excel FR writes it: é=E9, œ=9C, ç=E7, €=80.
+        byte[] bytes = {
+                'N', 'o', 'm', ';', 'P', 'r', (byte) 0xE9, 'n', 'o', 'm', '\r', '\n',
+                'C', (byte) 0x9C, 'u', 'r', ';', 'G', 'a', 'r', (byte) 0xE7, 'o', 'n', ' ',
+                '1', '0', (byte) 0x80, '\r', '\n'};
+
+        assertThat(MagicBytes.detect(bytes)).contains(MagicBytes.TEXT_CSV);
+    }
+
+    @Test
+    @DisplayName("bytes that are neither UTF-8 nor control-free Windows-1252 are not text")
+    void controlBytesAreBinary() {
+        byte[] bytes = {'a', 0x01, (byte) 0xE9, 0x02, 'b', 0x1B};
+        assertThat(MagicBytes.detect(bytes)).isEmpty();
+    }
+
+    @Test
     @DisplayName("invalid UTF-8 (a lone continuation byte) is not treated as text")
     void invalidUtf8() {
         byte[] bytes = {(byte) 0x80, (byte) 0x81, (byte) 0x82};
