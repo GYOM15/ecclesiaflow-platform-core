@@ -1,6 +1,8 @@
 package com.ecclesiaflow.platform.rpc.s2s.interceptor;
 
 import io.grpc.BindableService;
+import io.grpc.ServerMethodDefinition;
+import io.grpc.ServerServiceDefinition;
 import org.springframework.aop.support.AopUtils;
 
 import java.lang.reflect.Method;
@@ -9,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Maps each gRPC full method name to the scope a caller must carry to
@@ -27,6 +30,11 @@ import java.util.Set;
  * "does this full method name require an extra scope?". The
  * authentication and the JWT-side scope check live in
  * {@link S2sAuthServerInterceptor}.</p>
+ *
+ * <p>Construction fails with {@link IllegalStateException} when a business RPC
+ * of a scanned service declares no scope, or when an annotation names no RPC of
+ * its service: either mistake would otherwise surface only as a refused call in
+ * production.</p>
  */
 public class S2sScopeRegistry {
 
@@ -55,8 +63,15 @@ public class S2sScopeRegistry {
 
     public S2sScopeRegistry(List<BindableService> services) {
         Map<String, String> map = new HashMap<>();
+        Set<String> unscoped = new TreeSet<>();
+        Set<String> orphans = new TreeSet<>();
         for (BindableService svc : services) {
-            String serviceName = svc.bindService().getServiceDescriptor().getName();
+            ServerServiceDefinition definition = svc.bindService();
+            String serviceName = definition.getServiceDescriptor().getName();
+            Set<String> rpcs = new TreeSet<>();
+            for (ServerMethodDefinition<?, ?> rpc : definition.getMethods()) {
+                rpcs.add(rpc.getMethodDescriptor().getFullMethodName());
+            }
             // Scan the target class, not svc.getClass(): gRPC impl beans are CGLIB-proxied
             // by the logging aspects, and the generated proxy subclass does not carry the
             // method-level @S2sScopeRequired annotations. AopUtils.getTargetClass unwraps the
@@ -68,7 +83,17 @@ public class S2sScopeRegistry {
                 }
                 String fullName = serviceName + "/" + capitalize(m.getName());
                 map.put(fullName, ann.value());
+                if (!rpcs.contains(fullName)) {
+                    orphans.add(fullName);
+                }
             }
+            if (!INFRASTRUCTURE_SERVICES.contains(serviceName)) {
+                rpcs.stream().filter(rpc -> !map.containsKey(rpc)).forEach(unscoped::add);
+            }
+        }
+        if (!unscoped.isEmpty() || !orphans.isEmpty()) {
+            throw new IllegalStateException("s2s scope registry is incomplete. RPCs without @S2sScopeRequired: "
+                    + unscoped + ". @S2sScopeRequired matching no RPC of its service: " + orphans + ".");
         }
         this.methodToScope = Map.copyOf(map);
     }
