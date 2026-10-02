@@ -12,6 +12,7 @@ import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration;
 import org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration;
 import org.springframework.boot.context.annotation.ImportCandidates;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.assertj.AssertableWebApplicationContext;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.core.NestedExceptionUtils;
@@ -59,7 +60,10 @@ class PlatformRateLimitValidationAutoConfigurationTest {
         public void addNote() { }
     }
 
+    // Hides the Redis clients the library's own Redis IT needs: without them,
+    // RedisAutoConfiguration creates no connection factory, as in a module without Redis.
     private final WebApplicationContextRunner withoutRedis = new WebApplicationContextRunner()
+            .withClassLoader(new FilteredClassLoader("io.lettuce.core", "redis.clients.jedis"))
             .withConfiguration(AutoConfigurations.of(
                     WebMvcAutoConfiguration.class, RedisAutoConfiguration.class))
             .withConfiguration(AutoConfigurations.of(declaredRateLimitAutoConfigurations()));
