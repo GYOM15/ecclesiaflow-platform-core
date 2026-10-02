@@ -15,8 +15,9 @@ import java.util.Set;
  *                             types are never consulted); anything else →
  *                             {@link UploadRejectedException.Reason#UNSUPPORTED_TYPE}
  * @param maxInputPixels       cap on {@code width × height} of the SOURCE image,
- *                             enforced before full decode as the decompression-bomb
- *                             guard; larger →
+ *                             enforced from the header before any decode as the
+ *                             decompression-bomb guard (WebP sources are capped
+ *                             lower by {@link ImageSanitizer}); larger →
  *                             {@link UploadRejectedException.Reason#TOO_MANY_PIXELS}
  * @param maxDimension         the longest side of the OUTPUT image; the sanitizer
  *                             downscales (preserving aspect ratio) so neither side

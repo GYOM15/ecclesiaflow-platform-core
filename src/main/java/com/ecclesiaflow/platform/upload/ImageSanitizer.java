@@ -3,8 +3,10 @@ package com.ecclesiaflow.platform.upload;
 import org.springframework.stereotype.Component;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReadParam;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
+import javax.imageio.stream.MemoryCacheImageInputStream;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -38,16 +40,25 @@ import java.util.Optional;
  *       metadata chunk from the source is carried into the output.</li>
  *   <li><b>Decompression bombs</b> — a few KB can claim billions of pixels. We
  *       read the declared dimensions from the header <em>without</em> decoding
- *       and reject before allocating the raster.</li>
+ *       and reject before allocating the raster. An accepted source is then
+ *       decoded subsampled, never at full resolution, so the raster it allocates
+ *       is bounded by the output size rather than by the input's pixel count.</li>
  * </ul>
  *
  * <p>The pipeline is: cap size → sniff &amp; allow type → header pixel-bomb guard
- * → full decode → resample into a fresh raster → native ImageIO re-encode to the
- * policy's output format. The output type is authoritative and sniffed, never
- * the client's declaration.</p>
+ * → subsampled decode → resample into a fresh raster → native ImageIO re-encode
+ * to the policy's output format. The output type is authoritative and sniffed,
+ * never the client's declaration.</p>
  */
 @Component
 public class ImageSanitizer {
+
+    /**
+     * The WebP decoder holds about 24 bytes per source pixel whatever the
+     * subsampling (4 MP measured at about 90 MB of heap), so WebP sources get a
+     * lower cap than the policy's.
+     */
+    static final long WEBP_MAX_INPUT_PIXELS = 4_000_000L;
 
     /**
      * Decodes, sanitizes and re-encodes an image upload per {@code policy}.
@@ -82,28 +93,11 @@ public class ImageSanitizer {
                     "detected media type " + detected + " is not an accepted image input");
         }
 
-        // 3) Decompression-bomb guard: read declared dimensions from the header
-        //    WITHOUT decoding pixels, and reject before we ever allocate a raster.
-        long pixels = readDeclaredPixelCount(bytes);
-        if (pixels > policy.maxInputPixels()) {
-            throw new UploadRejectedException(
-                    UploadRejectedException.Reason.TOO_MANY_PIXELS,
-                    "image declares " + pixels + " pixels, exceeds cap of " + policy.maxInputPixels());
-        }
-
-        // 4) Full decode. A null result or any failure means the bytes are not a
-        //    usable image (truncated, corrupt, or a spoofed header).
-        BufferedImage source;
-        try {
-            source = ImageIO.read(new ByteArrayInputStream(bytes));
-        } catch (IOException | RuntimeException e) {
-            throw new UploadRejectedException(
-                    UploadRejectedException.Reason.UNREADABLE, "image could not be decoded", e);
-        }
-        if (source == null) {
-            throw new UploadRejectedException(
-                    UploadRejectedException.Reason.UNREADABLE, "no image reader could decode the bytes");
-        }
+        // 3) + 4) Pixel-bomb guard on the header, then a subsampled decode.
+        long maxPixels = MagicBytes.IMAGE_WEBP.equals(detected)
+                ? Math.min(policy.maxInputPixels(), WEBP_MAX_INPUT_PIXELS)
+                : policy.maxInputPixels();
+        DecodedImage source = decodeWithinLimits(bytes, maxPixels, policy.maxDimension());
 
         // 5) + 6) Resample into a fresh raster (kills steganography, strips
         //          metadata, neutralises polyglots) and re-encode natively.
@@ -115,36 +109,54 @@ public class ImageSanitizer {
     }
 
     /**
-     * Reads {@code width × height} from the image header using an
-     * {@link ImageReader} without decoding the pixel data, so a crafted file
-     * cannot force a huge allocation just to be measured.
+     * Reads the declared dimensions from the header, rejects a source over
+     * {@code maxPixels} before any pixel is decoded, then decodes it subsampled
+     * for an output of at most {@code maxDimension}.
      *
-     * @return the declared pixel count, or {@code 0} if it cannot be read (the
-     *         subsequent full decode will then reject it as UNREADABLE)
+     * @throws UploadRejectedException {@code TOO_MANY_PIXELS} over the cap,
+     *         {@code UNREADABLE} when no reader accepts the bytes or decoding fails
      */
-    private long readDeclaredPixelCount(byte[] bytes) {
-        try (ImageInputStream iis =
-                     ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
-            if (iis == null) {
-                return 0;
-            }
-            Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
+    private DecodedImage decodeWithinLimits(byte[] bytes, long maxPixels, int maxDimension) {
+        try (ImageInputStream input = new MemoryCacheImageInputStream(new ByteArrayInputStream(bytes))) {
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
             if (!readers.hasNext()) {
-                return 0;
+                throw new UploadRejectedException(
+                        UploadRejectedException.Reason.UNREADABLE, "no image reader could decode the bytes");
             }
             ImageReader reader = readers.next();
             try {
-                reader.setInput(iis, true, true);
-                long width = reader.getWidth(0);
-                long height = reader.getHeight(0);
-                return width * height; // long math — cannot overflow for any real image
+                reader.setInput(input, true, true);
+                int width = reader.getWidth(0);
+                int height = reader.getHeight(0);
+                long pixels = (long) width * height;
+                if (pixels > maxPixels) {
+                    throw new UploadRejectedException(
+                            UploadRejectedException.Reason.TOO_MANY_PIXELS,
+                            "image declares " + pixels + " pixels, exceeds cap of " + maxPixels);
+                }
+                int step = subsamplingStep(width, height, maxDimension);
+                ImageReadParam param = reader.getDefaultReadParam();
+                param.setSourceSubsampling(step, step, 0, 0);
+                return new DecodedImage(reader.read(0, param), width, height);
             } finally {
                 reader.dispose();
             }
+        } catch (UploadRejectedException e) {
+            throw e;
         } catch (IOException | RuntimeException e) {
-            // Header unreadable — let the full-decode step surface the rejection.
-            return 0;
+            throw new UploadRejectedException(
+                    UploadRejectedException.Reason.UNREADABLE, "image could not be decoded", e);
         }
+    }
+
+    /**
+     * The smallest step that brings the decoded longest side to at most twice
+     * {@code maxDimension}: the raster is then bounded by the output size, and it
+     * stays above {@code maxDimension} so the redraw never upscales.
+     */
+    static int subsamplingStep(int width, int height, int maxDimension) {
+        long window = 2L * maxDimension;
+        return (int) Math.max(1L, (Math.max(width, height) + window - 1) / window);
     }
 
     /**
@@ -156,9 +168,11 @@ public class ImageSanitizer {
      * into a fresh raster of the target type, which is precisely what destroys
      * LSB steganography and discards any source metadata.</p>
      */
-    private byte[] redrawAndEncode(BufferedImage source, ImagePolicy policy) {
-        int srcW = source.getWidth();
-        int srcH = source.getHeight();
+    private byte[] redrawAndEncode(DecodedImage source, ImagePolicy policy) {
+        // Sized from the declared dimensions, not the subsampled raster, so the
+        // output is exactly what a full-resolution decode would have produced.
+        int srcW = source.width();
+        int srcH = source.height();
         int longest = Math.max(srcW, srcH);
         double scale = longest > policy.maxDimension()
                 ? (double) policy.maxDimension() / longest
@@ -186,7 +200,7 @@ public class ImageSanitizer {
                 g.setColor(Color.WHITE);
                 g.fillRect(0, 0, targetW, targetH);
             }
-            g.drawImage(source, 0, 0, targetW, targetH, null);
+            g.drawImage(source.image(), 0, 0, targetW, targetH, null);
         } finally {
             g.dispose();
         }
@@ -203,6 +217,10 @@ public class ImageSanitizer {
             throw new IllegalStateException("failed to re-encode sanitized image as " + formatName, e);
         }
         return out.toByteArray();
+    }
+
+    /** A decoded, possibly subsampled raster with the source's declared size. */
+    private record DecodedImage(BufferedImage image, int width, int height) {
     }
 
     /**
