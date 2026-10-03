@@ -151,6 +151,23 @@ without error. Both refuse a class outside `com.ecclesiaflow.*` or one that is n
 message, before initializing it. A refusal is a `MessageConversionException`, which the listener
 container rejects without requeue: the message parks in its dead-letter queue.
 
+## Dead-letter queue depth
+
+A subscription queue declared with `x-dead-letter-exchange` and `x-dead-letter-routing-key` parks
+what its listener rejects in the queue bound under that key, and nothing consumes that queue.
+`PlatformDeadLetterMetricsAutoConfiguration` finds those dead-letter queues among the module's
+`Queue`, `Binding` and `Declarables` beans and publishes, for each one:
+
+```
+ecclesiaflow_domain_events_dlq_depth{queue="<dead-letter queue>"}
+```
+
+The value is the broker's count, read on each scrape, or `-1` when the broker cannot be asked or
+does not know the queue. A subscription added later is measured without being listed anywhere.
+The gauge is a `MeterBinder`, bound by the actuator; it needs `spring-rabbit` and Micrometer, and
+`ecclesiaflow.events.dead-letter-metrics.enabled=false` turns it off. A queue that dead-letters
+without an explicit routing key is not followed.
+
 ## Transactional outbox for domain events (opt-in)
 
 A domain event staged with `OutboxPublisher.append(...)` is written to the module's
