@@ -133,6 +133,24 @@ the new one sends:
 append the new field or RPC to its snapshot, never edit a line already there. Release order: this
 library first, then the owner of the contract, then its clients.
 
+## Protobuf messages over RabbitMQ
+
+`com.ecclesiaflow.platform.events.amqp.ProtobufMessageConverter` is the broker wire format of every
+protobuf message: the serialized message as the body, `application/x-protobuf` as the content type,
+and the Java class name on a `__TypeId__` header, which the consumer loads and parses.
+
+```java
+new ProtobufMessageConverter();                                   // strict
+new ProtobufMessageConverter(MemberRemovedFromChurchEvent.class); // with a default type
+```
+
+The strict form refuses a message without the header, or naming a class the service does not have.
+The other reads such a message as the default type, so it suits only a queue that carries a single
+type: the church events share their field numbers, and a removal read as an admission parses
+without error. Both refuse a class outside `com.ecclesiaflow.*` or one that is not a protobuf
+message, before initializing it. A refusal is a `MessageConversionException`, which the listener
+container rejects without requeue: the message parks in its dead-letter queue.
+
 ## Transactional outbox for domain events (opt-in)
 
 A domain event staged with `OutboxPublisher.append(...)` is written to the module's
