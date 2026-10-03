@@ -1,6 +1,6 @@
 # ecclesiaflow-platform-core
 
-Shared platform library for EcclesiaFlow backend modules. Three concerns:
+Shared platform library for EcclesiaFlow backend modules. Main concerns:
 
 1. **Server-to-server authentication on gRPC** (s2s) — each module obtains a
    JWT from Keycloak via the `client_credentials` flow, attaches it as a Bearer
@@ -15,6 +15,9 @@ Shared platform library for EcclesiaFlow backend modules. Three concerns:
    numbers, message bodies, JWTs, IDs) and infrastructure details (URLs, hosts,
    socket addresses) before they reach a log line. `maskAny` redacts any value
    it does not recognise.
+4. **gRPC and domain-event contracts** — the `.proto` files every module speaks,
+   compiled once here into messages and gRPC stubs (see
+   [Contracts](#grpc-and-domain-event-contracts)).
 
 - **Artifact**: `com.ecclesiaflow:ecclesiaflow-platform-core` — the current version is declared in [`pom.xml`](pom.xml) (development head as `X.Y.Z-SNAPSHOT`, releases pinned as `X.Y.Z`)
 - **Java**: 21
@@ -95,6 +98,40 @@ public Server grpcServer(BindableService impl, S2sAuthServerInterceptor s2sAuth,
         .start();
 }
 ```
+
+## gRPC and domain-event contracts
+
+The canonical `.proto` files live in [`src/main/proto/ecclesiaflow`](src/main/proto/ecclesiaflow).
+The build compiles them with `protoc` and `protoc-gen-grpc-java`, and the jar ships both the
+generated classes and the `.proto` files.
+
+| File | Owner (serves or publishes) | Java package |
+|---|---|---|
+| `auth/auth_service.proto` | auth (`AuthService`) | `com.ecclesiaflow.grpc.auth` |
+| `church/church_service.proto` | church (`ChurchService`) | `com.ecclesiaflow.grpc.church` |
+| `members/members_service.proto` | members (`MembersService`) | `com.ecclesiaflow.grpc.members` |
+| `email/email_service.proto` | communication (`EmailService`, `EmailQueueMessage`) | `com.ecclesiaflow.grpc.email` |
+| `events/auth/v1/domain_events.proto` | auth (`SetupTokenIssuedEvent`, `ExistingAccountNoticeEvent`) | `com.ecclesiaflow.grpc.events.auth` |
+| `events/church/v1/church_events.proto` | church (invitation, admission, removal, group events) | `com.ecclesiaflow.grpc.events.church` |
+| `events/members/v1/members_events.proto` | members (`MemberProfileChangedEvent`, `MemberAnonymizedEvent`) | `com.ecclesiaflow.grpc.events.members` |
+
+A module that calls or serves an RPC, or publishes or consumes an event, uses these classes. It
+keeps no `.proto` of its own and needs no protobuf plugin. Consumers bring `grpc-protobuf`
+themselves when they use a `*Grpc` stub; `protobuf-java` comes with this library.
+
+Services are deployed one at a time, so the old version on the other side must still read what
+the new one sends:
+
+- add fields with new numbers; never renumber, retype or reuse an existing field or enum value,
+  and `reserved` whatever is removed;
+- never change a file's `package`, a service or RPC name (the s2s scope registry keys on
+  `<package>.<Service>/<Rpc>`), nor the `java_package` or the name of a message sent over
+  RabbitMQ: `ProtobufMessageConverter` stamps the Java class name on the `__TypeId__` header and
+  the consumer loads that class.
+
+`ContractWireCompatibilityTest` pins all of the above. When it fails, the change is on the wire:
+append the new field or RPC to its snapshot, never edit a line already there. Release order: this
+library first, then the owner of the contract, then its clients.
 
 ## Transactional outbox for domain events (opt-in)
 

@@ -1,0 +1,79 @@
+// Served by the church module. Field numbers and types are on the wire:
+// add fields, never renumber, retype or reuse one.
+
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.church";
+option java_outer_classname = "ChurchServiceProto";
+
+package ecclesiaflow.church;
+
+// ============================================================================
+// Church Service — RPCs exposed by the church module to sibling modules.
+// ============================================================================
+//
+// OnSignupCompleted is invoked by the auth module after a pastor sets their
+// initial password (stage 2 of the church signup saga). The church module
+// activates the church (status PENDING -> ACTIVE, tier -> TRIAL with a
+// 30-day window) and grants CHURCH_ADMIN to the user via the auth module.
+//
+// Idempotent on the server side: a duplicate call returns ALREADY_ACTIVE
+// without re-mutating state.
+//
+// RepublishActiveMemberships is a platform-admin / S2S maintenance RPC: it
+// re-emits MemberAdmittedToChurchEvent for every CURRENT active membership so
+// the members and chat modules can backfill their local church_id stores
+// (those rows predate the consumer). It mutates NO church state — it only
+// re-publishes existing facts onto the domain-events exchange. Idempotent on
+// the consumer side (upsert), so it is safe to re-run.
+// ============================================================================
+
+service ChurchService {
+  rpc OnSignupCompleted(OnSignupCompletedRequest) returns (OnSignupCompletedResponse);
+  rpc RepublishActiveMemberships(RepublishActiveMembershipsRequest)
+      returns (RepublishActiveMembershipsResponse);
+}
+
+// ============================================================================
+// On Signup Completed
+// ============================================================================
+
+message OnSignupCompletedRequest {
+  // Keycloak user ID of the pastor (UUID string).
+  string user_id = 1;
+  // Church row UUID, created at stage 1 of the signup saga.
+  string church_id = 2;
+  // ISO-8601 UTC timestamp of the password-set event in auth-module.
+  string occurred_at = 3;
+  // Payload schema version. Start at 1 — bump when the contract changes.
+  int32 schema_version = 4;
+}
+
+message OnSignupCompletedResponse {
+  ActivationStatus status = 1;
+}
+
+enum ActivationStatus {
+  ACTIVATION_STATUS_UNSPECIFIED = 0;
+  // Church transitioned from PENDING to ACTIVE in this call.
+  ACTIVATED = 1;
+  // Church was already ACTIVE; idempotent no-op.
+  ALREADY_ACTIVE = 2;
+  // Church row not found (likely orphan-cleaned). Caller should log + give up.
+  NOT_FOUND = 3;
+}
+
+// ============================================================================
+// Republish Active Memberships (membership-state backfill)
+// ============================================================================
+
+message RepublishActiveMembershipsRequest {
+  // Payload schema version. Start at 1 — bump when the contract changes.
+  int32 schema_version = 1;
+}
+
+message RepublishActiveMembershipsResponse {
+  // Number of active memberships for which an admission event was re-emitted.
+  int64 republished_count = 1;
+}

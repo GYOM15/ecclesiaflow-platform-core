@@ -1,0 +1,122 @@
+// Served by the communication module. Field numbers and types are on the wire:
+// add fields, never renumber, retype or reuse one.
+
+syntax = "proto3";
+
+package ecclesiaflow.email;
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.email";
+option java_outer_classname = "EmailServiceProto";
+
+// Email Service - High-performance inter-service communication
+service EmailService {
+  // Send a single email
+  rpc SendEmail(SendEmailRequest) returns (SendEmailResponse);
+  
+  // Get email delivery status
+  rpc GetEmailStatus(EmailStatusRequest) returns (EmailStatusResponse);
+  
+  // Send bulk emails (batch operation)
+  rpc SendBulkEmails(SendBulkEmailsRequest) returns (SendBulkEmailsResponse);
+}
+
+// Email template types - Single Source of Truth for all modules
+// Password-related emails (reset, changed) are handled by Keycloak event listeners.
+enum EmailTemplateType {
+  EMAIL_TEMPLATE_UNSPECIFIED = 0;
+  reserved 1, 2;                             // PASSWORD_RESET & PASSWORD_CHANGED → Keycloak
+  EMAIL_TEMPLATE_WELCOME = 3;                // Welcome new user
+  EMAIL_TEMPLATE_EMAIL_CONFIRMATION = 4;     // Email verification at signup
+  EMAIL_TEMPLATE_PROFILE_UPDATED = 5;        // Profile change notification
+  EMAIL_TEMPLATE_EMAIL_CHANGE_VERIFICATION = 6;  // Verify new email after account email change
+  EMAIL_TEMPLATE_CHURCH_SIGNUP_SETUP = 7;        // Pastor finishes church creation (set password)
+  EMAIL_TEMPLATE_CHURCH_INVITATION = 8;          // Member invited to join a church (deliver join link)
+}
+
+// Request to send an email
+message SendEmailRequest {
+  repeated string to = 1;                    // Recipient emails
+  optional string from = 2;                  // Sender email (optional)
+  string subject = 3;                        // Email subject
+  EmailTemplateType template_type = 4;       // Template type
+  map<string, string> variables = 5;         // Template variables
+  Priority priority = 6;                     // Email priority
+  optional string locale = 7;                // Recipient render locale (BCP-47); defaults to fr when absent/unsupported
+}
+
+// Priority levels for email processing
+enum Priority {
+  PRIORITY_UNSPECIFIED = 0;
+  PRIORITY_HIGH = 1;                         // Transactional emails (confirmations, resets)
+  PRIORITY_NORMAL = 2;                       // Regular emails
+  PRIORITY_LOW = 3;                          // Bulk/marketing emails
+}
+
+// Response after queueing an email
+message SendEmailResponse {
+  string email_id = 1;                       // Unique email identifier (UUID)
+  Status status = 2;                         // Current status
+  int64 queued_at = 3;                       // Unix timestamp (milliseconds)
+  optional string message = 4;               // Human-readable message
+}
+
+// Email delivery status
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_QUEUED = 1;                         // Queued in RabbitMQ
+  STATUS_SENT = 2;                           // Sent to SMTP/API
+  STATUS_DELIVERED = 3;                      // Delivered to recipient
+  STATUS_FAILED = 4;                         // Failed to send
+  STATUS_BOUNCED = 5;                        // Hard/soft bounce
+}
+
+// Request to get email status
+message EmailStatusRequest {
+  string email_id = 1;                       // Email UUID
+}
+
+// Response with email status and tracking data
+message EmailStatusResponse {
+  string email_id = 1;
+  repeated string to = 2;
+  string subject = 3;
+  Status status = 4;
+  optional string provider = 5;              // gmail, sendgrid, aws-ses
+  int64 queued_at = 6;
+  optional int64 sent_at = 7;
+  optional int64 delivered_at = 8;
+  optional int64 failed_at = 9;
+  optional int64 opened_at = 10;
+  int32 clicks = 11;
+  optional string error_message = 12;
+}
+
+// Request to send bulk emails
+message SendBulkEmailsRequest {
+  repeated SendEmailRequest emails = 1;
+}
+
+// Response for bulk email sending
+message SendBulkEmailsResponse {
+  repeated SendEmailResponse results = 1;
+  int32 total = 2;
+  int32 queued = 3;
+  int32 failed = 4;
+}
+
+// ============================================================================
+// RabbitMQ Queue Messages - Internal messaging between services
+// ============================================================================
+
+// Message for RabbitMQ email queue processing
+message EmailQueueMessage {
+  string email_id = 1;                       // Unique email identifier (UUID)
+  optional string from = 2;                  // Sender email address
+  repeated string to = 3;                    // Recipient email addresses
+  string subject = 4;                        // Email subject
+  string template_name = 5;                  // Template name (e.g., "emails/password-reset")
+  map<string, string> variables = 6;         // Template variables
+  Priority priority = 7;                     // Email priority
+  int32 retry_count = 8;                     // Number of send attempts
+}

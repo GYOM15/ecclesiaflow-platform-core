@@ -1,0 +1,191 @@
+// Served by the auth module. Field numbers and types are on the wire:
+// add fields, never renumber, retype or reuse one.
+
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.auth";
+option java_outer_classname = "AuthServiceProto";
+
+package ecclesiaflow.auth;
+
+
+service AuthService {
+  rpc GenerateTemporaryToken(TemporaryTokenRequest) returns (TemporaryTokenResponse);
+  rpc ProvisionUserAndIssueSetupToken(ProvisionUserAndIssueSetupTokenRequest) returns (ProvisionUserAndIssueSetupTokenResponse);
+  rpc DeleteKeycloakUser(DeleteKeycloakUserRequest) returns (DeleteKeycloakUserResponse);
+  rpc DisableKeycloakUser(DisableKeycloakUserRequest) returns (DisableKeycloakUserResponse);
+  rpc UpdateKeycloakUserEmail(UpdateKeycloakUserEmailRequest) returns (UpdateKeycloakUserEmailResponse);
+  rpc UpdateKeycloakUserName(UpdateKeycloakUserNameRequest) returns (UpdateKeycloakUserNameResponse);
+  rpc UpdateKeycloakUserLocale(UpdateKeycloakUserLocaleRequest) returns (UpdateKeycloakUserLocaleResponse);
+  rpc AssignRealmRole(AssignRealmRoleRequest) returns (AssignRealmRoleResponse);
+  rpc RevokeRealmRole(RevokeRealmRoleRequest) returns (RevokeRealmRoleResponse);
+}
+
+// ============================================================================
+// Request/Response Messages
+// ============================================================================
+
+/**
+ * Request to generate a temporary token.
+ *
+ * REST API mapping:
+ * POST /ecclesiaflow/auth/temporary-token
+ * Body: { email, memberId }
+ */
+message TemporaryTokenRequest {
+  string email = 1;
+  string member_id = 2;
+  // Optional per-flow JSON metadata persisted on the setup_token row.
+  // Used by AFTER_COMMIT listeners to route the password-set event to the
+  // right downstream consumer (e.g. {"church_id":"<uuid>"} for the church
+  // signup saga). Empty/omitted = legacy member flow, no routing metadata.
+  string metadata = 3;
+}
+
+
+message TemporaryTokenResponse {
+  string temporary_token = 1;
+  int32 expires_in_seconds = 2;
+  string password_endpoint = 3;
+}
+
+// ============================================================================
+// Provision User + Issue Setup Token (composite atomic operation)
+//
+// Creates a disabled Keycloak user (enabled=false, no credentials) AND issues
+// an opaque setup token in a single RPC. Used by the church signup saga where
+// no Keycloak user exists yet at the time the token is needed.
+//
+// Best-effort atomicity: if token issuance fails after user creation, the
+// handler deletes the freshly-created Keycloak user before returning an error.
+// A handler crash mid-operation leaves an orphan disabled Keycloak user,
+// reconciled by the church-module orphan cleanup scheduler.
+// ============================================================================
+
+message ProvisionUserAndIssueSetupTokenRequest {
+  string email = 1;
+  string first_name = 2;
+  string last_name = 3;
+  // Optional per-flow JSON metadata, persisted on the setup_token row and
+  // surfaced to AFTER_COMMIT listeners (e.g. {"church_id":"<uuid>"} for the
+  // church signup saga).
+  string metadata = 4;
+}
+
+message ProvisionUserAndIssueSetupTokenResponse {
+  string keycloak_user_id = 1;
+  string temporary_token = 2;
+  int32 expires_in_seconds = 3;
+  string password_endpoint = 4;
+  // On a fresh signup this echoes the metadata the caller provided. On a
+  // replay (same email resubmitted while a previous signup is still pending)
+  // this is intentionally EMPTY: the stored metadata holds the original
+  // signup's church_id, and echoing it would let a caller probe the RPC as a
+  // membership/church enumeration oracle. Callers detect the idempotent
+  // replay via is_replay alone; the original metadata stays server-side
+  // (preserved on the reissued token and the emitted event).
+  string actual_metadata = 5;
+  // True when the email already had a pending signup. Same-email replay
+  // reuses the previously-provisioned Keycloak user and reissues a fresh
+  // setup token with the original metadata; no new identity is created.
+  bool is_replay = 6;
+}
+
+// ============================================================================
+// Delete Keycloak User
+// ============================================================================
+
+message DeleteKeycloakUserRequest {
+  string keycloak_user_id = 1;
+}
+
+message DeleteKeycloakUserResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// ============================================================================
+// Disable Keycloak User
+// ============================================================================
+
+message DisableKeycloakUserRequest {
+  string keycloak_user_id = 1;
+}
+
+message DisableKeycloakUserResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// ============================================================================
+// Update Keycloak User Email
+// ============================================================================
+
+message UpdateKeycloakUserEmailRequest {
+  string keycloak_user_id = 1;
+  string new_email = 2;
+}
+
+message UpdateKeycloakUserEmailResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// ============================================================================
+// Update Keycloak User Name
+// ============================================================================
+
+message UpdateKeycloakUserNameRequest {
+  string keycloak_user_id = 1;
+  string first_name = 2;
+  string last_name = 3;
+}
+
+message UpdateKeycloakUserNameResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+
+// ============================================================================
+// Update Keycloak User Locale (render language attribute)
+// ============================================================================
+
+message UpdateKeycloakUserLocaleRequest {
+  string keycloak_user_id = 1;
+  string locale = 2;  // BCP-47 tag; the caller must resolve it to the user's own sub
+}
+
+message UpdateKeycloakUserLocaleResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// ============================================================================
+// Assign Realm Role
+// ============================================================================
+
+message AssignRealmRoleRequest {
+  string keycloak_user_id = 1;
+  string role_name = 2;
+}
+
+message AssignRealmRoleResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// ============================================================================
+// Revoke Realm Role
+// ============================================================================
+
+message RevokeRealmRoleRequest {
+  string keycloak_user_id = 1;
+  string role_name = 2;
+}
+
+message RevokeRealmRoleResponse {
+  bool success = 1;
+  string message = 2;
+}

@@ -95,7 +95,7 @@ public final class HexagonalArchitectureRules {
                 .allowEmptyShould(true);
     }
 
-    // Generated protobuf classes live in the service's own packages, so the package names alone miss them.
+    // Generated protobuf classes live under com.ecclesiaflow.grpc, so the package names alone miss them.
     private static DescribedPredicate<JavaClass> transportOrPersistenceTypes() {
         return resideInAnyPackage(SPRING_WEB)
                 .or(resideInAnyPackage(PERSISTENCE))

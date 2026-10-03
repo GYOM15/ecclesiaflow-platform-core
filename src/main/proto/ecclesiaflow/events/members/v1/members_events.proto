@@ -1,0 +1,127 @@
+// Published by the members module. Consumers load the class named by the __TypeId__
+// header, so java_package and message names are on the wire like field numbers.
+
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.events.members";
+option java_outer_classname = "MembersDomainEventsProto";
+
+package ecclesiaflow.events.members.v1;
+
+// Domain events emitted by members-module onto the cross-module topic exchange
+// "ecclesiaflow.domain-events". Consumers (e.g. church-module) bind queues to
+// the relevant routing keys and react. Mirrors church_events.proto for options,
+// package conventions and field layout (event_id + occurred_at_epoch_ms first).
+// See ecclesiaflow-deploy/docs/adr/0001-domain-events-cross-module-via-rabbitmq.md.
+
+// The member's answer to the baptism question. A three-valued enum rather than
+// a bool, because "has not been asked yet" is a real and durable state that a
+// bool cannot express: proto3 bools have no presence, so an absent field would
+// arrive as false and a consumer would render a legacy member as "pas baptisé" —
+// asserting something about that person that they never said.
+//
+// UNSPECIFIED is the zero value on purpose: an old producer that does not set
+// the field, or a member who predates the question, both degrade to "pas encore
+// renseigné", which is the only honest reading of silence.
+enum BaptismDeclaration {
+  // Not yet declared: the member has never answered. Legacy rows and members
+  // provisioned by a pastor. Consumers MUST render this distinctly from
+  // NOT_BAPTISED — that distinction is the whole point of this enum.
+  BAPTISM_DECLARATION_UNSPECIFIED = 0;
+
+  // The member declared they have NOT been baptised. baptism_date, baptism_type
+  // and baptism_type_label are all EMPTY, and that emptiness is meaningful.
+  BAPTISM_DECLARATION_NOT_BAPTISED = 1;
+
+  // The member declared they HAVE been baptised. baptism_date and baptism_type
+  // are both populated (required together since V103).
+  BAPTISM_DECLARATION_BAPTISED = 2;
+}
+
+// Emitted right after a member's profile changes in a way other modules care
+// about: a first/last name change (PATCH profile), a confirmed email change, a
+// change to the declared baptism, or a change to the phone-sharing consent.
+// The snapshot carries the FULL post-change profile so a consumer can refresh
+// its denormalized copy without a round-trip. Idempotent on event_id.
+// Routing key: "members.profile.changed".
+message MemberProfileChangedEvent {
+  // UUIDv4. Consumers dedupe on this to make their handler idempotent.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC).
+  int64 occurred_at_epoch_ms = 2;
+
+  // The member's Keycloak sub — the cross-module key (== members.keycloak_user_id).
+  string keycloak_user_id = 3;
+
+  // The member's first name, post-change.
+  string first_name = 4;
+
+  // The member's last name, post-change.
+  string last_name = 5;
+
+  // The member's email, post-change.
+  string email = 6;
+
+  // The member's baptism date as ISO-8601 "YYYY-MM-DD", post-change. EMPTY
+  // unless baptism_declared == BAPTISED. A plain string (not a timestamp)
+  // because a baptism is a calendar day: an instant would render as the previous
+  // day for consumers east or west of the emitting timezone.
+  string baptism_date = 7;
+
+  // The member's baptism rite, post-change: one of IMMERSION, ASPERSION,
+  // AFFUSION, INFANT, OTHER. EMPTY when the member declared no type. Carried as
+  // a string rather than a proto enum so adding a rite never breaks a consumer
+  // built against an older descriptor — an unknown value degrades to "show the
+  // raw label", not to a deserialization failure.
+  string baptism_type = 8;
+
+  // Free-text rite name, set IFF baptism_type == "OTHER"; EMPTY otherwise.
+  string baptism_type_label = 9;
+
+  // Whether the member consents to their phone number being shared with their
+  // church. proto3 bools have no presence, so an absent field reads as false —
+  // which is the privacy-preserving value, meaning a consumer that misses this
+  // field fails CLOSED rather than leaking. Note this is only a signal for the
+  // consumer's UI: the number itself is filtered at the source, so a
+  // non-consenting member's phone is never returned by GetMemberContacts.
+  bool phone_shared_with_church = 10;
+
+  // The member's answer to the baptism question, post-change. This is what lets
+  // a pastor's directory tell "pas baptisé" from "pas encore renseigné" — the
+  // three baptism_* strings above are EMPTY in both cases, so they cannot carry
+  // the distinction on their own.
+  BaptismDeclaration baptism_declared = 11;
+}
+
+// Emitted once a member has been anonymized at the end of the deactivation
+// grace period: their PII is scrubbed and their Keycloak user is deleted, so
+// the person no longer exists on the platform. A consumer that holds a copy of
+// the member's identity (e.g. the church module's finance context) severs it.
+//
+// Deliberately carries NO profile data — no name, email, phone or address —
+// because the point of the event is that this data is gone. keycloak_user_id
+// is the cross-module key a consumer needs to find its own rows; nothing else
+// about the person is disclosed. MemberAnonymizedEventTest pins the field set.
+//
+// Idempotent on event_id, which is DETERMINISTIC ("anon:<member_id>") rather
+// than random: the members module re-emits the event until a publish has been
+// acknowledged (outbox-lite), so a consumer may see the same event more than
+// once and must collapse duplicates on event_id.
+// Routing key: "members.profile.anonymized".
+message MemberAnonymizedEvent {
+  // Deterministic: "anon:" + the members-module member_id (UUID). Re-emits of
+  // the same anonymization carry the same id so idempotent consumers collapse
+  // them.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the member was anonymized.
+  // Stable across re-emits of the same anonymization.
+  int64 occurred_at_epoch_ms = 2;
+
+  // The former member's Keycloak sub — the cross-module key (== the
+  // members.keycloak_user_id the row carried before anonymization). The
+  // Keycloak user is already deleted when this event is emitted.
+  string keycloak_user_id = 3;
+}
