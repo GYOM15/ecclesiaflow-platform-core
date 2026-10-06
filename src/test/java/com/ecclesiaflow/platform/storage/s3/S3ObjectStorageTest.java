@@ -5,6 +5,7 @@ import com.ecclesiaflow.platform.storage.ObjectStorageException;
 import com.ecclesiaflow.platform.storage.ObjectStorageProperties;
 import com.ecclesiaflow.platform.storage.StoredObject;
 import com.ecclesiaflow.platform.storage.StoredObjectRef;
+import okhttp3.Headers;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -33,6 +34,7 @@ import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.HexFormat;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -263,6 +265,41 @@ class S3ObjectStorageTest {
             assertThat(request.getHeader("x-amz-content-sha256")).doesNotStartWith("STREAMING-");
             assertThat(request.getHeader("x-amz-decoded-content-length")).isNull();
             assertThat(request.getBody().readByteArray()).isEqualTo(data);
+        }
+
+        @Test
+        @DisplayName("an upload carries no flexible checksum, as with the SDK line R2 was validated on")
+        void uploadCarriesNoFlexibleChecksum() throws Exception {
+            RecordedRequest request = upload("png-bytes".getBytes(StandardCharsets.UTF_8));
+
+            assertThat(checksumHeaders(request.getHeaders())).isEmpty();
+            assertThat(request.getHeader("x-amz-trailer")).isNull();
+        }
+
+        @Test
+        @DisplayName("a read carries no checksum and does not ask the bucket for one")
+        void readCarriesNoChecksum() throws InterruptedException {
+            r2.enqueue(new MockResponse().setResponseCode(200)
+                    .setHeader("Content-Type", "image/png")
+                    .setBody("png-bytes"));
+
+            assertThat(wired.get("church-logos/a.png")).isPresent();
+
+            RecordedRequest request = r2.takeRequest(5, TimeUnit.SECONDS);
+            assertThat(request.getMethod()).isEqualTo("GET");
+            assertThat(checksumHeaders(request.getHeaders())).isEmpty();
+            assertThat(request.getHeader("x-amz-checksum-mode")).isNull();
+        }
+
+        private static Set<String> checksumHeaders(Headers headers) {
+            Set<String> names = new HashSet<>();
+            for (String name : headers.names()) {
+                String lower = name.toLowerCase(Locale.ROOT);
+                if (lower.startsWith("x-amz-checksum-") || lower.equals("x-amz-sdk-checksum-algorithm")) {
+                    names.add(name);
+                }
+            }
+            return names;
         }
     }
 

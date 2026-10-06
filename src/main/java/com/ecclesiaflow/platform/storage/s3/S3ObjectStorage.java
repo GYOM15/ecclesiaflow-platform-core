@@ -9,6 +9,8 @@ import com.ecclesiaflow.platform.storage.StoredObjectRef;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.ResponseBytes;
+import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
+import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
@@ -83,6 +85,10 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
                         // R2 answers an aws-chunked upload with a signature mismatch (403).
                         .chunkedEncodingEnabled(false)
                         .build())
+                // Flexible checksums, on by default since SDK 2.30, stay off: the requests
+                // remain the ones R2 was validated with.
+                .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
+                .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED)
                 .httpClient(UrlConnectionHttpClient.create())
                 .build();
     }

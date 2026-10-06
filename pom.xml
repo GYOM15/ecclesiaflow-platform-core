@@ -63,7 +63,7 @@
         <grpc.version>1.65.1</grpc.version>
         <!-- protoc and the runtime move together: generated code refuses an older runtime. -->
         <protobuf.version>4.28.2</protobuf.version>
-        <awssdk.version>2.20.0</awssdk.version>
+        <awssdk.version>2.55.11</awssdk.version>
         <twelvemonkeys.version>3.12.0</twelvemonkeys.version>
         <archunit.version>1.3.0</archunit.version>
     </properties>
