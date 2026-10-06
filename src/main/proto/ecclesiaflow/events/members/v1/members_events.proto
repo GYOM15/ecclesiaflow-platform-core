@@ -125,3 +125,37 @@ message MemberAnonymizedEvent {
   // Keycloak user is already deleted when this event is emitted.
   string keycloak_user_id = 3;
 }
+
+// Emitted with MemberAnonymizedEvent, in the same transaction and under the
+// same ordering key, for the module that finds a person by address rather
+// than by key: communication keeps sent mail and campaign recipients by
+// address only, so the Keycloak sub alone cannot reach them.
+//
+// The addresses travel as digests, never in clear: each entry is the
+// RecipientDigest of an address the member held at erasure, the SHA-256 of
+// the address as the platform writes it (trimmed, lowercased; a phone number
+// as "+" and its digits), in lowercase hex. A module that still holds the
+// address recognises it; any other reader learns nothing it could read back.
+// MemberContactsErasedEventTest pins the field set.
+//
+// Idempotent on event_id, which is DETERMINISTIC ("contacts:<member_id>") for
+// the same reason as MemberAnonymizedEvent's: an anonymization announced again
+// carries the same id, and its consumer collapses it.
+// Routing key: "members.contacts.erased".
+message MemberContactsErasedEvent {
+  // Deterministic: "contacts:" + the members-module member_id (UUID).
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the member was anonymized;
+  // the same instant as the MemberAnonymizedEvent staged with it.
+  int64 occurred_at_epoch_ms = 2;
+
+  // The former member's Keycloak sub, for what a consumer keeps by user id.
+  string keycloak_user_id = 3;
+
+  // One RecipientDigest per address the member held: the emails, then the
+  // phone number. Empty when none survived to the erasure (an anonymization
+  // announced again after its addresses were scrubbed); the consumer still
+  // acts on keycloak_user_id.
+  repeated string recipient_digests = 4;
+}

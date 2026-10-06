@@ -113,7 +113,7 @@ generated classes and the `.proto` files.
 | `email/email_service.proto` | communication (`EmailService`, `EmailQueueMessage`) | `com.ecclesiaflow.grpc.email` |
 | `events/auth/v1/domain_events.proto` | auth (`SetupTokenIssuedEvent`, `ExistingAccountNoticeEvent`) | `com.ecclesiaflow.grpc.events.auth` |
 | `events/church/v1/church_events.proto` | church (invitation, admission, removal, group events) | `com.ecclesiaflow.grpc.events.church` |
-| `events/members/v1/members_events.proto` | members (`MemberProfileChangedEvent`, `MemberAnonymizedEvent`) | `com.ecclesiaflow.grpc.events.members` |
+| `events/members/v1/members_events.proto` | members (`MemberProfileChangedEvent`, `MemberAnonymizedEvent`, `MemberContactsErasedEvent`) | `com.ecclesiaflow.grpc.events.members` |
 
 A module that calls or serves an RPC, or publishes or consumes an event, uses these classes. It
 keeps no `.proto` of its own and needs no protobuf plugin. Consumers bring `grpc-protobuf`
@@ -132,6 +132,20 @@ the new one sends:
 `ContractWireCompatibilityTest` pins all of the above. When it fails, the change is on the wire:
 append the new field or RPC to its snapshot, never edit a line already there. Release order: this
 library first, then the owner of the contract, then its clients.
+
+## Erased addresses
+
+When a member is erased, the modules that keep something about them by user id find it from the
+Keycloak sub on `MemberAnonymizedEvent`. A module that keeps addresses only, as communication keeps
+sent mail and campaign recipients, gets `MemberContactsErasedEvent` instead, staged in the same
+transaction: the sub, and one digest per address the member held.
+
+`com.ecclesiaflow.platform.events.erasure.RecipientDigest` makes those digests: the SHA-256, in
+lowercase hex, of the address as the platform writes it (an email trimmed and lowercased, a phone
+number `+` and its digits). The address never travels in clear, so the event, the outbox row and a
+dead-lettered copy tell nothing to whoever does not already hold the address. A PostgreSQL consumer
+rebuilds the digest of a stored address with
+`encode(sha256(convert_to(lower(btrim(address)), 'UTF8')), 'hex')`.
 
 ## Protobuf messages over RabbitMQ
 

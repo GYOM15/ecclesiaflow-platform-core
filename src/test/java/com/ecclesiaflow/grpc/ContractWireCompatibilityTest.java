@@ -14,6 +14,7 @@ import com.ecclesiaflow.grpc.events.church.MemberAdmittedToChurchEvent;
 import com.ecclesiaflow.grpc.events.church.MemberRemovedFromChurchEvent;
 import com.ecclesiaflow.grpc.events.church.MemberRemovedFromGroupEvent;
 import com.ecclesiaflow.grpc.events.members.MemberAnonymizedEvent;
+import com.ecclesiaflow.grpc.events.members.MemberContactsErasedEvent;
 import com.ecclesiaflow.grpc.events.members.MemberProfileChangedEvent;
 import com.ecclesiaflow.grpc.events.members.MembersDomainEventsProto;
 import com.ecclesiaflow.grpc.members.MembersServiceProto;
@@ -63,7 +64,7 @@ class ContractWireCompatibilityTest {
                 ChurchInvitationCreatedEvent.class, MemberRemovedFromChurchEvent.class,
                 MemberAdmittedToChurchEvent.class, MemberAddedToGroupEvent.class,
                 MemberRemovedFromGroupEvent.class, MemberProfileChangedEvent.class,
-                MemberAnonymizedEvent.class, EmailQueueMessage.class))
+                MemberAnonymizedEvent.class, MemberContactsErasedEvent.class, EmailQueueMessage.class))
                 .extracting(Class::getName)
                 .containsExactly(
                         "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent",
@@ -75,6 +76,7 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.events.church.MemberRemovedFromGroupEvent",
                         "com.ecclesiaflow.grpc.events.members.MemberProfileChangedEvent",
                         "com.ecclesiaflow.grpc.events.members.MemberAnonymizedEvent",
+                        "com.ecclesiaflow.grpc.events.members.MemberContactsErasedEvent",
                         "com.ecclesiaflow.grpc.email.EmailQueueMessage");
     }
 
@@ -440,6 +442,11 @@ class ContractWireCompatibilityTest {
               1 string event_id
               2 int64 occurred_at_epoch_ms
               3 string keycloak_user_id
+            message ecclesiaflow.events.members.v1.MemberContactsErasedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string keycloak_user_id
+              4 repeated string recipient_digests
             enum ecclesiaflow.events.members.v1.BaptismDeclaration
               0 BAPTISM_DECLARATION_UNSPECIFIED
               1 BAPTISM_DECLARATION_NOT_BAPTISED
