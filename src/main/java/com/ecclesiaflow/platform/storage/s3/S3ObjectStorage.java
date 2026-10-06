@@ -80,6 +80,8 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
                         requireConfigured(props.getSecretAccessKey(), "secret-access-key"))))
                 .serviceConfiguration(S3Configuration.builder()
                         .pathStyleAccessEnabled(props.isPathStyleAccess())
+                        // R2 answers an aws-chunked upload with a signature mismatch (403).
+                        .chunkedEncodingEnabled(false)
                         .build())
                 .httpClient(UrlConnectionHttpClient.create())
                 .build();

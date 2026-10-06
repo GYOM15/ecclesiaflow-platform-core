@@ -5,6 +5,11 @@ import com.ecclesiaflow.platform.storage.ObjectStorageException;
 import com.ecclesiaflow.platform.storage.ObjectStorageProperties;
 import com.ecclesiaflow.platform.storage.StoredObject;
 import com.ecclesiaflow.platform.storage.StoredObjectRef;
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.RecordedRequest;
+import okhttp3.mockwebserver.SocketPolicy;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -22,10 +27,14 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -204,6 +213,56 @@ class S3ObjectStorageTest {
         @DisplayName("a URL to a private object is not an acceptable public URL")
         void privateObjectUrlNotOurs() {
             assertThat(cdn.isOwnPublicUrl("https://cdn.example.com/member-photos/a.jpg")).isFalse();
+        }
+    }
+
+    @Nested
+    @DisplayName("on the wire (real client, local endpoint)")
+    class OnTheWire {
+
+        private MockWebServer r2;
+        private S3ObjectStorage wired;
+
+        @BeforeEach
+        void startEndpoint() throws IOException {
+            r2 = new MockWebServer();
+            r2.start();
+            ObjectStorageProperties.S3 props = props(null);
+            props.setEndpoint(r2.url("/").toString());
+            props.setAccessKeyId("test-key");
+            props.setSecretAccessKey("test-secret");
+            wired = new S3ObjectStorage(props);
+        }
+
+        @AfterEach
+        void stopEndpoint() throws IOException {
+            wired.close();
+            r2.shutdown();
+        }
+
+        // A single PUT's ETag is the body's MD5, which the SDK may check.
+        private RecordedRequest upload(byte[] data) throws Exception {
+            String md5 = HexFormat.of().formatHex(MessageDigest.getInstance("MD5").digest(data));
+            r2.enqueue(new MockResponse().setResponseCode(200)
+                    .setSocketPolicy(SocketPolicy.EXPECT_CONTINUE)
+                    .setHeader("ETag", "\"" + md5 + "\""));
+            wired.put("church-logos", data, "image/png");
+            return r2.takeRequest(5, TimeUnit.SECONDS);
+        }
+
+        @Test
+        @DisplayName("an upload is one plain body, never aws-chunked, which R2 refuses")
+        void uploadIsNotChunked() throws Exception {
+            byte[] data = "png-bytes".getBytes(StandardCharsets.UTF_8);
+
+            RecordedRequest request = upload(data);
+
+            assertThat(request.getMethod()).isEqualTo("PUT");
+            assertThat(request.getPath()).startsWith("/" + BUCKET + "/church-logos/");
+            assertThat(request.getHeader("Content-Encoding")).isNull();
+            assertThat(request.getHeader("x-amz-content-sha256")).doesNotStartWith("STREAMING-");
+            assertThat(request.getHeader("x-amz-decoded-content-length")).isNull();
+            assertThat(request.getBody().readByteArray()).isEqualTo(data);
         }
     }
 
