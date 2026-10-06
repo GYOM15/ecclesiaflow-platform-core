@@ -62,4 +62,9 @@ message ExistingAccountNoticeEvent {
   // Recipient render locale (BCP-47) — the EXISTING Keycloak user's locale,
   // never the signup request's. Defaults to "fr" when unknown or unsupported.
   string locale = 2;
+
+  // UUIDv4, one per notice. The outbox delivers at least once, so consumers
+  // dedupe on it. Empty from an auth build that predates the field: such a
+  // notice cannot be deduplicated and is handled as before.
+  string event_id = 3;
 }

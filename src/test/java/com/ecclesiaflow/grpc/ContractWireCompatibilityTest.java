@@ -398,6 +398,7 @@ class ContractWireCompatibilityTest {
             message ecclesiaflow.events.auth.v1.ExistingAccountNoticeEvent
               1 string email
               2 string locale
+              3 string event_id
             file ecclesiaflow/events/church/v1/church_events.proto package ecclesiaflow.events.church.v1 java_package com.ecclesiaflow.grpc.events.church
             message ecclesiaflow.events.church.v1.ChurchInvitationCreatedEvent
               1 string event_id
