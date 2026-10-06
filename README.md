@@ -132,6 +132,35 @@ Adopting it in a module that carries its own `RestJwtDecoderConfig`:
 4. A test slice that builds the security chain without the full auto-configuration imports
    `PlatformRestJwtDecoderAutoConfiguration` or supplies its own `JwtDecoder`.
 
+## Actuator endpoints on the management port
+
+`PlatformManagementSecurityAutoConfiguration` adds the filter chain `managementSecurityFilterChain`,
+ordered first, for a servlet module that serves its actuator endpoints on their own port
+(`management.server.port` different from `server.port`). It claims `/actuator/**` and:
+
+- opens `/actuator/prometheus`, `/actuator/info`, `/actuator/health` and `/actuator/health/**` to
+  callers with no token: the Prometheus container and the orchestrator's probes;
+- refuses every other actuator endpoint, `/actuator/metrics` included, since the chain has no
+  login mechanism;
+- creates no session, and has no CSRF, CORS, basic or form login.
+
+The port, which the compose file never publishes, is the boundary. On a shared port the chain is
+not loaded and the module's own chain answers the endpoints, so the scrape is never opened at the
+edge. It needs `spring-boot-actuator-autoconfigure` and `spring-security-config`, which every
+module with a management port already has.
+
+| Property | Default | Effect |
+|---|---|---|
+| `ecclesiaflow.platform.management.security.enabled` | `true` | `false` removes the chain |
+
+A module bean named `managementSecurityFilterChain` takes precedence, so a module still carrying
+its own `PrometheusManagementSecurityConfig` keeps it. To adopt the shared chain:
+
+1. Delete `PrometheusManagementSecurityConfig`. From its test, keep the checks that read the
+   module's own properties files (management port, exposure list); drop those on the class.
+2. Keep `management.server.port` different from `server.port` in every profile that runs.
+3. Keep `management.endpoints.web.base-path` at its default, `/actuator`: the chain matches that path.
+
 ## gRPC and domain-event contracts
 
 The canonical `.proto` files live in [`src/main/proto/ecclesiaflow`](src/main/proto/ecclesiaflow).

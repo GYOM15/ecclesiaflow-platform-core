@@ -207,6 +207,19 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- The management port's filter chain. Optional: every module that serves the actuator
+             endpoints on their own port already carries actuator and Spring Security's config. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-actuator-autoconfigure</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-config</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- JWT validation on the server side (reuses Spring's Nimbus-backed JwtDecoder) -->
         <dependency>
             <groupId>org.springframework.security</groupId>
@@ -283,15 +296,10 @@
             <version>2.12.1</version>
             <scope>test</scope>
         </dependency>
-        <!-- Context tests need what every consuming module ships: a validation provider and Security config. -->
+        <!-- Context tests need what every consuming module ships: a validation provider. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.security</groupId>
-            <artifactId>spring-security-config</artifactId>
             <scope>test</scope>
         </dependency>
         <!-- The rate limiter's integration test runs its script on a real Redis. -->
