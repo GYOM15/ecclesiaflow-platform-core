@@ -73,17 +73,37 @@ class OutboxRelaySchedulerTest {
         @Test
         @DisplayName("Keeps relaying while batches come back full")
         void drainsBacklog() {
-            when(relay.relayDue()).thenReturn(FULL, FULL, PARTIAL);
+            when(relay.relayDue()).thenReturn(FULL, FULL, PARTIAL, RelayBatchResult.EMPTY);
 
             scheduler.relayCycle();
 
-            verify(relay, times(3)).relayDue();
+            verify(relay, times(4)).relayDue();
+        }
+
+        @Test
+        @DisplayName("Keeps relaying while a batch sent something: a burst on one key leaves in one cycle")
+        void drainsOneKeyBurst() {
+            when(relay.relayDue()).thenReturn(PARTIAL, PARTIAL, PARTIAL, RelayBatchResult.EMPTY);
+
+            scheduler.relayCycle();
+
+            verify(relay, times(4)).relayDue();
+        }
+
+        @Test
+        @DisplayName("Stops once a partial batch sent nothing: what failed waits for its backoff")
+        void stopsWhenNothingSent() {
+            when(relay.relayDue()).thenReturn(new RelayBatchResult(1, 0, 1, 0, 0, false));
+
+            scheduler.relayCycle();
+
+            verify(relay, times(1)).relayDue();
         }
 
         @Test
         @DisplayName("Stops draining once the broker defers messages")
         void stopsWhenDeferred() {
-            when(relay.relayDue()).thenReturn(new RelayBatchResult(3, 0, 0, 0, 3, true));
+            when(relay.relayDue()).thenReturn(new RelayBatchResult(3, 1, 0, 0, 2, true));
 
             scheduler.relayCycle();
 
@@ -164,7 +184,7 @@ class OutboxRelaySchedulerTest {
         @DisplayName("Relays on its own thread from start until stop")
         void runsBetweenStartAndStop() {
             scheduler = scheduler(Duration.ofMillis(10), Duration.ofSeconds(2));
-            when(relay.relayDue()).thenReturn(PARTIAL);
+            when(relay.relayDue()).thenReturn(RelayBatchResult.EMPTY);
 
             scheduler.start();
             scheduler.start();

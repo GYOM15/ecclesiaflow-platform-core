@@ -105,12 +105,14 @@ public class OutboxRelayScheduler implements SmartLifecycle {
     }
 
     // A periodic task that throws is never run again, hence the catch-all on both cycles.
+    // A claim takes one row per key, so a burst on one key fills no batch: a batch that sent
+    // something frees the next row of its key, and the cycle goes on until nothing more leaves.
     void relayCycle() {
         try {
             RelayBatchResult result;
             do {
                 result = relay.relayDue();
-            } while (!stopRequested && result.batchWasFull() && result.deferred() == 0);
+            } while (!stopRequested && result.deferred() == 0 && (result.batchWasFull() || result.sent() > 0));
         } catch (RuntimeException e) {
             events.publishEvent(new OutboxRelayEvents.RelayCycleFailed(OutboxRelayEvents.Task.RELAY, describe(e)));
         }
