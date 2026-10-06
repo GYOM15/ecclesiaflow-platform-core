@@ -312,6 +312,11 @@ mvn clean install      # tests + install to ~/.m2 (for local consumers)
 mvn -DskipTests install # install without tests (when iterating on consumers)
 ```
 
+The build runs `protoc-gen-grpc-java`. For gRPC 1.65.1 its `osx-aarch_64` artifact is an x86_64
+executable, so on Apple silicon it runs only under Rosetta 2; without it, `protoc` reports
+`protoc-gen-grpc-java: program not found or is not executable`. The modules compile no `.proto`
+and are not affected.
+
 ## License
 
 MIT
