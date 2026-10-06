@@ -371,6 +371,14 @@
                                     </excludes>
                                     <message>A dependency was resolved BELOW the version the Spring Boot BOM manages. This almost always means a &lt;*.version&gt; property is pinned in this pom and is downgrading the BOM. Remove the pin rather than raising it here.</message>
                                 </bannedDependencies>
+                                <!-- The search above skips optional dependencies; Lombok is one. -->
+                                <bannedDependencies>
+                                    <searchTransitive>false</searchTransitive>
+                                    <excludes>
+                                        <exclude>org.projectlombok:lombok:[,1.18.38)</exclude>
+                                    </excludes>
+                                    <message>A direct dependency is BELOW the version the Spring Boot BOM manages. Remove the &lt;*.version&gt; pin rather than raising it here.</message>
+                                </bannedDependencies>
                             </rules>
                         </configuration>
                     </execution>
@@ -407,7 +415,7 @@
                         <path>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
-                            <version>1.18.30</version>
+                            <version>${lombok.version}</version>
                         </path>
                     </annotationProcessorPaths>
                 </configuration>
