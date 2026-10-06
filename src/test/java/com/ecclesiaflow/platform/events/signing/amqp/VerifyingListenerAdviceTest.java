@@ -2,6 +2,7 @@ package com.ecclesiaflow.platform.events.signing.amqp;
 
 import com.ecclesiaflow.platform.events.signing.DomainEventSigner;
 import com.ecclesiaflow.platform.events.signing.DomainEventVerifier;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import nl.altindag.log.LogCaptor;
@@ -20,6 +21,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -80,10 +82,22 @@ class VerifyingListenerAdviceTest {
     }
 
     private double counted(String decision) {
-        io.micrometer.core.instrument.Counter counter = meters.find(VerifyingListenerAdvice.METRIC)
+        Counter counter = meters.find(VerifyingListenerAdvice.METRIC)
                 .tag("decision", decision)
                 .counter();
         return counter == null ? 0d : counter.count();
+    }
+
+    @ParameterizedTest
+    @EnumSource(DomainEventVerifier.Decision.class)
+    @DisplayName("Publishes every decision at zero before any message, so increase() sees the first one")
+    void everyDecisionStartsAtZero(DomainEventVerifier.Decision decision) {
+        advice(true);
+
+        assertThat(meters.find(VerifyingListenerAdvice.METRIC)
+                .tag("decision", decision.name().toLowerCase(Locale.ROOT)).counter())
+                .isNotNull()
+                .extracting(Counter::count).isEqualTo(0d);
     }
 
     @Test
@@ -259,8 +273,9 @@ class VerifyingListenerAdviceTest {
                     .isInstanceOf(AmqpRejectAndDontRequeueException.class);
         }
 
-        // Four different forged keys, one series: reject_invalid.
-        assertThat(meters.find(VerifyingListenerAdvice.METRIC).counters()).hasSize(1);
+        // Four different forged keys, no new series: only the decisions exist.
+        assertThat(meters.find(VerifyingListenerAdvice.METRIC).counters())
+                .hasSize(DomainEventVerifier.Decision.values().length);
         assertThat(meters.find(VerifyingListenerAdvice.METRIC).tag("decision", "reject_invalid")
                 .counter().count()).isEqualTo(4d);
     }

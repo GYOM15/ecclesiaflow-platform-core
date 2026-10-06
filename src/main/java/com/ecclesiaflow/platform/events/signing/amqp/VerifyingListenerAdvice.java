@@ -47,7 +47,8 @@ import static com.ecclesiaflow.platform.logging.SecurityMaskingUtils.escapeContr
  * <p>Every decision increments
  * {@code ecclesiaflow_domain_events_signature_total{decision}} (finding F088) —
  * without it a fleet running lenient is indistinguishable from a fleet running
- * verified.</p>
+ * verified. Each decision is published at zero when the advice is built, so
+ * {@code increase()} sees a process's first rejection.</p>
  *
  * <p><strong>Caveat for whoever writes the alert, corrected.</strong> An earlier
  * version of this comment said that with a blank secret the advice is not
@@ -57,7 +58,7 @@ import static com.ecclesiaflow.platform.logging.SecurityMaskingUtils.escapeContr
  * the variable unset the property is still PRESENT with an empty value;
  * {@code @ConditionalOnProperty} matches, this advice IS registered, the signer
  * reports disabled, and every message is counted {@code decision="accept"}. The
- * counter therefore never goes absent and never shows
+ * counter therefore never goes absent and never counts
  * {@code accept_unverified} — a fleet checking nothing looks exactly like a
  * healthy verified one.</p>
  *
@@ -93,6 +94,11 @@ public class VerifyingListenerAdvice implements MethodInterceptor {
     public VerifyingListenerAdvice(DomainEventVerifier verifier, MeterRegistry meterRegistry) {
         this.verifier = verifier;
         this.meterRegistry = meterRegistry;
+        if (meterRegistry != null) {
+            for (DomainEventVerifier.Decision decision : DomainEventVerifier.Decision.values()) {
+                counter(decision);
+            }
+        }
     }
 
     @Override
@@ -160,14 +166,17 @@ public class VerifyingListenerAdvice implements MethodInterceptor {
         if (meterRegistry == null) {
             return;
         }
-        // `decision` only: it is an enum, so the cardinality is six. The routing
-        // key is publisher-controlled — see the javadoc — and tagging with it
-        // would let a forger create unbounded, permanent series from rejected
-        // messages.
-        Counter.builder(METRIC)
+        counter(decision).increment();
+    }
+
+    // `decision` only: it is an enum, so the cardinality is six. The routing
+    // key is publisher-controlled — see the javadoc — and tagging with it
+    // would let a forger create unbounded, permanent series from rejected
+    // messages.
+    private Counter counter(DomainEventVerifier.Decision decision) {
+        return Counter.builder(METRIC)
                 .tag("decision", decision.name().toLowerCase(Locale.ROOT))
-                .register(meterRegistry)
-                .increment();
+                .register(meterRegistry);
     }
 
     private static Message extractMessage(MethodInvocation invocation) {
