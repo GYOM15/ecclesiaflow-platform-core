@@ -10,30 +10,10 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * A fixed-window counter in Redis, admitted by one Lua script: the cost is added
- * only if it fits under the limit, and the window's expiry is set on the write
- * that created the key.
- *
- * <p><strong>Why a script.</strong> Adding first and giving a refused cost back
- * afterwards left a gap in which a concurrent caller saw that cost and was refused
- * although the window still had room. Redis runs a script without interleaving
- * any other command, so a refused call never touches the counter.
- *
- * <p><strong>Why the expiry is set only on the first hit.</strong> Refreshing it
- * on every call would let a steady stream hold the window open for ever, so the
- * counter would never reset and a caller would stay locked out permanently after
- * a single burst. The key must die on its own schedule, not on the caller's.
- *
- * <p><strong>Why Redis and not a map.</strong> An in-memory counter resets on
- * every redeploy and counts separately on each instance, so N instances multiply
- * every limit by N. The landing app carried exactly that on its contact form
- * before this existed.
- *
- * <p>The key embeds the window number rather than relying on a sliding
- * structure: a division of the epoch second by the window length. It costs one
- * round trip, and the boundary effect it allows — up to twice the limit across
- * two adjacent windows — is a price worth paying here, where the limit exists to
- * stop runaway loops and accidental fan-out rather than to meter a paid API.
+ * Fixed-window counter admitted by one Lua script: Redis runs it without interleaving, so a refused cost
+ * never touches the counter. In Redis because an in-memory counter resets on redeploy and multiplies the
+ * limit by the instance count. Up to twice the limit can pass across two adjacent windows, acceptable for
+ * a limiter that stops runaway loops rather than metering a paid API.
  */
 @RequiredArgsConstructor
 public class RedisRateLimiter implements RateLimiter {
@@ -88,14 +68,7 @@ public class RedisRateLimiter implements RateLimiter {
         }
     }
 
-    /**
-     * What to do when the counter cannot be read at all.
-     *
-     * <p>The rule decides, and both answers are defensible for different
-     * operations — which is why it is a property of the rule and not of this
-     * class. Either way an event is published, so the blind spot is reported
-     * rather than looking like a limiter that works.
-     */
+    /** The rule decides; an event is published either way so the blind spot is reported. */
     private RateLimitDecision unreadable(RateLimitRule rule, RuntimeException cause) {
         events.publishEvent(new RateLimitEvents.CounterUnavailable(rule.name(), rule.failOpen(), cause));
         if (rule.failOpen()) {

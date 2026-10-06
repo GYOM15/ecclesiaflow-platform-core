@@ -35,7 +35,6 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-/** The counter itself: what it counts, when it stops counting, and what it does blind. */
 class RedisRateLimiterTest {
 
     private static final RateLimitRule RULE =
@@ -159,10 +158,7 @@ class RedisRateLimiterTest {
     @Test
     @DisplayName("Redis unreachable: a fail-OPEN rule lets the call through")
     void failsOpenWhenRedisIsDown() {
-        // These operations already passed authentication and a capability check.
-        // The limiter guards against abuse by someone otherwise entitled, so
-        // refusing a treasurer's export because a cache is down trades a real
-        // outage for a hypothetical abuse.
+        // Already authenticated and capability-checked: a cache outage must not refuse them.
         whenScriptFails(new RedisConnectionFailureException("down"));
 
         RateLimitDecision decision = limiter.consume(RULE, "church-1");
@@ -234,10 +230,7 @@ class RedisRateLimiterTest {
     @Test
     @DisplayName("F059: a batch counts its real cost, all or nothing")
     void aBatchCountsItsRealCost() {
-        // A bulk import is ONE request that mints one invitation and sends one
-        // email per row, so counting it as one call let a thousand-row file walk
-        // past a two-hundred invitation ceiling: the ceiling counted the wrong
-        // thing.
+        // A bulk import is one request but one invitation per row, so the batch is the cost.
         // RULE allows 3; a batch of 3 lands exactly on the limit and passes.
         Map<String, AtomicLong> counters = backScriptWithCounters();
 

@@ -16,7 +16,6 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
-/** What the startup check reports, given the handlers a module exposes. */
 class RateLimitedHandlerValidatorTest {
 
     @SuppressWarnings("unused")

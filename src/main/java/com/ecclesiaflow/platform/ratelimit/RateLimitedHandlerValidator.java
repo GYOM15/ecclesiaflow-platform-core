@@ -34,9 +34,6 @@ public class RateLimitedHandlerValidator implements SmartInitializingSingleton {
                 .toList());
     }
 
-    /**
-     * @throws IllegalStateException naming every limited handler that would not be limited
-     */
     void validate(Collection<HandlerMethod> handlers) {
         List<HandlerMethod> limited = handlers.stream()
                 .filter(handler -> handler.getMethodAnnotation(RateLimited.class) != null)

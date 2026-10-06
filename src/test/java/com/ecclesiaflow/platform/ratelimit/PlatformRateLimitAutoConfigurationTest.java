@@ -17,26 +17,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/**
- * That the limiter is actually WIRED, not merely written.
- *
- * <p>This exists because the unit tests all passed while the application could
- * not start. {@code @ConditionalOnBean(StringRedisTemplate.class)} is evaluated
- * when the auto-configuration runs, so without an explicit order this class was
- * processed before Redis's, found no template, and produced no
- * {@link RateLimiter} — killing every application that injects one.
- *
- * <p>The runner below reproduces that exact condition: both auto-configurations,
- * in the order Spring Boot decides, against a real context.
- */
+/** Both auto-configurations in the order Spring Boot decides: the limiter must be wired, not merely written. */
 class PlatformRateLimitAutoConfigurationTest {
 
-    /**
-     * A connection factory is supplied because this library does not ship a
-     * Redis CLIENT — Lettuce arrives with the consuming module's starter. What
-     * is under test is the ORDER of the two auto-configurations, not Redis's
-     * ability to connect, so the factory is a stand-in and never dials.
-     */
+    /** The library ships no Redis client, so the factory is a stand-in that never dials: only the order is tested. */
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withBean(RedisConnectionFactory.class, () -> mock(RedisConnectionFactory.class))
             .withConfiguration(AutoConfigurations.of(

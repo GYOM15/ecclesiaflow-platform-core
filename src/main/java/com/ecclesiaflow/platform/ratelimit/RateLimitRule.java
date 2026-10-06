@@ -2,17 +2,7 @@ package com.ecclesiaflow.platform.ratelimit;
 
 import java.time.Duration;
 
-/**
- * One limit: how many calls, over how long, counted against whom.
- *
- * @param name           short, stable identifier. It becomes part of the Redis
- *                       key, so renaming it resets every counter in flight
- * @param limit          calls admitted per window
- * @param window         the fixed window the count resets on
- * @param scope          whose calls are counted
- * @param failOpen       what to do when the counter itself cannot be read — see
- *                       {@link #failOpen()}
- */
+/** {@code name} is part of the Redis key: renaming it resets every counter in flight. */
 public record RateLimitRule(
         String name,
         int limit,
@@ -36,13 +26,8 @@ public record RateLimitRule(
     }
 
     /**
-     * A rule that lets requests THROUGH when Redis cannot be reached.
-     *
-     * <p>The right default for the operations this protects. They are already
-     * behind authentication and a capability check, so the limiter is a
-     * mitigation against abuse or accident by someone who is otherwise entitled
-     * — not an authorization decision. Refusing a treasurer's export because a
-     * cache is down trades a real outage for a hypothetical abuse.
+     * Fails open when Redis is unreachable: these operations already pass authentication and a capability
+     * check, so the limiter mitigates abuse rather than authorizes, and a cache outage must not refuse them.
      */
     public static RateLimitRule perChurch(String name, int limit, Duration window) {
         return new RateLimitRule(name, limit, window, RateLimitScope.PER_CHURCH, true);
@@ -53,13 +38,7 @@ public record RateLimitRule(
         return new RateLimitRule(name, limit, window, RateLimitScope.PER_USER, true);
     }
 
-    /**
-     * A rule that REFUSES when Redis cannot be reached.
-     *
-     * <p>Reserve it for operations whose abuse costs money or cannot be undone —
-     * minting a payment session, sending to a whole congregation. There, an
-     * outage that admits everything is the worse of the two failures.
-     */
+    /** Refuses when Redis is unreachable; for operations whose abuse costs money or cannot be undone. */
     public RateLimitRule failClosed() {
         return new RateLimitRule(name, limit, window, scope, false);
     }

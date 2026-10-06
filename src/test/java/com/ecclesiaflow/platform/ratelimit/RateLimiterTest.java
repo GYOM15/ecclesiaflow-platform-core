@@ -10,7 +10,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
-/** The port's own contract, whatever counts behind it. */
 class RateLimiterTest {
 
     private static final RateLimitRule RULE =

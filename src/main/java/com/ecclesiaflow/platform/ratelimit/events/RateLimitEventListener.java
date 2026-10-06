@@ -4,12 +4,7 @@ import com.ecclesiaflow.platform.logging.SecurityMaskingUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
 
-/**
- * Turns rate-limiter events into operator log lines.
- *
- * <p>WARN in both directions: a limiter that silently stops counting looks
- * exactly like one that works, and that is how an outage goes unnoticed.
- */
+/** WARN both ways: a limiter that silently stops counting looks exactly like one that works. */
 @Slf4j
 public class RateLimitEventListener {
 

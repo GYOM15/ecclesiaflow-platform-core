@@ -8,14 +8,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 
 import java.util.Optional;
 
-/**
- * Applies the {@link RateLimited} annotation found on the handler.
- *
- * <p>Runs BEFORE the controller, so a refused call costs one Redis round trip
- * and nothing else — no transaction, no query, no fan-out. That is the whole
- * point of limiting an expensive operation: the expense must not be paid before
- * the refusal.
- */
+/** Runs before the controller, so a refused call costs one Redis round trip and nothing else. */
 @RequiredArgsConstructor
 public class RateLimitInterceptor implements HandlerInterceptor {
 
@@ -33,9 +26,8 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        // An unknown name means a method claims a limit nobody declared. Failing
-        // loudly beats letting the call through: a limit everyone believes in
-        // and that silently does not apply is worse than no limit at all.
+        // An undeclared rule fails loudly: a limit everyone believes in that silently
+        // does not apply is worse than no limit.
         RateLimitRule rule = registry.find(annotation.value()).orElseThrow(
                 () -> new IllegalStateException(
                         "No rate limit rule named '" + annotation.value() + "' is registered, "
@@ -43,10 +35,8 @@ public class RateLimitInterceptor implements HandlerInterceptor {
 
         Optional<String> subject = subjects.resolve(rule.scope());
         if (subject.isEmpty()) {
-            // Nothing to count against. Letting it through is deliberate: the
-            // operation's own authorization refuses it a moment later, and
-            // inventing a shared subject would let one caller spend everyone's
-            // allowance.
+            // Let through: the operation's own authorization refuses it next, and a shared
+            // subject would let one caller spend everyone's allowance.
             return true;
         }
 

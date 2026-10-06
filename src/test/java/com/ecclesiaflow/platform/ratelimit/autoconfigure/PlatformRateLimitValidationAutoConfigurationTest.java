@@ -28,11 +28,7 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
-/**
- * Whether an application whose {@link RateLimited} methods would not be limited is
- * allowed to start. The library's rate-limit auto-configurations are read from its
- * own imports file, the way a consuming service picks them up.
- */
+/** The rate-limit auto-configurations come from the library's imports file, as in a consuming service. */
 class PlatformRateLimitValidationAutoConfigurationTest {
 
     private static final RateLimitRuleRegistry REGISTRY =
