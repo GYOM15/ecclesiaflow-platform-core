@@ -558,6 +558,16 @@ class SecurityMaskingUtilsTest {
         }
 
         @Test
+        @DisplayName("a backslash is doubled, so a literal \\n never reads as an escaped line break")
+        void escapesBackslash() {
+            assertThat(SecurityMaskingUtils.escapeControlChars("auth.v1\\nINFO forged"))
+                    .isEqualTo("auth.v1\\\\nINFO forged");
+            assertThat(SecurityMaskingUtils.escapeControlChars("a\\\nb"))
+                    .as("a real line break after a backslash stays distinguishable")
+                    .isEqualTo("a\\\\\\nb");
+        }
+
+        @Test
         @DisplayName("printable text, accents and emoji included, is returned as is")
         void keepsPrintableText() {
             String plain = "église.membre-créé.v1 \uD83D\uDE4F";

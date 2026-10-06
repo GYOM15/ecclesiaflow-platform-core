@@ -240,10 +240,11 @@ public final class SecurityMaskingUtils {
     /**
      * Escapes what would let an untrusted value forge or disguise a log line:
      * {@code "a\r\nb"} → {@code "a\\r\\nb"}, other controls, line and paragraph
-     * separators and invisible format characters → {@code \\uXXXX}.
+     * separators and invisible format characters → {@code \\uXXXX}. A backslash is
+     * doubled, so an escape in the log always means the value held that control.
      */
     public static String escapeControlChars(String value) {
-        if (value == null || value.codePoints().noneMatch(SecurityMaskingUtils::isLogControl)) return value;
+        if (value == null || value.codePoints().noneMatch(SecurityMaskingUtils::needsEscape)) return value;
 
         StringBuilder escaped = new StringBuilder(value.length() + 16);
         value.codePoints().forEach(cp -> appendEscaped(escaped, cp));
@@ -251,11 +252,12 @@ public final class SecurityMaskingUtils {
     }
 
     private static void appendEscaped(StringBuilder out, int cp) {
-        if (!isLogControl(cp)) {
+        if (!needsEscape(cp)) {
             out.appendCodePoint(cp);
             return;
         }
         switch (cp) {
+            case '\\' -> out.append("\\\\");
             case '\r' -> out.append("\\r");
             case '\n' -> out.append("\\n");
             case '\t' -> out.append("\\t");
@@ -263,6 +265,10 @@ public final class SecurityMaskingUtils {
                 for (char unit : Character.toChars(cp)) out.append(String.format("\\u%04X", (int) unit));
             }
         }
+    }
+
+    private static boolean needsEscape(int cp) {
+        return cp == '\\' || isLogControl(cp);
     }
 
     // Line breaks start a forged line; the other controls and the format
