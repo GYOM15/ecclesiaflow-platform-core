@@ -301,8 +301,11 @@ git commit -am "Bump to 0.3.1-SNAPSHOT"
 git push origin main
 ```
 
-`.github/workflows/release.yml` also accepts a manual `workflow_dispatch` with
-a custom `version` input if you need to publish out-of-band.
+`.github/workflows/release.yml` refuses a tag whose commit does not declare
+that exact version in `pom.xml` (a SNAPSHOT pom included), and any version that
+is not `X.Y.Z`. It also accepts a manual `workflow_dispatch` with a custom
+`version` input if you need to publish out-of-band; that path sets the pom
+version itself.
 
 ### Semver discipline
 

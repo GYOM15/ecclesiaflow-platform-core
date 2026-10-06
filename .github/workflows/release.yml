@@ -34,16 +34,43 @@ jobs:
 
       - name: Resolve target version
         id: ver
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            VERSION="${{ inputs.version }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
           else
             VERSION="${GITHUB_REF#refs/tags/v}"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "[release] Publishing version: $VERSION"
 
+      - name: Read version from pom
+        id: pom
+        run: |
+          POM_VERSION=$(mvn -B -q -DforceStdout help:evaluate -Dexpression=project.version)
+          echo "version=$POM_VERSION" >> "$GITHUB_OUTPUT"
+          echo "[release] pom version: $POM_VERSION"
+
+      # A tag must sit on the commit that sets the pom to its version: built from a SNAPSHOT pom,
+      # the published jar differs from what checking out the tag builds.
+      - name: Refuse a SNAPSHOT or mismatched version
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          POM_VERSION: ${{ steps.pom.outputs.version }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$VERSION' is not a release version (X.Y.Z). SNAPSHOTs are published by snapshot.yml."
+            exit 1
+          fi
+          if [ "$EVENT" = "push" ] && [ "$POM_VERSION" != "$VERSION" ]; then
+            echo "::error::tag v$VERSION is on a commit whose pom declares '$POM_VERSION'. Set the pom to $VERSION, commit, and tag that commit."
+            exit 1
+          fi
+
       - name: Set Maven project version
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         run: mvn -B versions:set -DnewVersion=${{ steps.ver.outputs.version }} -DgenerateBackupPoms=false
 
       - name: Build & verify
