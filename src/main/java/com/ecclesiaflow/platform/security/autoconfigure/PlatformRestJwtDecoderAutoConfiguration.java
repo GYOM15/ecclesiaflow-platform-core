@@ -23,17 +23,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The REST plane's decoder: Keycloak's keys, a pinned issuer, and the audience
- * {@code ecclesiaflow.rest.jwt.audience} requires. Spring Boot's own resource-server decoder pins
- * the issuer but checks no audience, so this one is registered ahead of it and it backs off. A
- * module that declares its own {@link JwtDecoder} keeps it.
- *
- * <p>The default audience, {@code ecclesiaflow-internal}, is the one the modules have enforced so
- * far, so adopting this bean changes nothing in either deploy order. The end state is
- * {@code ecclesiaflow-app}, which only end-user clients carry; it is set once the realm stamps it,
- * never as the default, which would refuse every signed-in user while the realm lags behind.</p>
- *
- * <p>Independent of the s2s decoder, which is not a {@link JwtDecoder} and never reaches this plane.</p>
+ * Registered ahead of Spring Boot's resource-server decoder, which pins the issuer but checks no
+ * audience; a module that declares its own {@link JwtDecoder} keeps it. The default audience,
+ * {@code ecclesiaflow-internal}, keeps either deploy order safe. The target, {@code ecclesiaflow-app},
+ * which only end-user clients carry, is set once the realm stamps it, never as the default: that would
+ * refuse every signed-in user while the realm lags behind.
  */
 @AutoConfiguration(before = OAuth2ResourceServerAutoConfiguration.class)
 @EnableConfigurationProperties({RestJwtProperties.class, OAuth2ResourceServerProperties.class})

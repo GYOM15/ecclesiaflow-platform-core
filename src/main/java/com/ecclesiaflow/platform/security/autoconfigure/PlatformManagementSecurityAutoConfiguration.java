@@ -22,22 +22,14 @@ import java.util.List;
 import java.util.stream.Stream;
 
 /**
- * Opens the scrape and the probes of the management port to callers holding no token, the
- * Prometheus and orchestrator containers of the internal network, and refuses every other actuator
- * endpoint there. The port, which the compose file never publishes, is the boundary; this chain
- * decides what an internal caller may read.
+ * Opens the scrape and the probes of the management port to tokenless internal callers (Prometheus, the
+ * orchestrator) and refuses every other actuator endpoint; the unpublished port is the boundary.
  *
- * <p>The endpoints of a separate management port run in a child context that reuses the
- * application's filter chains, whose {@code anyRequest().authenticated()} would answer the scrape
- * 401. Ordered first, this chain claims every {@code /actuator/**} request and has no login
- * mechanism, so an endpoint off the anonymous list, {@code /actuator/metrics} included, is refused
- * to everyone. On the application port no endpoint exists under {@code /actuator}, so it opens
- * nothing there.</p>
- *
- * <p>Loaded only while the management port differs from the application's: on a shared port the
- * permit-all would reach the edge, and the application's chain answers instead. A module bean named
- * {@code managementSecurityFilterChain} takes precedence, and
- * {@code ecclesiaflow.platform.management.security.enabled=false} turns it off.</p>
+ * <p>Ordered first because the child context of a separate management port reuses the application's
+ * chains, whose {@code anyRequest().authenticated()} would answer the scrape 401. It has no login
+ * mechanism, so an endpoint off the anonymous list is refused to everyone. Loaded only while the
+ * management port differs: on a shared port the permit-all would reach the edge. A module bean named
+ * {@code managementSecurityFilterChain} takes precedence.</p>
  */
 @AutoConfiguration(afterName = {
         "org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration",

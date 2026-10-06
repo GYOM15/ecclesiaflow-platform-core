@@ -297,10 +297,8 @@ class SecurityMaskingUtilsTest {
         @Test
         @DisplayName("F053: a long message costs milliseconds, not minutes")
         void aLongMessageIsBoundedBeforeThePatternsRun() {
-            // The host patterns backtrack on long runs of [a-zA-Z0-9._-], so the
-            // cost grew with the SQUARE of the input: 64 KB took 41 seconds of
-            // CPU. The input is an exception message from a driver, and anyone
-            // who can make one long turns a request into minutes of a thread.
+            // The host patterns backtrack quadratically on long [a-zA-Z0-9._-] runs (64 KB took 41 s of CPU),
+            // and anyone who can lengthen a driver's message would hold a thread for minutes.
             String hostile = "a".repeat(64 * 1024);
 
             long start = System.nanoTime();
@@ -326,11 +324,8 @@ class SecurityMaskingUtilsTest {
         @Test
         @DisplayName("F053: a bare domain is still masked — the pattern was NOT rewritten")
         void aBareDomainIsStillMasked() {
-            // The first attempt at this fix made the host pattern possessive and
-            // it silently stopped matching api.example.com: the middle group
-            // swallowed the final label and could not give it back. A masker that
-            // quietly stops masking is worse than the slowness it replaced, so
-            // the patterns stayed as they were and only the LENGTH is bounded.
+            // A possessive host pattern stops matching api.example.com (the middle group swallows the last
+            // label), and a masker that quietly stops masking is worse: only the length is bounded.
             assertThat(SecurityMaskingUtils.sanitizeInfra("DNS lookup failed for api.example.com"))
                     .isEqualTo("DNS lookup failed for [HOST]");
         }

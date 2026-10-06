@@ -15,21 +15,9 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Converts a Keycloak JWT into a Spring Security {@link JwtAuthenticationToken}.
- *
- * <p>Authorities:
- * <ul>
- *   <li>{@code SCOPE_<scope>} for every entry of the {@code scope} / {@code scp} claim;</li>
- *   <li>{@code ROLE_<role>} for the top-level {@code roles} claim and {@code realm_access.roles};</li>
- *   <li>{@code ROLE_<role>} for {@code resource_access.<azp>.roles} — the roles of the client the
- *       token was issued to, and of no other client.</li>
- * </ul>
- *
- * <p>The principal name is the {@code sub} claim.
- *
- * <p>Auto-registered by
- * {@code com.ecclesiaflow.platform.security.autoconfigure.PlatformSecurityAutoConfiguration};
- * a consumer bean of this type takes precedence.
+ * Authorities: {@code SCOPE_} for each {@code scope}/{@code scp} entry; {@code ROLE_} for the top-level
+ * {@code roles}, {@code realm_access.roles}, and the roles of the token's own client in
+ * {@code resource_access.<azp>.roles}. The principal name is {@code sub}.
  */
 public class KeycloakJwtConverter implements Converter<Jwt, AbstractAuthenticationToken> {
 

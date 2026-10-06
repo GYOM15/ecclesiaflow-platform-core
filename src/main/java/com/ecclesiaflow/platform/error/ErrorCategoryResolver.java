@@ -17,9 +17,9 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * An outage anywhere in the cause chain wins over the generic rules: reported as a caller error,
- * it tells the caller not to retry, which is how a Keycloak blip became a permanent "role not found".
- * A saturated local resource is read the same way: the request was never judged, so a retry is right.
+ * An outage anywhere in the cause chain wins over the generic rules: reported as a caller error, it
+ * tells the caller not to retry and turns a Keycloak blip into a permanent "role not found". A saturated
+ * local resource is read the same way: the request was never judged, so a retry is right.
  */
 public final class ErrorCategoryResolver {
 

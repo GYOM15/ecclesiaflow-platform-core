@@ -32,7 +32,7 @@ class I18nFoundationsTest {
 
         @Test
         void rejectsNullBlankAndUnsupported() {
-            // S1: every hostile / unknown input collapses to empty, never throws.
+            // Every hostile or unknown input collapses to empty and never throws.
             assertThat(SupportedLocales.parse(null)).isEmpty();
             assertThat(SupportedLocales.parse("")).isEmpty();
             assertThat(SupportedLocales.parse("   ")).isEmpty();
@@ -74,7 +74,7 @@ class I18nFoundationsTest {
 
         @Test
         void platformDefaultIsFrench() {
-            // Anti-regression anchor: the backstop MUST be today's language.
+            // The fallback locale drives the default rendering of the whole platform.
             assertThat(PlatformDefaults.LOCALE).isEqualTo(SupportedLocales.FR);
             assertThat(PlatformDefaults.LOCALE.getLanguage()).isEqualTo("fr");
         }

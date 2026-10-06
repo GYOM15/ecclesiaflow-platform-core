@@ -34,10 +34,6 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * The REST plane's decoder, shared so that auth, members, church and communication stop each
- * carrying a copy: a pinned issuer, and a required audience unless the property is left blank.
- */
 class PlatformRestJwtDecoderAutoConfigurationTest {
 
     private static final String ISSUER = "https://kc.example/realms/ecclesiaflow";

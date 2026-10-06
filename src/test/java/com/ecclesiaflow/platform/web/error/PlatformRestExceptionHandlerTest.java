@@ -72,9 +72,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * Each case is a request that a service's catch-all answers 500 today.
- */
+/** Each case is a request a service's own catch-all would answer 500. */
 class PlatformRestExceptionHandlerTest {
 
     private static final Instant NOW = Instant.parse("2026-10-02T10:00:00Z");

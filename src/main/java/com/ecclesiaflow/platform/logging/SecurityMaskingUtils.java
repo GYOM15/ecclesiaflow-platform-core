@@ -5,18 +5,6 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Utility for masking sensitive data before it reaches a log line. Shared by
- * every EcclesiaFlow backend module so log shape stays consistent across the
- * platform.
- *
- * <p>Helpers cover the typical sources of leakage: emails ({@link #maskEmail}),
- * phone numbers ({@link #maskPhone}), message bodies ({@link #maskBody}), JWTs
- * and tokens ({@link #maskAny}, {@link #maskUrlQueryParam}), database / service
- * identifiers ({@link #maskId}), exception messages produced by
- * infrastructure layers ({@link #sanitizeInfra}, {@link #rootMessage}), and
- * values a remote party chose, such as message headers ({@link #escapeControlChars}).
- */
 public final class SecurityMaskingUtils {
 
     private static final String MASK = "****";
@@ -38,8 +26,7 @@ public final class SecurityMaskingUtils {
     private static final Pattern PHONE_LIKE =
             Pattern.compile("^\\+?[0-9 ()\\-.]{6,20}$");
 
-    // Lookbehinds anchor matches at token starts: linear backtracking, and no match
-    // starting mid-word (how "alice@church.com" used to become "alice@c[HOST]").
+    // Lookbehinds anchor matches at token starts: linear backtracking, and no match starting mid-word.
     private static final Pattern BEARER_IN_TEXT =
             Pattern.compile("(?i)\\bbearer\\s+[A-Za-z0-9._~+/=-]{8,}");
     private static final Pattern JWT_IN_TEXT =
@@ -137,10 +124,6 @@ public final class SecurityMaskingUtils {
         }
     }
 
-    /**
-     * Shortcut for confirmation links of the shape
-     * {@code https://&lt;host&gt;/?token=...} — masks the {@code token} query parameter.
-     */
     public static String maskConfirmationLink(String link) {
         return maskUrlQueryParam(link, "token");
     }
@@ -166,12 +149,8 @@ public final class SecurityMaskingUtils {
     }
 
     /**
-     * Masks a value whose meaning the caller does not know.
-     *
-     * <p>Deny by default: a string that is not recognised is redacted, because a
-     * password, a name or an address looks like any other text. Only numbers,
-     * booleans and enum constants are printed as is; any other object shows its
-     * type, never its {@code toString()}.
+     * Deny by default: unrecognised text is redacted, since a password, a name or an address looks like any
+     * other text. Only numbers, booleans and enum constants print as is; other objects show their type.
      */
     public static String maskAny(Object value) {
         if (value == null) return UNKNOWN;
