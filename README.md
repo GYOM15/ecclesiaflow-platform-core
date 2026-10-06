@@ -18,6 +18,11 @@ Shared platform library for EcclesiaFlow backend modules. Main concerns:
 4. **gRPC and domain-event contracts** — the `.proto` files every module speaks,
    compiled once here into messages and gRPC stubs (see
    [Contracts](#grpc-and-domain-event-contracts)).
+5. **Domain events on RabbitMQ** — transactional outbox, HMAC signing, the protobuf
+   wire format and dead-letter queue depth.
+6. **Shared service plumbing** — object storage, upload sanitizing, rate limiting,
+   error responses, the clock and the architecture rules (see
+   [Other building blocks](#other-building-blocks)).
 
 - **Artifact**: `com.ecclesiaflow:ecclesiaflow-platform-core` — the current version is declared in [`pom.xml`](pom.xml) (development head as `X.Y.Z-SNAPSHOT`, releases pinned as `X.Y.Z`)
 - **Java**: 21
@@ -34,9 +39,9 @@ Shared platform library for EcclesiaFlow backend modules. Main concerns:
 - A `S2sAuthClientInterceptor` you plug on every outgoing `ManagedChannel`. A
   token the server answers `UNAUTHENTICATED` to is dropped for the next call.
 - A `S2sAuthServerInterceptor` you plug on every gRPC `Server`. It validates
-  the token against the Keycloak JWKS endpoint, checks the caller's client id
-  against `allowed-azp` when set, and enforces a generic `ef:s2s` scope on
-  every call.
+  the token against the Keycloak JWKS endpoint with the issuer and the audience
+  pinned, checks the caller's client id against `allowed-azp` when set, and
+  enforces a generic `ef:s2s` scope on every call.
 
 Per-method scope enforcement (e.g. `@S2sScopeRequired("ef:members:write")`)
 is enforced via `S2sScopeRegistry` since `0.2.0`. The registry refuses to
@@ -48,9 +53,9 @@ annotation names no RPC of its service.
 In any consumer's `application.properties`:
 
 ```properties
-ecclesiaflow.platform.rpc.s2s.client-id=ecclesiaflow-backend
-ecclesiaflow.platform.rpc.s2s.client-secret=${KEYCLOAK_BACKEND_CLIENT_SECRET}
-ecclesiaflow.platform.rpc.s2s.token-url=${KEYCLOAK_ISSUER_URI}/protocol/openid-connect/token
+ecclesiaflow.platform.rpc.s2s.client-id=${S2S_CLIENT_ID}
+ecclesiaflow.platform.rpc.s2s.client-secret=${S2S_CLIENT_SECRET}
+ecclesiaflow.platform.rpc.s2s.token-url=${S2S_TOKEN_URL}
 ecclesiaflow.platform.rpc.s2s.jwks-uri=${KEYCLOAK_JWKS_URI}
 ecclesiaflow.platform.rpc.s2s.issuer=${KEYCLOAK_ISSUER_URI}
 # Backend clients allowed to call this module's gRPC server (azp claim).
@@ -59,6 +64,7 @@ ecclesiaflow.platform.rpc.s2s.allowed-azp=${S2S_ALLOWED_AZP:}
 # Fail at startup when the list above is empty (set it where the list is deployed).
 ecclesiaflow.platform.rpc.s2s.require-allowed-azp=${S2S_REQUIRE_ALLOWED_AZP:false}
 # Optional overrides
+# ecclesiaflow.platform.rpc.s2s.expected-audience=ecclesiaflow-internal   (blank skips the aud check)
 # ecclesiaflow.platform.rpc.s2s.generic-scope=ef:s2s
 # ecclesiaflow.platform.rpc.s2s.refresh-leeway-seconds=30
 ```
@@ -90,10 +96,12 @@ public ManagedChannel membersChannel(S2sAuthClientInterceptor s2sAuth,
 ```java
 @Bean
 public Server grpcServer(BindableService impl, S2sAuthServerInterceptor s2sAuth,
+                         GrpcExceptionServerInterceptor grpcExceptionInterceptor,
                          @Value("${grpc.server.port}") int port) throws IOException {
     return ServerBuilder.forPort(port)
         .addService(impl)
         .intercept(s2sAuth)
+        .intercept(grpcExceptionInterceptor)   // added last, runs first: maps exceptions to statuses
         .build()
         .start();
 }
@@ -122,15 +130,8 @@ to `rest.jwt.audience`, not to this prefix, so the module declares the bridge:
 ecclesiaflow.rest.jwt.audience=${REST_JWT_AUDIENCE:ecclesiaflow-internal}
 ```
 
-Adopting it in a module that carries its own `RestJwtDecoderConfig`:
-
-1. Delete `RestJwtDecoderConfig` and its test; the validator is tested here.
-2. Keep `.oauth2ResourceServer(o -> o.jwt(j -> j.decoder(restJwtDecoder)...))`: the `JwtDecoder`
-   the security configuration injects is now this bean. A module that never called `.decoder(...)`
-   gets it too, in place of Spring Boot's.
-3. Keep `issuer-uri`, `jwk-set-uri` and the audience line above.
-4. A test slice that builds the security chain without the full auto-configuration imports
-   `PlatformRestJwtDecoderAutoConfiguration` or supplies its own `JwtDecoder`.
+A test slice that builds the security chain without the full auto-configuration imports
+`PlatformRestJwtDecoderAutoConfiguration` or supplies its own `JwtDecoder`.
 
 ## Actuator endpoints on the management port
 
@@ -153,13 +154,9 @@ module with a management port already has.
 |---|---|---|
 | `ecclesiaflow.platform.management.security.enabled` | `true` | `false` removes the chain |
 
-A module bean named `managementSecurityFilterChain` takes precedence, so a module still carrying
-its own `PrometheusManagementSecurityConfig` keeps it. To adopt the shared chain:
-
-1. Delete `PrometheusManagementSecurityConfig`. From its test, keep the checks that read the
-   module's own properties files (management port, exposure list); drop those on the class.
-2. Keep `management.server.port` different from `server.port` in every profile that runs.
-3. Keep `management.endpoints.web.base-path` at its default, `/actuator`: the chain matches that path.
+A module bean named `managementSecurityFilterChain` takes precedence. The chain needs
+`management.server.port` different from `server.port` in every profile that runs, and
+`management.endpoints.web.base-path` at its default, `/actuator`, the path it matches.
 
 ## gRPC and domain-event contracts
 
@@ -274,20 +271,55 @@ public void removeFromGroup(...) {
 }
 ```
 
+Events staged under the same `aggregateKey` (the four-argument `append`) leave one at a time, in
+staging order; an event without a key leaves as soon as it is due.
+
 `append` outside a writable transaction on the primary DataSource throws
 `IllegalTransactionStateException`. A message that fails at the broker `max-attempts` times
-(10 by default, about half an hour) is parked; an unreachable broker parks nothing. Watch
-`ecclesiaflow_outbox_oldest_pending_age_seconds` and `ecclesiaflow_outbox_parked`; the replay
-statement for a parked row is in the DDL file.
+(10 by default, about half an hour) is parked, and holds back the later events of its key; an
+unreachable broker parks nothing. Watch `ecclesiaflow_outbox_oldest_pending_age_seconds` and
+`ecclesiaflow_outbox_parked`; the replay statement for a parked row is in the DDL file.
+
+## Domain-event signing
+
+With `ecclesiaflow.events.hmac-secret` set, `SigningMessagePostProcessor` stamps an HMAC-SHA256
+signature on every published event (`x-ef-signature`, `x-ef-signed-at`,
+`x-ef-signature-version`), and `VerifyingListenerAdvice` checks it before the listener converts
+the message. Register the first with `addBeforePublishPostProcessors` on the domain-events template,
+the second in the listener container factory's advice chain.
+
+| Property | Default | Effect |
+|---|---|---|
+| `ecclesiaflow.events.hmac-secret` | blank | The same value in every module (`EVENTS_HMAC_SECRET`); blank signs nothing and accepts everything |
+| `ecclesiaflow.events.verify-signatures` | `false` | `false` accepts a missing, invalid or stale signature with a warning; `true` rejects it without requeue, so it lands in the dead-letter queue |
+
+A signature more than 5 minutes away from the consumer's clock is stale. Turn on
+`verify-signatures` once `ecclesiaflow_domain_events_signature_total{decision="accept_unverified"}`
+stays at zero on every consumer. The counter cannot reveal an unsigned fleet: with a blank secret
+every message counts as `accept`.
+
+## Other building blocks
+
+| Concern | Entry points | Configuration |
+|---|---|---|
+| Object storage | `ObjectStorage` port; `FilesystemObjectStorage`, `S3ObjectStorage` (Cloudflare R2) | `ecclesiaflow.object-storage.provider` = `filesystem` or `s3`; unset creates no adapter. Under the `prod` profile, `filesystem` requires `filesystem.base-path`. Keys under `s3.private-key-prefixes` (default `member-photos`) are written `Cache-Control: private, no-store` and get no public URL |
+| Uploads | `ImageSanitizer` (real type sniffed, pixel count bounded, every image redrawn), `FileSanitizer` (CSV, XLSX), `TextUploadDecoder` (UTF-8 or Windows-1252) | `ecclesiaflow.platform.upload.image.max-concurrent-decodes`, `ecclesiaflow.platform.upload.image.decode-wait` |
+| Rate limiting | `@RateLimited` on a handler, Redis fixed window, `RateLimitExceededException` | The module supplies `RateLimitRuleRegistry` and `RateLimitSubjectResolver`; startup fails when a `@RateLimited` handler would not be limited. `ecclesiaflow.rate-limit.enabled=false` is for tests without Redis |
+| Error responses | `PlatformRestExceptionHandler` (lowest precedence, `ApiErrorResponse` with `errorCode`), `GrpcExceptionServerInterceptor`, `ExceptionClassifier` beans for module exceptions | `ecclesiaflow.platform.web.errors.enabled` |
+| Clock | A UTC `Clock` bean, unless the module declares one | — |
+| Architecture | `HexagonalArchitectureRules.check("<base package>")`, run from a module test with ArchUnit in test scope | — |
 
 ## Consuming the library (downstream modules)
 
 The artifact is published on **GitHub Packages**, in two flavours:
 
-| Flavour | Coordinates | When to use |
+| Flavour | Coordinates | Published |
 |---|---|---|
-| **Release** | `com.ecclesiaflow:ecclesiaflow-platform-core:X.Y.Z` | On consumer's `main` branch (production builds). Immutable. |
-| **Snapshot** | `com.ecclesiaflow:ecclesiaflow-platform-core:X.Y.Z-SNAPSHOT` | On consumer's `*-dev` branches (rolling integration with the lib's `main`). |
+| **Release** | `com.ecclesiaflow:ecclesiaflow-platform-core:X.Y.Z` | From a `vX.Y.Z` tag. Immutable. |
+| **Snapshot** | `com.ecclesiaflow:ecclesiaflow-platform-core:X.Y.Z-SNAPSHOT` | On every push to `main`, replacing the previous build. |
+
+The modules' poms declare `0.4.0-SNAPSHOT`. Publish this library before a module that needs a
+change in it: the module's CI resolves the version from GitHub Packages.
 
 ### Maven settings (consumer side)
 
@@ -308,7 +340,7 @@ In the consumer's `pom.xml`:
   <dependency>
     <groupId>com.ecclesiaflow</groupId>
     <artifactId>ecclesiaflow-platform-core</artifactId>
-    <version>0.3.1-SNAPSHOT</version>  <!-- development head; see pom.xml / GitHub Packages for the current version, or pin a released X.Y.Z -->
+    <version>0.4.0-SNAPSHOT</version>  <!-- development head; see pom.xml / GitHub Packages for the current version, or pin a released X.Y.Z -->
   </dependency>
 </dependencies>
 ```
@@ -339,10 +371,10 @@ the SNAPSHOT version currently declared in `pom.xml` to GitHub Packages.
 
 Workflow:
 
-1. Open PR from `platform-core-dev` (or feature branch) → `main`
+1. Open a PR from a `feature/` or `fix/` branch → `main`
 2. Merge to `main`
 3. Snapshot is automatically published as `X.Y.Z-SNAPSHOT`
-4. Consumer's `*-dev` branches pick it up on their next build
+4. Consumers declaring that version pick it up on their next build
 
 ### Releases (tagged)
 
@@ -358,8 +390,8 @@ git tag vX.Y.Z
 git push origin vX.Y.Z      # triggers .github/workflows/release.yml
 
 # 3. Bump pom back to the next SNAPSHOT for ongoing dev
-mvn -B versions:set -DnewVersion=0.3.1-SNAPSHOT -DgenerateBackupPoms=false
-git commit -am "Bump to 0.3.1-SNAPSHOT"
+mvn -B versions:set -DnewVersion=X.Y.(Z+1)-SNAPSHOT -DgenerateBackupPoms=false
+git commit -am "Bump to X.Y.(Z+1)-SNAPSHOT"
 git push origin main
 ```
 
@@ -386,15 +418,20 @@ events records).
 ## Local build commands
 
 ```bash
-mvn clean verify       # tests only (no install)
-mvn clean install      # tests + install to ~/.m2 (for local consumers)
+mvn test                # unit tests, no Docker
+mvn clean verify        # adds the *IntegrationTest classes and the 90% line and branch gate
+mvn clean install       # verify + install to ~/.m2 (for local consumers)
 mvn -DskipTests install # install without tests (when iterating on consumers)
 ```
 
+The integration tests start PostgreSQL, Redis, RabbitMQ and SeaweedFS with Testcontainers, so
+`verify` and `install` need Docker.
+
 The build runs `protoc-gen-grpc-java`. For gRPC 1.65.1 its `osx-aarch_64` artifact is an x86_64
-executable, so on Apple silicon it runs only under Rosetta 2; without it, `protoc` reports
-`protoc-gen-grpc-java: program not found or is not executable`. The modules compile no `.proto`
-and are not affected.
+executable, so on Apple silicon it runs only under Rosetta 2 (`softwareupdate --install-rosetta`);
+without it, `protoc` reports `protoc-gen-grpc-java: program not found or is not executable`.
+`-DprotocPluginExecutable=<path>` points the build at another `protoc-gen-grpc-java` 1.65.1
+executable instead. The modules compile no `.proto` and are not affected.
 
 ## License
 
