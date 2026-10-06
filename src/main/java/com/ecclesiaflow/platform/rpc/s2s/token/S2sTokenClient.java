@@ -15,17 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 
-/**
- * Talks to Keycloak's token endpoint over the {@code client_credentials} grant.
- *
- * <p><strong>Single responsibility:</strong> issue one HTTP exchange and turn the
- * response into a {@link S2sToken}. No caching, no concurrency control, no logging —
- * those concerns live in other classes (see {@link S2sTokenCache} and the platform's
- * logging aspect).</p>
- *
- * <p>All failures surface as {@link S2sTokenException}. Callers translate them to
- * whatever transport-level status fits (typically gRPC {@code UNAVAILABLE}).</p>
- */
+/** Keycloak {@code client_credentials} exchange; every failure surfaces as {@link S2sTokenException}. */
 public class S2sTokenClient {
 
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -49,13 +39,6 @@ public class S2sTokenClient {
         this.clock = clock;
     }
 
-    /**
-     * Exchanges the configured client credentials for a fresh access token.
-     *
-     * @return a {@link S2sToken} carrying the raw JWT and its absolute expiry instant
-     * @throws S2sTokenException if the token endpoint is unreachable, returns a non-2xx,
-     *                           or returns a malformed payload
-     */
     public S2sToken fetchToken() {
         String body = "grant_type=client_credentials"
                 + "&client_id=" + URLEncoder.encode(props.getClientId(), StandardCharsets.UTF_8)

@@ -23,48 +23,17 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * gRPC server interceptor that authenticates every incoming RPC with a JWT,
- * enforces the generic platform scope (default {@code ef:s2s}), and — when
- * the called RPC is annotated with {@link S2sScopeRequired} — enforces a
- * second per-method scope on top.
- *
- * <p><strong>Single responsibility:</strong> validate the token, check the
- * scopes, and decide whether to forward the call. No logging here —
- * rejections are announced through events, which the logging aspect picks
- * up.</p>
- *
- * <p><strong>Fail-closed per-method scopes.</strong> An RPC that maps to no
- * required method-scope is <em>rejected</em>, not allowed through on the
- * generic scope alone. The sole exception is the small set of gRPC standard
- * infrastructure services (Health, Reflection) tracked by
- * {@link S2sScopeRegistry#isInfrastructureService(String)} — those we don't
- * own and cannot annotate, so they stay reachable by any caller that already
- * carries {@code ef:s2s} (health probes and reflection tooling would
- * otherwise break). Every real business RPC declares its scope via
- * {@link S2sScopeRequired}; a new business RPC added without the annotation
- * is denied by design until it is annotated.</p>
- *
- * <p><strong>Allowed authorized parties.</strong> On top of the two scope
- * checks, the interceptor can pin the token's {@code azp} claim — the Keycloak
- * client the token was minted for — to an explicit allow-list
- * ({@code ecclesiaflow.platform.rpc.s2s.allowed-azp}, see {@link S2sAzpAllowList}).
- * This is the barrier that does not depend on the realm: the audience claim is
- * stamped on every client in the realm, so {@code aud} alone does not separate a
- * backend service account from a frontend token, while the client id does. An
- * empty list leaves the check off so a module that has not set it keeps working;
- * {@code require-allowed-azp=true} turns an empty list into a startup failure.</p>
- *
- * <p><strong>Accepted calls are announced too.</strong> Refusals alone leave a
- * successful lateral call between modules with no trace; every accept publishes
- * an {@link S2sAuthEvents.InboundAccepted} and increments
- * {@code ef_s2s_inbound_total} (finding F045).</p>
+ * Authenticates every inbound RPC: allowed {@code azp}, then the generic scope, then the per-method
+ * scope declared with {@link S2sScopeRequired}. Fail-closed: a method with no declared scope is denied,
+ * except the gRPC infrastructure services (Health, Reflection) that cannot be annotated. Every decision,
+ * accepts included, is published as an event so a lateral call between modules leaves a trace.
  */
 public class S2sAuthServerInterceptor implements ServerInterceptor {
 
     static final Metadata.Key<String> AUTHORIZATION_KEY =
             Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER);
 
-    /** Metric name, dotted per Micrometer convention; Prometheus renders it {@code ef_s2s_inbound_total}. */
+    /** Exported to Prometheus as {@code ef_s2s_inbound_total}. */
     static final String METRIC = "ef.s2s.inbound";
 
     private static final String UNKNOWN_AZP = "unknown";
@@ -83,7 +52,7 @@ public class S2sAuthServerInterceptor implements ServerInterceptor {
         this(jwtDecoder, props, events, scopeRegistry, null);
     }
 
-    /** @param meterRegistry may be {@code null} — the interceptor then counts nothing and still decides. */
+    /** A {@code null} registry counts nothing; decisions are unchanged. */
     public S2sAuthServerInterceptor(JwtDecoder jwtDecoder,
                                     S2sProperties props,
                                     ApplicationEventPublisher events,
@@ -126,10 +95,8 @@ public class S2sAuthServerInterceptor implements ServerInterceptor {
         String azpTag = (azp == null || azp.isBlank()) ? UNKNOWN_AZP : azp;
         String subject = SecurityMaskingUtils.maskId(jwt.getSubject());
 
-        // 1. Authorized party. The realm stamps aud=ecclesiaflow-internal on every client, so
-        //    the audience does not separate a backend service account from a frontend token —
-        //    the client id does. Checked before the scopes: a token minted for something with
-        //    no business on this plane is refused whatever it carries.
+        // The realm stamps aud on every client, so only the client id separates a service account from a
+        // frontend token. Checked before the scopes, whatever the token carries.
         if (!allowedAzp.permits(azp)) {
             events.publishEvent(new S2sAuthEvents.InboundForeignClient(fullMethodName, azp));
             count(fullMethodName, azpTag, "foreign_client");
@@ -138,17 +105,12 @@ public class S2sAuthServerInterceptor implements ServerInterceptor {
 
         Set<String> scopes = extractScopes(jwt);
 
-        // 2. Generic platform scope (always required) — keeps non-backend clients out.
         if (!scopes.contains(requiredScope)) {
             events.publishEvent(new S2sAuthEvents.InboundMissingScope(fullMethodName, requiredScope));
             count(fullMethodName, azpTag, "missing_generic_scope");
             return abort(call, Status.PERMISSION_DENIED.withDescription("Missing required scope: " + requiredScope));
         }
 
-        // 3. Per-method scope (fail-closed). The RPC must declare a scope via
-        //    @S2sScopeRequired and the token must carry it. The only RPCs allowed
-        //    through without a declared scope are the gRPC standard infrastructure
-        //    services (Health, Reflection) we don't own and cannot annotate.
         String methodScope = scopeRegistry.requiredScope(fullMethodName).orElse(null);
         if (methodScope == null) {
             if (scopeRegistry.isInfrastructureService(fullMethodName)) {
@@ -172,7 +134,6 @@ public class S2sAuthServerInterceptor implements ServerInterceptor {
         return next.startCall(call, headers);
     }
 
-    /** {@code pkg.Service/Method} → {@code pkg.Service}. */
     private static String serviceNameOf(String fullMethodName) {
         if (fullMethodName == null) {
             return "unknown";
@@ -181,11 +142,7 @@ public class S2sAuthServerInterceptor implements ServerInterceptor {
         return slash >= 0 ? fullMethodName.substring(0, slash) : fullMethodName;
     }
 
-    /**
-     * Both tags are closed sets — the gRPC methods this server exposes, and the
-     * Keycloak clients that may reach it — so cardinality is bounded by the
-     * deployment, not by traffic.
-     */
+    /** Both tags are closed sets (exposed methods, realm clients), so cardinality is bounded by the deployment. */
     private void count(String fullMethodName, String azp, String outcome) {
         if (meterRegistry == null) {
             return;
@@ -203,11 +160,7 @@ public class S2sAuthServerInterceptor implements ServerInterceptor {
         return new ServerCall.Listener<>() {};
     }
 
-    /**
-     * Extracts scopes from a Keycloak-issued JWT. Keycloak puts them in the
-     * space-delimited {@code scope} claim (RFC 8693 style); some IDPs use the
-     * {@code scp} array claim — we honor both.
-     */
+    /** Keycloak uses the space-delimited {@code scope} claim; other IdPs use a {@code scp} array. */
     private static Set<String> extractScopes(Jwt jwt) {
         Set<String> result = new HashSet<>();
         Object scopeClaim = jwt.getClaim("scope");

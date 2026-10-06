@@ -35,12 +35,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * The interceptor's job is narrow and easily testable without standing up a real
- * gRPC server: we just verify that {@code start()} either populates the headers
- * with a Bearer token or fails fast with {@code UNAVAILABLE} (and publishes the
- * expected event).
- */
 class S2sAuthClientInterceptorTest {
 
     private static final MethodDescriptor<Object, Object> METHOD = MethodDescriptor.<Object, Object>newBuilder()

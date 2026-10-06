@@ -33,11 +33,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.awaitility.Awaitility.await;
 
-/**
- * Exercises the token pipeline (client + cache + provider) against a real HTTP endpoint
- * hosted by MockWebServer, or against a scripted client when the timing of the exchange
- * itself is what is under test.
- */
 class S2sTokenProviderTest {
 
     private static final Instant T0 = Instant.parse("2026-10-02T10:00:00Z");
@@ -134,8 +129,7 @@ class S2sTokenProviderTest {
 
     @Test
     void aTokenShorterThanTheLeewayIsStillReused() {
-        // A realm that issues 20 s service-account tokens against a 30 s leeway used to
-        // make every single call fetch a new token.
+        // 20 s tokens against a 30 s leeway must not make every call fetch a new token.
         props.setRefreshLeewaySeconds(30);
         S2sTokenProvider shortLived = new S2sTokenProvider(
                 new S2sTokenClient(props, HttpClient.newHttpClient(), clock), new S2sTokenCache(clock), props, clock);
@@ -187,7 +181,7 @@ class S2sTokenProviderTest {
         List<Throwable> outcomes = concurrently(5, () -> catchThrowable(failing::getToken));
 
         assertThat(outcomes).hasSize(5).allSatisfy(t -> assertThat(t).isInstanceOf(S2sTokenException.class));
-        // Each waiter used to find the cache still empty and run its own 10 s exchange in turn.
+        // One shared exchange, not one 10 s exchange per waiter in turn.
         assertThat(keycloakDown.fetches.get()).isEqualTo(1);
     }
 

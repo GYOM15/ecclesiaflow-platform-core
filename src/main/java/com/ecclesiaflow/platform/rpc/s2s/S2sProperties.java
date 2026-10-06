@@ -8,14 +8,7 @@ import org.springframework.validation.annotation.Validated;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Configuration for server-to-server gRPC authentication.
- *
- * <p>Bound to {@code ecclesiaflow.platform.rpc.s2s.*} in the consumer's
- * {@code application.properties}. The library only activates when
- * {@link #getClientId()} is set, so consumers can opt out by leaving the
- * property unset.</p>
- */
+/** Server-to-server gRPC authentication; the library stays inert while {@code client-id} is unset. */
 @ConfigurationProperties(prefix = "ecclesiaflow.platform.rpc.s2s")
 @Validated
 public class S2sProperties {
@@ -24,7 +17,7 @@ public class S2sProperties {
     @NotBlank
     private String clientId;
 
-    /** Keycloak client secret. Inject via env var, never hardcode. */
+    /** Inject from the environment, never hardcode. */
     @NotBlank
     private String clientSecret;
 
@@ -36,37 +29,20 @@ public class S2sProperties {
     @NotBlank
     private String jwksUri;
 
-    /** Expected {@code iss} claim. Pinned on every inbound s2s token. */
+    /** Pinned on every inbound s2s token. */
     @NotBlank
     private String issuer;
 
     /**
-     * Expected {@code aud} claim on inbound s2s tokens.
-     *
-     * <p><strong>This is not a fence between frontend and backend tokens, and
-     * the comment that said so was wrong.</strong> The realm's audience mapper
-     * is attached to <em>every</em> client, not to backend service accounts
-     * only ({@code realm-ecclesiaflow.json:284}), so a token minted for the
-     * frontend carries {@code aud=ecclesiaflow-internal} exactly like one minted
-     * for a module. What this property does is pin the audience to a known
-     * value, which stops a token issued by the same realm for an unrelated
-     * audience — real, but a much narrower guarantee than « user tokens cannot
-     * reach the gRPC plane ». The barrier that actually separates callers is
-     * {@link #getAllowedAzp()} (finding F052).</p>
-     *
-     * <p>Leave <strong>blank</strong> to skip audience validation — an escape
-     * hatch for the migration window before the realm re-import lands. The
-     * default ({@code ecclesiaflow-internal}) <strong>enforces</strong> it.</p>
+     * Pins the inbound {@code aud}. Not a frontend/backend fence: the realm's audience mapper is on every
+     * client, so frontend tokens carry it too; {@link #getAllowedAzp()} is what separates callers. Blank
+     * skips the check (migration escape hatch).
      */
     private String expectedAudience = "ecclesiaflow-internal";
 
     /**
-     * Keycloak client ids ({@code azp} claim) allowed on the inbound gRPC plane.
-     *
-     * <p>Empty (the default) leaves the check off so a module that has not set it keeps
-     * working; the posture is announced at startup either way. List the backend service
-     * accounts that call this module, never the frontend client: a user token that has
-     * somehow acquired {@code ef:s2s} is then refused on its client id.</p>
+     * Client ids ({@code azp}) allowed on the inbound plane: list the backend service accounts, never the
+     * frontend client. Empty leaves the check off; the posture is announced at startup either way.
      */
     private List<String> allowedAzp = new ArrayList<>();
 
@@ -76,15 +52,11 @@ public class S2sProperties {
      */
     private boolean requireAllowedAzp;
 
-    /** Scope required on every inbound s2s RPC. Defaults to {@code ef:s2s}. */
+    /** Scope required on every inbound s2s RPC. */
     @NotBlank
     private String genericScope = "ef:s2s";
 
-    /**
-     * Refresh window before access-token expiry. The provider refreshes
-     * proactively this many seconds before the JWT's {@code exp} claim
-     * to avoid mid-call expirations.
-     */
+    /** Refreshes this many seconds before {@code exp}, so a token cannot expire mid-call. */
     @Min(0)
     private int refreshLeewaySeconds = 30;
 

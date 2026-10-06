@@ -14,24 +14,11 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Public entry point for callers that need a valid s2s access token.
- *
- * <p><strong>Single responsibility:</strong> orchestrate {@link S2sTokenCache}
- * and {@link S2sTokenClient}. No HTTP, no parsing, no logging — those are
- * delegated, in line with the platform's "logs in aspects only" rule.</p>
- *
- * <p>Refresh model:
- * <ul>
- *   <li>One exchange with Keycloak at a time, run off the caller's thread; every caller
- *       that needs it waits on that same exchange, each for no longer than its own bound
- *       (the remaining gRPC deadline, or {@link #DEFAULT_MAX_WAIT}).</li>
- *   <li>Inside the refresh window a still-valid token is served at once while the
- *       refresh runs in the background.</li>
- *   <li>A failed exchange is not retried before a short backoff (1 s, doubling up to 5 s):
- *       callers with no usable token fail fast instead of queueing behind new attempts.</li>
- *   <li>The refresh window is the configured leeway, capped at half the token's lifetime,
- *       so a short-lived token is still reused.</li>
- * </ul>
+ * One Keycloak exchange at a time, off the caller's thread; every caller waits on it for no longer than
+ * its own bound (the remaining gRPC deadline, or {@link #DEFAULT_MAX_WAIT}). Inside the refresh window a
+ * still-valid token is served while the refresh runs. A failed exchange is not retried before a backoff
+ * (1 s, doubling up to 5 s), so callers without a token fail fast instead of queueing. The window is the
+ * configured leeway, capped at half the token's lifetime so a short-lived token is still reused.
  */
 public class S2sTokenProvider {
 
@@ -69,21 +56,13 @@ public class S2sTokenProvider {
         this.refreshExecutor = refreshExecutor;
     }
 
-    /**
-     * Returns a currently valid access token, waiting at most {@link #DEFAULT_MAX_WAIT}
-     * for a refresh.
-     *
-     * @throws S2sTokenException if no token can be obtained in time
-     */
     public String getToken() {
         return getToken(DEFAULT_MAX_WAIT);
     }
 
     /**
-     * Returns a currently valid access token, waiting at most {@code maxWait} for a refresh.
-     *
-     * @throws S2sTokenException if no token can be obtained within {@code maxWait}, or the
-     *                           token endpoint failed within the current backoff
+     * Throws {@link S2sTokenException} when no token arrives within {@code maxWait}, or when the token
+     * endpoint failed within the current backoff.
      */
     public String getToken(Duration maxWait) {
         Optional<S2sToken> fresh = cache.getIfValid(effectiveLeewaySeconds);
@@ -105,10 +84,7 @@ public class S2sTokenProvider {
         return await(refresh(), maxWait).accessToken();
     }
 
-    /**
-     * Drops the cached token, so the next call fetches a fresh one. Called when a server
-     * refuses the token, e.g. after a key rotation.
-     */
+    /** Called when a server refuses the token, e.g. after a key rotation. */
     public void invalidate() {
         cache.invalidate();
     }

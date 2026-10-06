@@ -68,10 +68,8 @@ class S2sScopeRegistryTest {
     }
 
     /**
-     * The gRPC impl beans are CGLIB-proxied at runtime (logging aspects), and the
-     * generated proxy subclass does not carry the method-level {@link S2sScopeRequired}
-     * annotations. The registry must scan the target class — otherwise every annotated
-     * RPC is left unmapped and the fail-closed interceptor rejects it.
+     * gRPC beans are CGLIB-proxied by the logging aspects and the proxy subclass does not carry the method
+     * annotations, so the registry must scan the target class.
      */
     @Test
     void indexesAnnotatedMethodThroughCglibProxy() {

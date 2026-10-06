@@ -7,11 +7,8 @@ import org.springframework.security.oauth2.jwt.JwtException;
 import java.util.Objects;
 
 /**
- * Decoder for inbound server-to-server tokens.
- *
- * <p>Deliberately not a {@link JwtDecoder}: a bean of that type is what Spring Boot's
- * resource server and every by-type injection in a module resolve for the REST plane,
- * and the s2s validation rules must never be applied there by accident.</p>
+ * Deliberately not a {@link JwtDecoder}: a bean of that type is what Spring Boot's resource server and
+ * every by-type injection resolve for the REST plane, where the s2s rules must never apply by accident.
  */
 public final class S2sJwtDecoder {
 

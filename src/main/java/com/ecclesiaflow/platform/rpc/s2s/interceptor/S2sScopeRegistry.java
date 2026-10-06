@@ -14,45 +14,16 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /**
- * Maps each gRPC full method name to the scope a caller must carry to
- * invoke it. Populated once at startup from {@link S2sScopeRequired}
- * annotations on the public methods of every {@link BindableService}
- * Spring bean.
- *
- * <p>The full method name follows gRPC's wire convention
- * {@code <serviceFullName>/<RpcName>} — the service full name comes
- * straight from the gRPC service descriptor, the RPC name is the Java
- * method name capitalised (the same transform gRPC's generated stubs
- * apply). Example:
- * {@code ecclesiaflow.members.MembersService/NotifyAccountActivated}.</p>
- *
- * <p>Single responsibility: scan + answer the question
- * "does this full method name require an extra scope?". The
- * authentication and the JWT-side scope check live in
- * {@link S2sAuthServerInterceptor}.</p>
- *
- * <p>Construction fails with {@link IllegalStateException} when a business RPC
- * of a scanned service declares no scope, or when an annotation names no RPC of
- * its service: either mistake would otherwise surface only as a refused call in
- * production.</p>
+ * Maps each gRPC full method name ({@code <service>/<Rpc>}, the Java method name capitalised as the
+ * generated stubs do) to its {@link S2sScopeRequired} scope. Construction fails when a business RPC
+ * declares no scope or an annotation names no RPC of its service, so either mistake surfaces at startup
+ * rather than as a refused call in production.
  */
 public class S2sScopeRegistry {
 
     /**
-     * gRPC standard infrastructure services that are intentionally
-     * unannotated. We don't own their source code and cannot add
-     * {@link S2sScopeRequired} to their generated methods, yet they must
-     * stay reachable — the Health service backs Kubernetes liveness /
-     * readiness probes and the reflection service backs grpcurl-style
-     * tooling. The {@link S2sAuthServerInterceptor} fails closed on any
-     * other unannotated RPC, so these service names are explicitly
-     * exempted by their gRPC service full name (the part before the
-     * {@code /} in the full method name).
-     *
-     * <p>Both the {@code v1} and the legacy {@code v1alpha} reflection
-     * service names are listed because the gRPC runtime may register
-     * either depending on the {@code ProtoReflectionService} factory in
-     * use.</p>
+     * Generated services that cannot be annotated but must stay reachable (health probes, grpcurl). Both
+     * reflection versions are listed: the runtime registers either, depending on the factory in use.
      */
     static final Set<String> INFRASTRUCTURE_SERVICES = Set.of(
             "grpc.health.v1.Health",
@@ -72,10 +43,8 @@ public class S2sScopeRegistry {
             for (ServerMethodDefinition<?, ?> rpc : definition.getMethods()) {
                 rpcs.add(rpc.getMethodDescriptor().getFullMethodName());
             }
-            // Scan the target class, not svc.getClass(): gRPC impl beans are CGLIB-proxied
-            // by the logging aspects, and the generated proxy subclass does not carry the
-            // method-level @S2sScopeRequired annotations. AopUtils.getTargetClass unwraps the
-            // proxy (and is a no-op for an unproxied bean), so the scan sees the real methods.
+            // Scan the target class: the logging aspects CGLIB-proxy gRPC beans, and the proxy subclass does not
+            // carry the method annotations.
             for (Method m : AopUtils.getTargetClass(svc).getMethods()) {
                 S2sScopeRequired ann = m.getAnnotation(S2sScopeRequired.class);
                 if (ann == null) {
@@ -98,22 +67,10 @@ public class S2sScopeRegistry {
         this.methodToScope = Map.copyOf(map);
     }
 
-    /**
-     * Returns the scope required to invoke the given gRPC RPC, or
-     * empty if the method was not annotated — meaning no per-method
-     * scope was declared for it.
-     */
     public Optional<String> requiredScope(String fullMethodName) {
         return Optional.ofNullable(methodToScope.get(fullMethodName));
     }
 
-    /**
-     * Whether the given gRPC full method name belongs to an exempt
-     * infrastructure service ({@link #INFRASTRUCTURE_SERVICES}). Such
-     * calls bypass the per-method scope requirement entirely so that
-     * health probes and reflection tooling keep working even though
-     * their methods carry no {@link S2sScopeRequired} annotation.
-     */
     public boolean isInfrastructureService(String fullMethodName) {
         if (fullMethodName == null) {
             return false;
@@ -123,7 +80,7 @@ public class S2sScopeRegistry {
         return INFRASTRUCTURE_SERVICES.contains(serviceName);
     }
 
-    /** Visible for tests / monitoring: total number of RPCs that have a per-method scope. */
+    /** Exposed for tests and monitoring. */
     public int size() {
         return methodToScope.size();
     }

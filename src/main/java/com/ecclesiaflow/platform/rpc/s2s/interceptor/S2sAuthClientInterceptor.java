@@ -20,22 +20,14 @@ import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 /**
- * gRPC client interceptor that attaches a Bearer JWT to every outgoing call.
- *
- * <p><strong>Single responsibility:</strong> request the token from the provider
- * and put it in the {@code authorization} metadata header. On failure, an event
- * is published (no logging here) and the call is aborted with
- * {@link Status#UNAVAILABLE} — or {@link Status#DEADLINE_EXCEEDED} once the call's
- * deadline has passed — so callers see a clear gRPC status instead of an exception
- * leak. A call never waits for a token past its own deadline, and a token the server
- * answers {@code UNAUTHENTICATED} to is dropped so the next call fetches a new one.</p>
- *
- * <p>Install once per {@link io.grpc.ManagedChannel} via
- * {@link io.grpc.ManagedChannelBuilder#intercept(ClientInterceptor...)}.</p>
+ * Attaches the s2s Bearer token to every outgoing call; install it once per
+ * {@link io.grpc.ManagedChannel}. A token failure aborts the call with {@link Status#UNAVAILABLE}
+ * ({@link Status#DEADLINE_EXCEEDED} past the deadline) instead of leaking an exception, and a token the
+ * server answers {@code UNAUTHENTICATED} to is dropped so the next call fetches a new one.
  */
 public class S2sAuthClientInterceptor implements ClientInterceptor {
 
-    /** {@code authorization} metadata key. Lowercase per HTTP/2 convention. */
+    /** Lowercase: HTTP/2 header names are lowercase. */
     static final Metadata.Key<String> AUTHORIZATION_KEY =
             Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER);
 
