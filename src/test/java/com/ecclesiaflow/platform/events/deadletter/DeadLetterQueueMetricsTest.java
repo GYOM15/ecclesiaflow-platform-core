@@ -17,10 +17,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
-/**
- * Nothing consumes a dead-letter queue, so a message parked there is never applied; when it is a
- * revocation, the access it should have closed stays open. The depth is what makes it visible.
- */
 @ExtendWith(MockitoExtension.class)
 class DeadLetterQueueMetricsTest {
 

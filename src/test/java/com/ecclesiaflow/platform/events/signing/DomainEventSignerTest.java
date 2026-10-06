@@ -64,7 +64,7 @@ class DomainEventSignerTest {
         @Test
         void signatureIsDeterministicAndBase64() {
             assertThat(sign()).isEqualTo(sign());
-            // valid Base64 → decodes; HMAC-SHA256 output is 32 bytes
+            // HMAC-SHA256 output is 32 bytes.
             assertThat(Base64.getDecoder().decode(sign())).hasSize(32);
         }
     }
@@ -73,12 +73,7 @@ class DomainEventSignerTest {
     @DisplayName("the signature is bound to its destination, not only to the body")
     class DestinationBinding {
 
-        /**
-         * The finding itself (F054). The old signer signed the body alone, so a
-         * legitimately signed « profile changed » could be re-published under the
-         * « member removed » routing key and still verify — one serializer, one
-         * body shape, a different meaning at the other end.
-         */
+        /** A signed "profile changed" body must not verify under the "member removed" routing key. */
         @Test
         void sameBodyUnderAnotherRoutingKeyDoesNotVerify() {
             String sig = sign();
@@ -100,11 +95,7 @@ class DomainEventSignerTest {
                     .isFalse();
         }
 
-        /**
-         * No choice of exchange and routing key may be made to look like another
-         * pair. The NUL separator is what guarantees it — UTF-8 cannot produce
-         * that byte, so the fields cannot bleed into each other.
-         */
+        /** No field can contain the NUL separator, so no exchange and routing key pair can pass for another. */
         @Test
         void fieldBoundariesCannotBeShiftedBetweenExchangeAndRoutingKey() {
             String a = signer.sign("ecclesiaflow.domain", "events.member.v1", SIGNED_AT, body());
@@ -174,7 +165,7 @@ class DomainEventSignerTest {
 
         @Test
         void wrongLengthCandidateFails() {
-            // valid Base64 but not 32 bytes → constant-time length check returns false
+            // Valid Base64 but not 32 bytes.
             String shortSig = Base64.getEncoder().encodeToString(new byte[]{1, 2, 3});
             assertThat(matches(EXCHANGE, ROUTING_KEY, "1", body(), shortSig)).isFalse();
         }

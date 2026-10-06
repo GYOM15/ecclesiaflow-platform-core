@@ -28,7 +28,7 @@ public class DeadLetterQueueMetrics implements MeterBinder {
     private final AmqpAdmin amqpAdmin;
     private final List<String> queues;
 
-    /** @param amqpAdmin may be {@code null}: nothing is then measured */
+    /** A {@code null} admin measures nothing. */
     public DeadLetterQueueMetrics(AmqpAdmin amqpAdmin, Collection<String> queues) {
         this.amqpAdmin = amqpAdmin;
         this.queues = List.copyOf(queues);

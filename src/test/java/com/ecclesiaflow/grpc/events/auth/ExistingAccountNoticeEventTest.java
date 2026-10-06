@@ -11,9 +11,8 @@ import java.io.IOException;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Contract test for the {@code ExistingAccountNoticeEvent} event id: the outbox delivers at least
- * once, so communication deduplicates on it, and must still read a notice from an auth build that
- * predates the field.
+ * The outbox delivers at least once, so communication dedupes on the event id, and it must still read a
+ * notice from an auth build that predates the field.
  */
 @DisplayName("ExistingAccountNoticeEvent - event id")
 class ExistingAccountNoticeEventTest {

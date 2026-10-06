@@ -21,10 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/**
- * Boots through {@code @EnableAutoConfiguration}, the path a consuming service takes, so the
- * registration and the order are the real ones rather than the runner's.
- */
+/** Boots through {@code @EnableAutoConfiguration}, as a consuming service does, so the registration order is real. */
 class PlatformDeadLetterMetricsAutoConfigurationImportTest {
 
     private static final String DLQ = "comm.subscriber.setup-token-issued.dlq";

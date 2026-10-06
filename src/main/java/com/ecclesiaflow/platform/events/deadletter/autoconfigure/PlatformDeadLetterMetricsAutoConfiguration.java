@@ -17,9 +17,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Measures every dead-letter queue the module declares, as a {@link MeterBinder} the actuator binds
- * once all beans exist. Nothing is conditional on another bean, so the order auto-configurations are
- * processed in cannot change what is measured.
+ * Bound as a {@link MeterBinder} once all beans exist, and conditional on no other bean, so the order
+ * auto-configurations run in cannot change what is measured.
  */
 @AutoConfiguration
 @ConditionalOnClass({AmqpAdmin.class, MeterBinder.class})

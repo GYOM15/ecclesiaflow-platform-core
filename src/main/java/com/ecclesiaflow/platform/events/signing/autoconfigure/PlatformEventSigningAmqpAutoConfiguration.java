@@ -14,11 +14,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean;
 
 /**
- * AMQP wiring for domain-event signing, registered once the signer and verifier exist.
- *
- * <p>A top-level class on purpose: nested inside {@link PlatformEventSigningAutoConfiguration}
- * it was parsed before the enclosing class's beans, so its {@link ConditionalOnBean}
- * never matched and nothing was signed.</p>
+ * Top-level on purpose: a class nested in {@link PlatformEventSigningAutoConfiguration} is parsed before
+ * the enclosing class's beans exist, so its {@link ConditionalOnBean} would never match.
  */
 @AutoConfiguration(after = PlatformEventSigningAutoConfiguration.class)
 @ConditionalOnClass(Message.class)

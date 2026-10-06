@@ -26,7 +26,6 @@ public final class RecipientDigest {
     private RecipientDigest() {
     }
 
-    /** The digest of an email address, or empty when the value is not one. */
     public static Optional<String> ofEmail(String email) {
         if (email == null) {
             return Optional.empty();
@@ -39,7 +38,6 @@ public final class RecipientDigest {
         return Optional.of(sha256Hex(canonical));
     }
 
-    /** The digest of an international phone number, or empty when the value is not one. */
     public static Optional<String> ofPhone(String phone) {
         if (phone == null) {
             return Optional.empty();

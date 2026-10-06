@@ -52,11 +52,7 @@ class SigningMessagePostProcessorTest {
         assertThat((Object) out.getMessageProperties().getHeader("x-ef-signature-version")).isEqualTo("1");
     }
 
-    /**
-     * The destination reaches a template-wide post-processor only through the
-     * four-argument overload. If it ever stopped being bound, every signature
-     * would still verify against the wrong routing key — which is the finding.
-     */
+    /** A template-wide post-processor receives the destination only through the four-argument overload. */
     @Test
     void signatureDoesNotVerifyUnderAnotherRoutingKey() {
         Message out = sign(message("body-bytes".getBytes(StandardCharsets.UTF_8)));
@@ -86,9 +82,8 @@ class SigningMessagePostProcessorTest {
 
     @Test
     void oneArgOverloadRefusesToSignWithoutADestination() {
-        // signing against the empty destination is exactly the hole being closed,
-        // so this fails loudly at the publish site instead of quietly producing a
-        // message every strict consumer would dead-letter
+        // Signing against the empty destination would reopen the replay hole, so this fails
+        // loudly at the publish site rather than produce a message strict consumers dead-letter.
         assertThatThrownBy(() -> processor.postProcessMessage(message("b".getBytes(StandardCharsets.UTF_8))))
                 .isInstanceOf(AmqpException.class)
                 .hasMessageContaining("exchange and routing key");

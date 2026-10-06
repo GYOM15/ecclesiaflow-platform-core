@@ -12,11 +12,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
 /**
- * Contract test for the {@code MemberAnonymizedEvent} wire format: the whole
- * point of the event is that the person's data is gone, so the message must
- * carry the cross-module key and nothing about the person. Asserted on the
- * protobuf descriptor rather than on an instance, so a field added to the
- * .proto fails here before any consumer ever sees it.
+ * The person's data is gone, so the event carries the cross-module key and nothing about the person.
+ * Asserted on the descriptor, so a field added to the .proto fails here before any consumer sees it.
  */
 @DisplayName("MemberAnonymizedEvent - wire contract")
 class MemberAnonymizedEventTest {

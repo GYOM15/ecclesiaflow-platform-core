@@ -146,9 +146,8 @@ class VerifyingListenerAdviceTest {
     }
 
     /**
-     * The finding: a genuinely signed event, re-delivered under a sibling
-     * routing key. The advice must read the destination the BROKER reports, not
-     * one the publisher put in a header — and refuse.
+     * A genuinely signed event re-delivered under a sibling routing key: the advice must use the destination
+     * the broker reports, not one the publisher put in a header.
      */
     @Test
     void strictGenuineEventReplayedUnderAnotherRoutingKeyRejected() throws Throwable {
@@ -242,16 +241,7 @@ class VerifyingListenerAdviceTest {
         assertThat(noMeters.invoke(inv)).isEqualTo("listener-result");
     }
 
-    /**
-     * INVERTED. These two asserted that the counter carries a {@code routing_key}
-     * tag. It must not: the value is {@code getReceivedRoutingKey()}, chosen by
-     * whoever PUBLISHED the message — the attacker, under this advice's own
-     * threat model — on queues bound with topic wildcards, and counted BEFORE
-     * the reject. Every forged key would have minted a permanent time series.
-     * The comment that justified the tag ("routing keys are a closed,
-     * code-defined set") was false for exactly the messages this class exists to
-     * refuse.
-     */
+    /** The routing key is publisher-chosen: as a tag, every forged key would mint a permanent series. */
     @Test
     void theCounterCarriesNoPublisherControlledTag() throws Throwable {
         advice(true).invoke(invocationWith(signedMessage()));
@@ -282,8 +272,6 @@ class VerifyingListenerAdviceTest {
 
     @Test
     void aMessageWithNoRoutingKeyIsStillCounted() throws Throwable {
-        // it used to need a "unknown" fallback because a null tag value throws
-        // inside Micrometer; with no wire-derived tag there is nothing to fall back on
         MethodInvocation inv = invocationWith(message(EXCHANGE, null, null, null));
 
         advice(false).invoke(inv);

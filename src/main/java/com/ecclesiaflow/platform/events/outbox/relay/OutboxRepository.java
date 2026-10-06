@@ -5,7 +5,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
-/** Storage the relay claims due messages from and records their outcomes in. */
 public interface OutboxRepository {
 
     /**
@@ -15,7 +14,6 @@ public interface OutboxRepository {
      */
     List<ClaimedOutboxMessage> claimDue(Instant now, Instant leaseUntil, int limit);
 
-    /** Marks rows the broker confirmed and routed. */
     void markSent(Collection<Long> ids, Instant sentAt);
 
     /** Makes a claimed row due again, if {@code leaseUntil} is still its lease. */

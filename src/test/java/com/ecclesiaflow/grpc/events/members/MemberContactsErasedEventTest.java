@@ -11,11 +11,7 @@ import java.util.regex.Pattern;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
-/**
- * Contract test for the {@code MemberContactsErasedEvent} wire format: the event exists so that a
- * module can find the addresses of a person who is gone, so it may carry their key and digests of
- * their addresses, and nothing that could be read back as the person.
- */
+/** It may carry the person's key and address digests, nothing that could be read back as the person. */
 @DisplayName("MemberContactsErasedEvent - wire contract")
 class MemberContactsErasedEventTest {
 

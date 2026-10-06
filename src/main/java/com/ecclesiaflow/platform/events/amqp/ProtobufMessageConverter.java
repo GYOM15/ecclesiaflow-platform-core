@@ -8,17 +8,15 @@ import org.springframework.amqp.support.converter.MessageConverter;
 import java.util.Objects;
 
 /**
- * The RabbitMQ wire format of every protobuf message the platform queues: the serialized message as
- * the body, {@code application/x-protobuf} as the content type, and the concrete class name on a
- * {@code __TypeId__} header that the consumer loads and parses back.
+ * Wire format of every protobuf message the platform queues: the serialized body,
+ * {@code application/x-protobuf}, and the concrete class name in a {@code __TypeId__} header.
  *
- * <p>Only {@code com.ecclesiaflow.*} protobuf messages are loaded, and a class is checked before it is
- * initialized or invoked. Every refusal is a {@link MessageConversionException}, which a listener
- * container rejects without requeue, so the message parks in its dead-letter queue.</p>
+ * <p>Only {@code com.ecclesiaflow.*} protobuf types are loaded, and checked before initialization.
+ * Every refusal is a {@link MessageConversionException}, which a listener container rejects without
+ * requeue, so the message parks in its dead-letter queue.</p>
  *
- * <p>The church events share their field numbers, so reading one as another parses without error and
- * does the opposite. A consumer whose queues carry more than one type should be strict; the default
- * type is for queues that only ever carry one.</p>
+ * <p>The church events share field numbers, so reading one as another parses without error and does
+ * the opposite: a queue that carries more than one type must use the strict constructor.</p>
  */
 public class ProtobufMessageConverter implements MessageConverter {
 

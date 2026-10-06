@@ -35,7 +35,7 @@ enum BaptismDeclaration {
   BAPTISM_DECLARATION_NOT_BAPTISED = 1;
 
   // The member declared they HAVE been baptised. baptism_date and baptism_type
-  // are both populated (required together since V103).
+  // are both populated.
   BAPTISM_DECLARATION_BAPTISED = 2;
 }
 

@@ -29,7 +29,6 @@ public final class DeadLetterQueues {
     private DeadLetterQueues() {
     }
 
-    /** @return the names of the queues that receive dead letters, sorted */
     public static SortedSet<String> in(Collection<? extends Declarable> topology) {
         List<Queue> queues = topology.stream().filter(Queue.class::isInstance).map(Queue.class::cast).toList();
         List<Binding> bindings = topology.stream()

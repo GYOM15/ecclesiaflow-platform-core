@@ -129,11 +129,7 @@ class DomainEventVerifierTest {
                     .isEqualTo(Decision.REJECT_INVALID);
         }
 
-        /**
-         * F054, the whole point: a genuinely signed event re-published under a
-         * sibling routing key. Before the destination was signed material this
-         * returned ACCEPT.
-         */
+        /** A genuinely signed event re-published under a sibling routing key. */
         @Test
         void genuineEventReplayedUnderAnotherRoutingKeyRejected() {
             assertThat(verifier.verify(EXCHANGE, "member.removed.v1", body(), validSignature(), SIGNED_AT))

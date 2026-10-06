@@ -17,10 +17,7 @@ import javax.sql.DataSource;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
-/**
- * Boots through {@code @EnableAutoConfiguration}, the path a consuming service takes, so the
- * registration order is the real one rather than the runner's.
- */
+/** Boots through {@code @EnableAutoConfiguration}, as a consuming service does, so the registration order is real. */
 class PlatformOutboxAutoConfigurationImportTest {
 
     @Configuration(proxyBeanMethods = false)

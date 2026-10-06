@@ -17,10 +17,7 @@ public final class RelayTemplateRequirements {
     private RelayTemplateRequirements() {
     }
 
-    /**
-     * @param signer the module's signer, or {@code null} when signing is not configured
-     * @throws IllegalStateException naming the first unmet requirement
-     */
+    /** {@code signer} is {@code null} when signing is not configured. */
     public static void check(RabbitTemplate template, DomainEventSigner signer) {
         ConnectionFactory connectionFactory = template.getConnectionFactory();
         if (!connectionFactory.isPublisherConfirms()) {

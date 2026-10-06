@@ -20,10 +20,8 @@ public class OutboxProperties {
     /** Delay between two relay runs when the previous one drained everything that was due. */
     private Duration pollInterval = Duration.ofSeconds(1);
 
-    /** Rows claimed per relay batch. */
     private int batchSize = 50;
 
-    /** How long a batch waits for the broker's publisher confirms. */
     private Duration confirmTimeout = Duration.ofSeconds(5);
 
     /** How long a claimed row stays out of reach of other relays; must exceed the confirm timeout. */
@@ -35,16 +33,13 @@ public class OutboxProperties {
     /** Delay before the first retry, and before a batch deferred because the broker was unreachable. */
     private Duration initialBackoff = Duration.ofSeconds(5);
 
-    /** Growth factor of the retry delay. */
     private double backoffMultiplier = 2.0;
 
-    /** Ceiling of the retry delay. */
     private Duration maxBackoff = Duration.ofMinutes(10);
 
     /** How long relayed rows are kept before the purge deletes them. Parked rows are never purged. */
     private Duration sentRetention = Duration.ofDays(7);
 
-    /** Delay between two purges of relayed rows. */
     private Duration purgeInterval = Duration.ofHours(1);
 
     public boolean isEnabled() {

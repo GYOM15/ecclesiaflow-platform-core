@@ -43,7 +43,6 @@ final class OutboxDdl {
         }
     }
 
-    /** Column names declared by {@code CREATE TABLE outbox_event}. */
     static Set<String> columns() {
         Matcher table = CREATE_TABLE.matcher(text());
         if (!table.find()) {

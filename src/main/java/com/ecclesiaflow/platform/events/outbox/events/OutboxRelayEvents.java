@@ -8,7 +8,6 @@ public final class OutboxRelayEvents {
     private OutboxRelayEvents() {
     }
 
-    /** The two scheduled tasks of the relay. */
     public enum Task { RELAY, PURGE }
 
     /** The broker confirmed and routed a message. {@code attempt} counts this successful one. */
