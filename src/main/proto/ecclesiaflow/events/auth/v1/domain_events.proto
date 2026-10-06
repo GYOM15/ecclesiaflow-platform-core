@@ -34,7 +34,7 @@ message SetupTokenIssuedEvent {
 
   // Producer-defined identifier of the business flow that issued the token.
   // Used by the consumer to pick a template and subject line.
-  // Known values: "church_signup", "member_signup".
+  // Known value: "church_signup".
   string flow_id = 5;
 
   // Opaque JSON pass-through filled by the producer for the consumer's
@@ -63,7 +63,10 @@ message ExistingAccountNoticeEvent {
   // never the signup request's. Defaults to "fr" when unknown or unsupported.
   string locale = 2;
 
-  // UUIDv4, one per notice. The outbox delivers at least once, so consumers
+  // Names the signup request, not the delivery: a name-based UUID (v3) derived
+  // from the account and the request's metadata, so the same request staged
+  // twice carries the same id and a new request a new one. Random (v4) when the
+  // request carries no metadata. The outbox delivers at least once, so consumers
   // dedupe on it. Empty from an auth build that predates the field: such a
   // notice cannot be deduplicated and is handled as before.
   string event_id = 3;
