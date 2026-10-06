@@ -428,7 +428,8 @@ class ImageSanitizerTest {
                 assertThatThrownBy(() -> one.sanitize(image, ImagePolicy.avatar()))
                         .isInstanceOf(ImageDecodeCapacityExceededException.class)
                         .isNotInstanceOf(UploadRejectedException.class)
-                        .hasMessage("all 1 image decode slots stayed busy for 200 ms");
+                        .hasMessage("all 1 image decode slots stayed busy for 200 ms")
+                        .extracting("retryAfterSeconds").as("a part second is rounded up").isEqualTo(1L);
                 return Duration.ofNanos(System.nanoTime() - start).toMillis();
             });
 
@@ -446,7 +447,8 @@ class ImageSanitizerTest {
             assertThat(decoder.awaitInFlight(1, Duration.ofSeconds(5))).isTrue();
 
             assertThatThrownBy(() -> impatient.sanitize(pngBytes(10, 10, false), ImagePolicy.avatar()))
-                    .isInstanceOf(ImageDecodeCapacityExceededException.class);
+                    .isInstanceOf(ImageDecodeCapacityExceededException.class)
+                    .extracting("retryAfterSeconds").as("never an immediate retry").isEqualTo(1L);
 
             decoder.open();
             assertThat(completed(holder)).hasSize(1);
@@ -508,7 +510,8 @@ class ImageSanitizerTest {
 
             assertThat(refusal.get())
                     .isInstanceOf(ImageDecodeCapacityExceededException.class)
-                    .hasCauseInstanceOf(InterruptedException.class);
+                    .hasCauseInstanceOf(InterruptedException.class)
+                    .extracting("retryAfterSeconds").as("the configured wait").isEqualTo(30L);
             assertThat(interruptKept).isTrue();
             decoder.open();
             assertThat(completed(holder)).hasSize(1);

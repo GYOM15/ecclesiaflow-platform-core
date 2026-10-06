@@ -99,7 +99,7 @@ class ErrorCategoryResolverTest {
         @DisplayName("a saturated image decoder is UNAVAILABLE, even wrapped: the upload was never judged")
         void saturatedImageDecoder() {
             ImageDecodeCapacityExceededException busy =
-                    new ImageDecodeCapacityExceededException("all 1 image decode slots stayed busy for 5000 ms");
+                    new ImageDecodeCapacityExceededException("all 1 image decode slots stayed busy for 5000 ms", 5);
 
             assertThat(defaults.resolve(busy)).isEqualTo(ErrorCategory.UNAVAILABLE);
             assertThat(defaults.resolve(new AdapterException("cover image", busy))).isEqualTo(ErrorCategory.UNAVAILABLE);

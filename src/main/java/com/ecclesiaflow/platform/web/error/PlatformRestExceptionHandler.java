@@ -4,6 +4,7 @@ import com.ecclesiaflow.platform.error.ErrorCategory;
 import com.ecclesiaflow.platform.error.ErrorCategoryResolver;
 import com.ecclesiaflow.platform.logging.SecurityMaskingUtils;
 import com.ecclesiaflow.platform.ratelimit.RateLimitExceededException;
+import com.ecclesiaflow.platform.upload.ImageDecodeCapacityExceededException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.ConstraintViolation;
@@ -128,6 +129,15 @@ public abstract class PlatformRestExceptionHandler {
         headers.set(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()));
         return answer(ex, HttpStatus.TOO_MANY_REQUESTS, RATE_LIMIT_EXCEEDED,
                 "Too many requests. Try again in " + ex.getRetryAfterSeconds() + " seconds.", headers, request);
+    }
+
+    @ExceptionHandler(ImageDecodeCapacityExceededException.class)
+    public ResponseEntity<ApiErrorResponse> handleImageDecoderSaturated(ImageDecodeCapacityExceededException ex,
+                                                                        HttpServletRequest request) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()));
+        return answer(ex, HttpStatus.SERVICE_UNAVAILABLE, codeFor(HttpStatus.SERVICE_UNAVAILABLE),
+                messageFor(ErrorCategory.UNAVAILABLE), headers, request);
     }
 
     @ExceptionHandler(Exception.class)

@@ -82,6 +82,7 @@ public class ImageSanitizer {
     private final Semaphore decodeSlots;
     private final int maxConcurrentDecodes;
     private final Duration decodeWait;
+    private final long retryAfterSeconds;
 
     /** A sanitizer with the default decode bound and wait. */
     public ImageSanitizer() {
@@ -103,6 +104,8 @@ public class ImageSanitizer {
         }
         this.maxConcurrentDecodes = maxConcurrentDecodes;
         this.decodeWait = decodeWait;
+        // A refused upload has already waited this long; asking for less invites the same refusal.
+        this.retryAfterSeconds = Math.max(1L, (decodeWait.toMillis() + 999) / 1000);
         // Fair, so an upload that has waited is not overtaken by one that just arrived.
         this.decodeSlots = new Semaphore(maxConcurrentDecodes, true);
     }
@@ -171,10 +174,10 @@ public class ImageSanitizer {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ImageDecodeCapacityExceededException(
-                    "interrupted while waiting for an image decode slot", e);
+                    "interrupted while waiting for an image decode slot", retryAfterSeconds, e);
         }
         throw new ImageDecodeCapacityExceededException("all " + maxConcurrentDecodes
-                + " image decode slots stayed busy for " + decodeWait.toMillis() + " ms");
+                + " image decode slots stayed busy for " + decodeWait.toMillis() + " ms", retryAfterSeconds);
     }
 
     /**

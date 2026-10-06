@@ -9,6 +9,7 @@ import com.ecclesiaflow.platform.error.ErrorCategory;
 import com.ecclesiaflow.platform.error.ErrorCategoryResolver;
 import com.ecclesiaflow.platform.error.ExceptionClassifier;
 import com.ecclesiaflow.platform.ratelimit.RateLimitExceededException;
+import com.ecclesiaflow.platform.upload.ImageDecodeCapacityExceededException;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -472,6 +473,19 @@ class PlatformRestExceptionHandlerTest {
                 assertThat(line.getLevel()).isEqualTo(Level.WARN);
                 assertThat(line.getFormattedMessage()).doesNotContain("redis:6379");
             });
+        }
+
+        @Test
+        @DisplayName("a saturated image decoder is 503 with Retry-After: the upload was never judged")
+        void imageDecoderSaturated() throws Exception {
+            failNextWith(new ImageDecodeCapacityExceededException("all 1 image decode slots stayed busy for 5000 ms", 5));
+
+            mvc.perform(get("/members/" + UUID.randomUUID()))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(header().string(HttpHeaders.RETRY_AFTER, "5"))
+                    .andExpect(jsonPath("$.errorCode").value("SERVICE_UNAVAILABLE"))
+                    .andExpect(jsonPath("$.message").value("A required service is temporarily unavailable. Try again later."));
+            assertThat(logs.list).singleElement().satisfies(line -> assertThat(line.getLevel()).isEqualTo(Level.WARN));
         }
 
         @Test
