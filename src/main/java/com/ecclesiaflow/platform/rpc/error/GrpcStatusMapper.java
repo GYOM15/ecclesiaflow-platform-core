@@ -7,11 +7,23 @@ import io.grpc.Status;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
 
+import java.sql.SQLException;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
+
 /**
  * Caller errors keep their sanitized message because the caller may need it to fix the request;
- * internal failures and outages do not, their detail stays in the server log.
+ * internal failures and outages do not, their detail stays in the server log. Nor does a conflict
+ * the persistence layer raised: its text names constraints, key values and rows, and the code alone
+ * tells the caller what happened.
  */
 public class GrpcStatusMapper {
+
+    // Matched by name so the library does not drag these APIs onto every service.
+    private static final Set<String> PERSISTENCE_FAILURES = Set.of(
+            "org.springframework.dao.DataAccessException",
+            "jakarta.persistence.PersistenceException");
 
     private final ErrorCategoryResolver categories;
 
@@ -51,7 +63,29 @@ public class GrpcStatusMapper {
         return switch (category) {
             case INTERNAL -> "Internal error";
             case UNAVAILABLE -> "Dependency unavailable";
-            default -> error.getMessage() == null ? null : SecurityMaskingUtils.sanitizeInfra(error.getMessage());
+            case ALREADY_EXISTS -> raisedByPersistence(error) ? "Already exists" : sanitizedMessage(error);
+            case ABORTED -> raisedByPersistence(error)
+                    ? "Concurrent modification, retry the operation" : sanitizedMessage(error);
+            default -> sanitizedMessage(error);
         };
+    }
+
+    private static String sanitizedMessage(Throwable error) {
+        return error.getMessage() == null ? null : SecurityMaskingUtils.sanitizeInfra(error.getMessage());
+    }
+
+    private static boolean raisedByPersistence(Throwable error) {
+        Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable link = error; link != null && seen.add(link); link = link.getCause()) {
+            if (link instanceof SQLException) {
+                return true;
+            }
+            for (Class<?> type = link.getClass(); type != null; type = type.getSuperclass()) {
+                if (PERSISTENCE_FAILURES.contains(type.getName())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

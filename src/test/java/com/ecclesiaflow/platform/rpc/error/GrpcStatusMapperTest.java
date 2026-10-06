@@ -10,9 +10,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.springframework.dao.OptimisticLockingFailureException;
 
 import java.net.ConnectException;
+import java.sql.SQLException;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,10 +59,50 @@ class GrpcStatusMapperTest {
     }
 
     @Test
-    @DisplayName("a unique violation is ALREADY_EXISTS")
+    @DisplayName("a unique violation is ALREADY_EXISTS without the driver's constraint name or values")
     void uniqueViolation() {
-        assertThat(mapper.toStatus(DataIntegrityTestData.uniqueViolation()).getCode())
-                .isEqualTo(Status.Code.ALREADY_EXISTS);
+        Status status = mapper.toStatus(DataIntegrityTestData.violation(DataIntegrityTestData.UNIQUE_VIOLATION,
+                "ERROR: duplicate key value violates unique constraint \"uk_membership_church_member\" "
+                        + "Detail: Key (church_id, member_id)=(3f6c, 9a1b) already exists."));
+
+        assertThat(status.getCode()).isEqualTo(Status.Code.ALREADY_EXISTS);
+        assertThat(status.getDescription()).isEqualTo("Already exists");
+    }
+
+    @Test
+    @DisplayName("a duplicate a module raises on purpose keeps its own sanitized message")
+    void moduleDuplicateKeepsItsMessage() {
+        GrpcStatusMapper classified = new GrpcStatusMapper(new ErrorCategoryResolver(List.of(
+                ExceptionClassifier.byType(Map.of(IllegalStateException.class, ErrorCategory.ALREADY_EXISTS)))));
+
+        Status status = classified.toStatus(new IllegalStateException("This email already belongs to a member record"));
+
+        assertThat(status.getCode()).isEqualTo(Status.Code.ALREADY_EXISTS);
+        assertThat(status.getDescription()).isEqualTo("This email already belongs to a member record");
+    }
+
+    @Test
+    @DisplayName("a module duplicate that wraps the driver's refusal gets the fixed description")
+    void moduleDuplicateOverDriverText() {
+        GrpcStatusMapper classified = new GrpcStatusMapper(new ErrorCategoryResolver(List.of(
+                ExceptionClassifier.byType(Map.of(IllegalStateException.class, ErrorCategory.ALREADY_EXISTS)))));
+
+        Status status = classified.toStatus(new IllegalStateException("could not save membership: "
+                + "duplicate key value violates unique constraint \"uk_membership_church_member\"",
+                new SQLException("duplicate key", DataIntegrityTestData.UNIQUE_VIOLATION)));
+
+        assertThat(status.getCode()).isEqualTo(Status.Code.ALREADY_EXISTS);
+        assertThat(status.getDescription()).isEqualTo("Already exists");
+    }
+
+    @Test
+    @DisplayName("a lost optimistic lock is ABORTED without the entity name or id")
+    void optimisticLock() {
+        Status status = mapper.toStatus(new OptimisticLockingFailureException(
+                "Row was updated or deleted by another transaction : [com.ecclesiaflow.church.io.ChurchEntity#3f6c]"));
+
+        assertThat(status.getCode()).isEqualTo(Status.Code.ABORTED);
+        assertThat(status.getDescription()).isEqualTo("Concurrent modification, retry the operation");
     }
 
     @Test
@@ -78,6 +121,21 @@ class GrpcStatusMapperTest {
 
         assertThat(status.getCode()).isEqualTo(Status.Code.INTERNAL);
         assertThat(status.getDescription()).isEqualTo("Internal error");
+    }
+
+    @Test
+    @DisplayName("an ABORTED a module raises on purpose keeps its own message, even over a cause cycle")
+    void moduleAbortKeepsItsMessage() {
+        GrpcStatusMapper classified = new GrpcStatusMapper(new ErrorCategoryResolver(List.of(
+                ExceptionClassifier.byType(Map.of(IllegalStateException.class, ErrorCategory.ABORTED)))));
+        IllegalStateException superseded = new IllegalStateException("Batch was closed meanwhile");
+        RuntimeException wrapper = new RuntimeException("retrying", superseded);
+        superseded.initCause(wrapper);
+
+        Status status = classified.toStatus(superseded);
+
+        assertThat(status.getCode()).isEqualTo(Status.Code.ABORTED);
+        assertThat(status.getDescription()).isEqualTo("Batch was closed meanwhile");
     }
 
     @Test
