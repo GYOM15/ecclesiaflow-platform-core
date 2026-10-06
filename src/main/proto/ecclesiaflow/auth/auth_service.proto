@@ -20,6 +20,10 @@ service AuthService {
   rpc UpdateKeycloakUserLocale(UpdateKeycloakUserLocaleRequest) returns (UpdateKeycloakUserLocaleResponse);
   rpc AssignRealmRole(AssignRealmRoleRequest) returns (AssignRealmRoleResponse);
   rpc RevokeRealmRole(RevokeRealmRoleRequest) returns (RevokeRealmRoleResponse);
+  // Writes the church claims onto a user's Keycloak attributes. Auth is the one
+  // writer of that map: a Keycloak user PUT replaces it whole, so two services
+  // each reading, merging and writing it can erase each other's attribute.
+  rpc SetChurchClaims(SetChurchClaimsRequest) returns (SetChurchClaimsResponse);
 }
 
 // ============================================================================
@@ -188,4 +192,26 @@ message RevokeRealmRoleRequest {
 message RevokeRealmRoleResponse {
   bool success = 1;
   string message = 2;
+}
+
+// ============================================================================
+// Set Church Claims
+// ============================================================================
+
+// The four attributes the realm's mappers mint as the church claims. Each call
+// carries all four, so a write can never leave a stale right behind.
+message SetChurchClaimsRequest {
+  string keycloak_user_id = 1;
+  // The user's active church. Empty: the user belongs to no church, and the
+  // request must then carry no admin flag, capability or expiry.
+  string church_id = 2;
+  bool church_admin = 3;
+  // Capability names, written in this order; finance rights never travel here.
+  repeated string capabilities = 4;
+  // When the capabilities lapse, in ms since the Unix epoch; 0 for never.
+  int64 capabilities_expire_at_epoch_ms = 5;
+}
+
+// Failures are reported through the gRPC status, never in the response.
+message SetChurchClaimsResponse {
 }
