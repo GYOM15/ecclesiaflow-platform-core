@@ -18,25 +18,8 @@ import org.springframework.core.env.Profiles;
 import org.springframework.util.StringUtils;
 
 /**
- * Auto-configures a single {@link ObjectStorage} bean from
- * {@code ecclesiaflow.object-storage.provider}, so any module on platform-core
- * gets image storage without an explicit {@code @Import}.
- *
- * <ul>
- *   <li>{@code provider=filesystem} → {@link FilesystemObjectStorage}, for dev
- *       and tests; under the {@code prod} profile it requires an explicit
- *       {@code filesystem.base-path};</li>
- *   <li>{@code provider=s3} → {@link S3ObjectStorage} (Cloudflare R2 / S3),
- *       only when the AWS S3 SDK is on the classpath;</li>
- *   <li>unset → no adapter, so a module that injects {@link ObjectStorage}
- *       without configuring it fails at startup.</li>
- * </ul>
- *
- * <p>Both beans are {@code @ConditionalOnMissingBean(ObjectStorage.class)} so a
- * module can still supply its own adapter and win.</p>
- *
- * <p>The adapters themselves never log; this class announces, once at startup,
- * which one it activated.</p>
+ * An unset provider creates no adapter, so a module that injects {@link ObjectStorage} without
+ * configuring it fails at startup.
  */
 @Slf4j
 @AutoConfiguration
@@ -62,11 +45,7 @@ public class PlatformObjectStorageAutoConfiguration {
         return storage;
     }
 
-    /**
-     * Isolated so the S3 adapter class (and its AWS SDK imports) is only loaded
-     * when {@code software.amazon.awssdk:s3} is present — modules that don't
-     * store images never pull the SDK.
-     */
+    /** Isolated so the AWS SDK classes load only when {@code software.amazon.awssdk:s3} is present. */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "software.amazon.awssdk.services.s3.S3Client")
     static class S3StorageConfiguration {

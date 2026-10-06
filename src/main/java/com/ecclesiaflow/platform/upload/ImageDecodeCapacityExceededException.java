@@ -1,13 +1,9 @@
 package com.ecclesiaflow.platform.upload;
 
 /**
- * Raised by {@link ImageSanitizer} when every decode slot stayed busy for the whole
- * allowed wait. The upload itself was never examined, so retrying it later is the
- * right answer, and the exception says when.
- *
- * <p>Deliberately not an {@link UploadRejectedException}: that one judges the
- * upload on its merits and its callers turn it into a validation error, which would
- * tell a user to change an image that is fine.</p>
+ * Every decode slot stayed busy for the allowed wait; the upload was never examined, so retry later.
+ * Not an {@link UploadRejectedException}: that one becomes a validation error, which would tell a user
+ * to change an image that is fine.
  */
 public class ImageDecodeCapacityExceededException extends IllegalStateException {
 

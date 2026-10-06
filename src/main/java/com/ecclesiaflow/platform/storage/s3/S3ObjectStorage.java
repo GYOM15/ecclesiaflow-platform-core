@@ -29,23 +29,13 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * S3-compatible {@link ObjectStorage} adapter — the production backend, pointed
- * at Cloudflare R2 by default (any S3 API works: AWS S3, MinIO).
- *
- * <p>Mirrors the proven frontend R2 client ({@code lib/storage/r2.ts}):
- * path-style addressing, {@code region=auto}, random content-addressed keys, and
- * a one-year immutable cache header (safe because keys never change). Objects
- * under a configured private prefix (member photos by default) get
- * {@code private, no-store} instead and no public URL. The bucket stays PRIVATE;
- * public assets are served through a CDN base URL, access-controlled assets are
- * proxied back through the backend via {@link #get}.</p>
- *
- * <p>Implements {@link AutoCloseable} so Spring closes the underlying
- * {@link S3Client} (and its connection pool) on context shutdown.</p>
+ * Production adapter, Cloudflare R2 by default. The bucket stays private: public assets are served
+ * through a CDN base URL, access-controlled ones are proxied through {@link #get}. AutoCloseable so
+ * Spring releases the client's connection pool on shutdown.
  */
 public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
 
-    /** One year, immutable — keys are unique per upload so content never changes. */
+    /** Keys are unique per upload, so the content never changes. */
     private static final String IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
     // A shared cache must not keep personal data that outlives its deletion.

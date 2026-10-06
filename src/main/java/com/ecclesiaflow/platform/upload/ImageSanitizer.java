@@ -19,64 +19,28 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Turns an untrusted user-uploaded image into a safe, freshly re-encoded image
- * ready to store. This is the platform's single defence against a whole family
- * of image-borne attacks, and every module MUST route avatar / logo / content
- * image uploads through it <strong>before</strong> calling
- * {@link com.ecclesiaflow.platform.storage.ObjectStorage#put}.
+ * Re-encodes an untrusted image upload; every module routes image uploads through it before
+ * {@link com.ecclesiaflow.platform.storage.ObjectStorage#put}. The real type is sniffed, never taken from
+ * the client. The pixel count is checked from the header before any raster is allocated (decompression
+ * bombs), and the source is decoded subsampled so the raster is bounded by the output size. Every image
+ * is redrawn into a fresh raster, even when no resize is needed: that drops polyglot payloads and
+ * metadata, and the bilinear resample rewrites the low bits that carry LSB steganography.
  *
- * <p>Why a size cap plus the client's {@code Content-Type} is not enough:</p>
- * <ul>
- *   <li><b>Type spoofing / polyglots</b> — a file can be a valid image AND a
- *       valid HTML/JS/ZIP payload at once. We sniff the real type
- *       ({@link MagicBytes}) and, more importantly, re-encode from a decoded
- *       raster, so any trailing/leading non-image payload is discarded.</li>
- *   <li><b>Steganography (LSB)</b> — data hidden in the low bits of pixels
- *       survives a byte copy and even a lossless format change. It does
- *       <em>not</em> survive a resample: redrawing the pixels through bilinear
- *       interpolation into a brand-new raster rewrites every pixel, so we always
- *       redraw — even when the image is already small enough that no resize is
- *       needed.</li>
- *   <li><b>EXIF / GPS / metadata</b> — decode → re-encode keeps only pixels; no
- *       metadata chunk from the source is carried into the output.</li>
- *   <li><b>Decompression bombs</b> — a few KB can claim billions of pixels. We
- *       read the declared dimensions from the header <em>without</em> decoding
- *       and reject before allocating the raster. An accepted source is then
- *       decoded subsampled, never at full resolution, so the raster it allocates
- *       is bounded by the output size rather than by the input's pixel count.</li>
- * </ul>
- *
- * <p>The pipeline is: cap size → sniff &amp; allow type → header pixel-bomb guard
- * → subsampled decode → resample into a fresh raster → native ImageIO re-encode
- * to the policy's output format. The output type is authoritative and sniffed,
- * never the client's declaration.</p>
- *
- * <p>Subsampling bounds one decode, not a burst of them: every decode from the
- * header guard to the re-encode holds one of a fixed number of slots, waits a
- * bounded time for one, and is refused with
- * {@link ImageDecodeCapacityExceededException} when none frees up. The slots belong
- * to the instance, so the auto-configured bean is the one to share.</p>
+ * <p>Each decode holds one of a fixed number of slots, owned by the instance (share the auto-configured
+ * bean), and is refused with {@link ImageDecodeCapacityExceededException} when none frees up in time.</p>
  */
 public class ImageSanitizer {
 
-    /**
-     * The WebP decoder holds about 24 bytes per source pixel whatever the
-     * subsampling (4 MP measured at about 90 MB of heap), so WebP sources get a
-     * lower cap than the policy's.
-     */
+    /** The WebP decoder holds about 24 bytes per source pixel whatever the subsampling (4 MP: about 90 MB). */
     static final long WEBP_MAX_INPUT_PIXELS = 4_000_000L;
 
     /**
-     * One decode at a time. A WebP at its cap holds about 90 MB, so two would take
-     * nearly two thirds of the 288 MB heap a 384 MB container gets; with one CPU per
-     * container, a second slot would add that risk without adding throughput.
+     * A WebP at its cap holds about 90 MB, so two decodes would take nearly two thirds of the 288 MB heap of a
+     * 384 MB container; with one CPU per container a second slot adds risk, not throughput.
      */
     public static final int DEFAULT_MAX_CONCURRENT_DECODES = 1;
 
-    /**
-     * Covers a few large decodes queued ahead, and keeps the answer well inside the
-     * 20 s the web front end gives an image upload.
-     */
+    /** Covers a few large decodes queued ahead and stays well inside the 20 s the web front end allows. */
     public static final Duration DEFAULT_DECODE_WAIT = Duration.ofSeconds(5);
 
     private final Semaphore decodeSlots;
@@ -84,16 +48,11 @@ public class ImageSanitizer {
     private final Duration decodeWait;
     private final long retryAfterSeconds;
 
-    /** A sanitizer with the default decode bound and wait. */
     public ImageSanitizer() {
         this(DEFAULT_MAX_CONCURRENT_DECODES, DEFAULT_DECODE_WAIT);
     }
 
-    /**
-     * @param maxConcurrentDecodes how many decodes may run at once; at least 1
-     * @param decodeWait           how long an upload waits for a slot before it is
-     *                             refused; zero refuses at once
-     */
+    /** A zero {@code decodeWait} refuses at once when every slot is busy. */
     public ImageSanitizer(int maxConcurrentDecodes, Duration decodeWait) {
         if (maxConcurrentDecodes < 1) {
             throw new IllegalArgumentException(
@@ -111,33 +70,21 @@ public class ImageSanitizer {
     }
 
     /**
-     * Decodes, sanitizes and re-encodes an image upload per {@code policy}.
-     *
-     * @param bytes  the raw upload bytes exactly as received (declared type is
-     *               ignored — the real type is sniffed here)
-     * @param policy the limits and target format for this upload class
-     * @return a {@link SanitizedUpload} holding freshly re-encoded bytes and the
-     *         authoritative output content type
-     * @throws UploadRejectedException if the upload is too large, of an
-     *         unsupported type, claims too many pixels, or cannot be decoded
-     * @throws ImageDecodeCapacityExceededException if no decode slot freed up
-     *         within the allowed wait
-     * @throws IllegalStateException   if the JVM has no writer for the target
-     *         format (a server misconfiguration, not the uploader's fault)
+     * Throws {@link UploadRejectedException} for an upload that is too large, of the wrong type, has too
+     * many pixels or cannot be decoded, and {@link ImageDecodeCapacityExceededException} when no decode slot
+     * frees up in time.
      */
     public SanitizedUpload sanitize(byte[] bytes, ImagePolicy policy) {
         if (bytes == null) {
             throw new UploadRejectedException(
                     UploadRejectedException.Reason.UNREADABLE, "no upload bytes");
         }
-        // 1) Size cap — cheapest check first, and a guard before any decoding work.
         if (bytes.length > policy.maxBytes()) {
             throw new UploadRejectedException(
                     UploadRejectedException.Reason.TOO_LARGE,
                     "upload is " + bytes.length + " bytes, exceeds cap of " + policy.maxBytes());
         }
 
-        // 2) Sniff the REAL type and enforce the allow-list. Never trust the client.
         String detected = MagicBytes.detect(bytes).orElse(null);
         if (detected == null || !policy.allowedInputTypes().contains(detected)) {
             throw new UploadRejectedException(
@@ -151,11 +98,8 @@ public class ImageSanitizer {
         // The slot is held until the re-encode: the decoded source stays live until then.
         acquireDecodeSlot();
         try {
-            // 3) + 4) Pixel-bomb guard on the header, then a subsampled decode.
             DecodedImage source = decodeWithinLimits(bytes, maxPixels, policy.maxDimension());
 
-            // 5) + 6) Resample into a fresh raster (kills steganography, strips
-            //          metadata, neutralises polyglots) and re-encode natively.
             byte[] reencoded = redrawAndEncode(source, policy);
             String outputType = policy.outputType() == ImagePolicy.OutputType.JPEG
                     ? MagicBytes.IMAGE_JPEG
@@ -180,14 +124,6 @@ public class ImageSanitizer {
                 + " image decode slots stayed busy for " + decodeWait.toMillis() + " ms", retryAfterSeconds);
     }
 
-    /**
-     * Reads the declared dimensions from the header, rejects a source over
-     * {@code maxPixels} before any pixel is decoded, then decodes it subsampled
-     * for an output of at most {@code maxDimension}.
-     *
-     * @throws UploadRejectedException {@code TOO_MANY_PIXELS} over the cap,
-     *         {@code UNREADABLE} when no reader accepts the bytes or decoding fails
-     */
     private DecodedImage decodeWithinLimits(byte[] bytes, long maxPixels, int maxDimension) {
         try (ImageInputStream input = new MemoryCacheImageInputStream(new ByteArrayInputStream(bytes))) {
             Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
@@ -222,24 +158,14 @@ public class ImageSanitizer {
     }
 
     /**
-     * The smallest step that brings the decoded longest side to at most twice
-     * {@code maxDimension}: the raster is then bounded by the output size, and it
-     * stays above {@code maxDimension} so the redraw never upscales.
+     * Brings the decoded longest side to at most twice {@code maxDimension}, so the raster is bounded by the
+     * output size, yet keeps it above {@code maxDimension} so the redraw never upscales.
      */
     static int subsamplingStep(int width, int height, int maxDimension) {
         long window = 2L * maxDimension;
         return (int) Math.max(1L, (Math.max(width, height) + window - 1) / window);
     }
 
-    /**
-     * Redraws {@code source} into a brand-new {@link BufferedImage}, downscaled so
-     * the longest side is at most {@code policy.maxDimension()}, then re-encodes it
-     * with a native ImageIO writer to the policy's output format.
-     *
-     * <p>The redraw is unconditional: even at scale 1.0 we resample every pixel
-     * into a fresh raster of the target type, which is precisely what destroys
-     * LSB steganography and discards any source metadata.</p>
-     */
     private byte[] redrawAndEncode(DecodedImage source, ImagePolicy policy) {
         // Sized from the declared dimensions, not the subsampled raster, so the
         // output is exactly what a full-resolution decode would have produced.
@@ -266,9 +192,7 @@ public class ImageSanitizer {
             g.setRenderingHint(RenderingHints.KEY_RENDERING,
                     RenderingHints.VALUE_RENDER_QUALITY);
             if (!argb) {
-                // Opaque target (JPEG, or PNG without transparency): flatten any
-                // source alpha onto solid white so transparent areas don't render
-                // black in a format that has no alpha channel.
+                // No alpha channel in the output: flatten onto white so transparent areas do not render black.
                 g.setColor(Color.WHITE);
                 g.fillRect(0, 0, targetW, targetH);
             }
@@ -281,8 +205,7 @@ public class ImageSanitizer {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try {
             if (!ImageIO.write(target, formatName, out)) {
-                // Native JPEG/PNG writers ship with every JRE; absence is a broken
-                // runtime, not a bad upload.
+                // Native JPEG/PNG writers ship with every JRE: a missing one is a broken runtime, not a bad upload.
                 throw new IllegalStateException("no ImageIO writer available for " + formatName);
             }
         } catch (IOException e) {
@@ -296,10 +219,8 @@ public class ImageSanitizer {
     }
 
     /**
-     * Convenience overload that returns {@link Optional#empty()} instead of
-     * throwing an {@link UploadRejectedException}, for call sites that prefer to
-     * branch on success rather than catch. A full decoder still throws: the upload
-     * was not judged, so an empty answer would misreport it as rejected.
+     * Empty when the upload is rejected. A capacity refusal still throws: the upload was not judged, so an
+     * empty answer would misreport it as rejected.
      */
     public Optional<SanitizedUpload> trySanitize(byte[] bytes, ImagePolicy policy) {
         try {

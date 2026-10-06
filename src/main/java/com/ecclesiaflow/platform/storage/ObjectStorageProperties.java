@@ -7,38 +7,19 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Binds {@code ecclesiaflow.object-storage.*}. A single {@link #provider} knob
- * selects the active {@link ObjectStorage} adapter; the {@code filesystem} and
- * {@code s3} sub-sections carry each backend's settings.
- *
- * <p>Deploy note: the {@code s3} section is designed to be fed from the same
- * {@code R2_*} secrets the Next.js app already uses, e.g. in a module's
- * {@code application.yml}:
- * <pre>
- * ecclesiaflow:
- *   object-storage:
- *     provider: ${OBJECT_STORAGE_PROVIDER:filesystem}
- *     s3:
- *       endpoint: ${R2_ENDPOINT:}
- *       access-key-id: ${R2_ACCESS_KEY_ID:}
- *       secret-access-key: ${R2_SECRET_ACCESS_KEY:}
- *       bucket: ${R2_BUCKET:}
- *       public-base-url: ${R2_PUBLIC_BASE_URL:}
- * </pre>
- * so one set of R2 credentials serves both the frontend and the backend.</p>
+ * The {@code s3} section is fed from the same {@code R2_*} secrets as the Next.js app, so one set of R2
+ * credentials serves both.
  */
 @ConfigurationProperties(prefix = "ecclesiaflow.object-storage")
 public class ObjectStorageProperties {
 
-    /** Which adapter backs {@link ObjectStorage}. */
     public enum Provider {
-        /** Local disk, for dev and tests; no external service. */
+        /** Local disk, for dev and tests. */
         FILESYSTEM,
-        /** S3-compatible object store (Cloudflare R2, AWS S3, MinIO). */
         S3
     }
 
-    /** Active provider; unset means no {@link ObjectStorage} adapter is created. */
+    /** Unset means no {@link ObjectStorage} adapter is created. */
     private Provider provider;
 
     private final Filesystem filesystem = new Filesystem();
@@ -61,14 +42,9 @@ public class ObjectStorageProperties {
         return s3;
     }
 
-    /** Settings for the local-disk adapter. */
     public static class Filesystem {
 
-        /**
-         * Root directory objects are written under. Blank resolves to
-         * {@code <java.io.tmpdir>/ecclesiaflow-object-storage}, which the
-         * {@code prod} profile refuses.
-         */
+        /** Blank means {@code <java.io.tmpdir>/ecclesiaflow-object-storage}, which the {@code prod} profile refuses. */
         private String basePath = "";
 
         public String getBasePath() {
@@ -80,7 +56,6 @@ public class ObjectStorageProperties {
         }
     }
 
-    /** Settings for the S3-compatible adapter (Cloudflare R2 by default). */
     public static class S3 {
 
         /** S3 API endpoint (for R2: {@code https://<account>.r2.cloudflarestorage.com}). */
@@ -99,18 +74,12 @@ public class ObjectStorageProperties {
         /** R2 only supports path-style addressing; keep {@code true} for R2. */
         private boolean pathStyleAccess = true;
 
-        /**
-         * Public CDN/custom-domain base in front of the (private) bucket, used to
-         * build servable URLs for PUBLIC assets. Optional: reads that must stay
-         * access-controlled are proxied through the backend and never use this.
-         */
+        /** CDN or custom domain in front of the private bucket, for public assets only. */
         private String publicBaseUrl;
 
         /**
-         * Key prefixes of personal data. Their objects are written with
-         * {@code Cache-Control: private, no-store}, so no shared cache (CDN)
-         * keeps a copy past their deletion, and never get a public URL. Setting
-         * this replaces the default rather than adding to it.
+         * Objects under these prefixes hold personal data: written {@code Cache-Control: private, no-store} so no
+         * CDN keeps a copy past their deletion, and never given a public URL. Setting it replaces the default.
          */
         private Set<String> privateKeyPrefixes = new LinkedHashSet<>(List.of("member-photos"));
 

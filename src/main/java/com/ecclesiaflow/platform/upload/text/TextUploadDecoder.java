@@ -8,13 +8,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
 /**
- * Decodes an uploaded text file whose encoding the client never declares.
- *
- * <p>The rule is deterministic: a UTF-8 BOM means UTF-8; otherwise bytes that
- * are valid UTF-8 are read as UTF-8; anything else is read as Windows-1252, the
- * encoding of Excel's « CSV (séparateur : point-virgule) » export on a French
- * Windows. Bytes that fit none of these, or that carry a NUL or a control
- * character other than tab, CR and LF, are not text.</p>
+ * The client never declares the encoding, so the rule is deterministic: a UTF-8 BOM means UTF-8, valid
+ * UTF-8 is UTF-8, anything else is Windows-1252 (Excel's semicolon CSV export on a French Windows).
+ * Bytes that fit none of these, or carry a NUL or a control character other than tab, CR and LF, are
+ * not text.
  */
 public final class TextUploadDecoder {
 
@@ -24,10 +21,7 @@ public final class TextUploadDecoder {
     private TextUploadDecoder() {
     }
 
-    /**
-     * @return the decoded text without any BOM, or {@link Optional#empty()} when
-     *         the bytes are not text in a supported encoding
-     */
+    /** The text without its BOM, or empty when the bytes are not text in a supported encoding. */
     public static Optional<String> decode(byte[] bytes) {
         if (bytes == null || containsNul(bytes)) {
             return Optional.empty();

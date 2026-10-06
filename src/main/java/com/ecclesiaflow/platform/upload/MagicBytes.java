@@ -5,37 +5,13 @@ import com.ecclesiaflow.platform.upload.text.TextUploadDecoder;
 import java.util.Optional;
 
 /**
- * Content-sniffing helper: derives the <strong>real</strong> media type of an
- * upload from its leading bytes (and, for XLSX, its internal structure).
- *
- * <p>Security rule #1 of upload handling: <em>never trust the client-declared
- * {@code Content-Type} or file extension</em>. A {@code .png} can be a ZIP, a
- * shell script, or a polyglot that is simultaneously a valid image and a valid
- * HTML/JS payload. This class ignores whatever the client said and looks only at
- * the bytes, so the sanitizers can allow/deny on ground truth.</p>
- *
- * <p>Detected types:</p>
- * <ul>
- *   <li>{@code image/jpeg} — {@code FF D8 FF}</li>
- *   <li>{@code image/png} — {@code 89 50 4E 47 0D 0A 1A 0A}</li>
- *   <li>{@code image/webp} — {@code "RIFF" xxxx "WEBP"}</li>
- *   <li>{@code image/gif} — {@code GIF87a} / {@code GIF89a}</li>
- *   <li>{@code application/vnd.openxmlformats-officedocument.spreadsheetml.sheet}
- *       (XLSX) — the ZIP local-header magic {@code 50 4B 03 04} AND an
- *       {@code "xl/"} entry name somewhere in the bytes (what distinguishes an
- *       XLSX workbook from any other ZIP such as a DOCX or a JAR).</li>
- *   <li>{@code text/csv} — the fallback: matched none of the binary signatures
- *       above and decodes as text, in UTF-8 or Windows-1252
- *       ({@link TextUploadDecoder}).</li>
- * </ul>
- *
- * <p>Anything else — including a ZIP that is not an XLSX, or binary junk that is
- * not text — returns {@link Optional#empty()} (unknown/unsupported).</p>
+ * Derives the real media type of an upload from its bytes; the client's {@code Content-Type} and file
+ * extension are never trusted (a {@code .png} can be a ZIP, or an image and HTML polyglot). CSV is the
+ * fallback for content that matches no binary signature and decodes as text; a ZIP that is not an XLSX
+ * is unknown.
  */
 public final class MagicBytes {
 
-    // Canonical MIME types this platform recognises. Exposed so policies and
-    // callers reference one constant instead of duplicating literals.
     public static final String IMAGE_JPEG = "image/jpeg";
     public static final String IMAGE_PNG = "image/png";
     public static final String IMAGE_WEBP = "image/webp";
@@ -57,14 +33,6 @@ public final class MagicBytes {
     private MagicBytes() {
     }
 
-    /**
-     * Sniffs the media type of {@code bytes} from its content.
-     *
-     * @param bytes the raw upload bytes (a {@code null} or empty array yields
-     *              {@link Optional#empty()} — there is nothing to identify)
-     * @return the detected canonical MIME type, or {@link Optional#empty()} when
-     *         the content matches no supported type
-     */
     public static Optional<String> detect(byte[] bytes) {
         if (bytes == null || bytes.length == 0) {
             return Optional.empty();
@@ -82,9 +50,8 @@ public final class MagicBytes {
         if (startsWith(bytes, GIF87A_MAGIC) || startsWith(bytes, GIF89A_MAGIC)) {
             return Optional.of(IMAGE_GIF);
         }
-        // XLSX is a ZIP whose entries include the "xl/" workbook folder; the
-        // ZIP local-header stores entry names uncompressed, so "xl/" appears as
-        // literal bytes even without unzipping.
+        // Entry names are stored uncompressed, so the "xl/" folder that sets an XLSX apart from
+        // other ZIPs shows as literal bytes.
         if (startsWith(bytes, ZIP_LOCAL_HEADER) && contains(bytes, XL_ENTRY)) {
             return Optional.of(XLSX);
         }
@@ -95,12 +62,10 @@ public final class MagicBytes {
         return Optional.empty();
     }
 
-    /** @return {@code true} iff {@code data} begins with the bytes {@code prefix}. */
     private static boolean startsWith(byte[] data, byte[] prefix) {
         return regionEquals(data, 0, prefix);
     }
 
-    /** @return {@code true} iff {@code needle} occurs at {@code offset} in {@code data}. */
     private static boolean regionEquals(byte[] data, int offset, byte[] needle) {
         if (offset < 0 || data.length < offset + needle.length) {
             return false;
@@ -113,7 +78,6 @@ public final class MagicBytes {
         return true;
     }
 
-    /** @return {@code true} iff {@code needle} occurs anywhere in {@code data}. */
     private static boolean contains(byte[] data, byte[] needle) {
         if (needle.length == 0 || data.length < needle.length) {
             return false;

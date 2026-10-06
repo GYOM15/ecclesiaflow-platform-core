@@ -59,8 +59,7 @@ class MagicBytesTest {
     @Test
     @DisplayName("ZIP with an xl/ entry is detected as XLSX")
     void xlsx() throws Exception {
-        // A ZIP whose local-file-header names an "xl/workbook.xml" entry — the
-        // signature of an OOXML spreadsheet. We build a real (if minimal) ZIP.
+        // A ZIP whose local-file header names "xl/workbook.xml", the signature of an OOXML spreadsheet.
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (var zip = new java.util.zip.ZipOutputStream(baos)) {
             zip.putNextEntry(new java.util.zip.ZipEntry("[Content_Types].xml"));

@@ -42,8 +42,6 @@ class ImageSanitizerTest {
 
     private final ImageSanitizer sanitizer = new ImageSanitizer();
 
-    // --- helpers -----------------------------------------------------------
-
     private static byte[] pngBytes(int w, int h, boolean withAlpha) throws Exception {
         int type = withAlpha ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
         BufferedImage img = new BufferedImage(w, h, type);
@@ -70,8 +68,6 @@ class ImageSanitizerTest {
     private static BufferedImage decode(byte[] bytes) throws Exception {
         return ImageIO.read(new ByteArrayInputStream(bytes));
     }
-
-    // --- tests -------------------------------------------------------------
 
     @Test
     @DisplayName("a real PNG sanitizes to a re-encoded JPEG under avatar()")

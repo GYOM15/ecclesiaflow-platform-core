@@ -20,7 +20,6 @@ public class UploadProperties {
     /** Limits on image decoding, shared by every upload this instance sanitizes. */
     public static class Image {
 
-        /** Image decodes allowed to run at once on this instance. */
         private int maxConcurrentDecodes = ImageSanitizer.DEFAULT_MAX_CONCURRENT_DECODES;
 
         /** How long an upload waits for a decode slot before it is refused; zero refuses at once. */
