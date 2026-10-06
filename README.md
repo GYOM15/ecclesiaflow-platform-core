@@ -65,9 +65,9 @@ ecclesiaflow.platform.rpc.s2s.require-allowed-azp=${S2S_REQUIRE_ALLOWED_AZP:fals
 
 Auto-configuration kicks in as soon as `client-id` is set. Beans are
 contributed only when missing, so you can override any of them locally.
-No bean of type `JwtDecoder` is published: the s2s decoder is an
-`S2sJwtDecoder`, so the module's REST resource server keeps Spring Boot's
-decoder, or the one the module declares.
+The s2s decoder is an `S2sJwtDecoder`, not a `JwtDecoder`, so it never
+stands in for the REST resource server's decoder (see
+[REST resource-server decoder](#rest-resource-server-decoder)).
 
 ## Wiring the interceptors
 
@@ -98,6 +98,39 @@ public Server grpcServer(BindableService impl, S2sAuthServerInterceptor s2sAuth,
         .start();
 }
 ```
+
+## REST resource-server decoder
+
+`PlatformRestJwtDecoderAutoConfiguration` publishes the REST plane's `JwtDecoder`, named
+`restJwtDecoder`: Keycloak's keys from `spring.security.oauth2.resourceserver.jwt.jwk-set-uri`, the
+issuer pinned to `spring.security.oauth2.resourceserver.jwt.issuer-uri`, and a required audience. It
+is registered ahead of Spring Boot's resource-server decoder, which checks no audience, and backs
+off when the module declares its own `JwtDecoder`. It loads only when `jwk-set-uri` is set, and
+refuses to start without `issuer-uri`. It reads the audience from the property below, never from
+Spring Boot's `spring.security.oauth2.resourceserver.jwt.audiences`.
+
+| Property | Default | Effect |
+|---|---|---|
+| `ecclesiaflow.rest.jwt.enabled` | `true` | `false` leaves the decoder to the module or to Spring Boot |
+| `ecclesiaflow.rest.jwt.audience` | `ecclesiaflow-internal` | `aud` entry every REST token must carry; blank skips the check, the issuer stays pinned |
+
+The default audience is the one the modules enforce today. The end state is `ecclesiaflow-app`,
+set through the environment once the realm stamps it on end-user tokens. `REST_JWT_AUDIENCE` binds
+to `rest.jwt.audience`, not to this prefix, so the module declares the bridge:
+
+```properties
+ecclesiaflow.rest.jwt.audience=${REST_JWT_AUDIENCE:ecclesiaflow-internal}
+```
+
+Adopting it in a module that carries its own `RestJwtDecoderConfig`:
+
+1. Delete `RestJwtDecoderConfig` and its test; the validator is tested here.
+2. Keep `.oauth2ResourceServer(o -> o.jwt(j -> j.decoder(restJwtDecoder)...))`: the `JwtDecoder`
+   the security configuration injects is now this bean. A module that never called `.decoder(...)`
+   gets it too, in place of Spring Boot's.
+3. Keep `issuer-uri`, `jwk-set-uri` and the audience line above.
+4. A test slice that builds the security chain without the full auto-configuration imports
+   `PlatformRestJwtDecoderAutoConfiguration` or supplies its own `JwtDecoder`.
 
 ## gRPC and domain-event contracts
 

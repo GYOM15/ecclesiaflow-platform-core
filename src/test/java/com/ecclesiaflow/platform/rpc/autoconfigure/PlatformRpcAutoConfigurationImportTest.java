@@ -24,6 +24,8 @@ class PlatformRpcAutoConfigurationImportTest {
 
     private static final String JWK_SET_URI =
             "spring.security.oauth2.resourceserver.jwt.jwk-set-uri=http://localhost:1/realms/ecclesiaflow/protocol/openid-connect/certs";
+    private static final String ISSUER_URI =
+            "spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:1/realms/ecclesiaflow";
 
     @Configuration(proxyBeanMethods = false)
     @EnableAutoConfiguration
@@ -44,15 +46,23 @@ class PlatformRpcAutoConfigurationImportTest {
     }
 
     @Test
-    void theRestPlaneKeepsSpringBootsDecoder() {
-        try (ConfigurableApplicationContext context = boot(withS2s(JWK_SET_URI))) {
+    void theRestPlaneGetsTheRestDecoderNeverTheS2sOne() {
+        try (ConfigurableApplicationContext context = boot(withS2s(JWK_SET_URI, ISSUER_URI))) {
+            assertThat(context.getBeanNamesForType(JwtDecoder.class)).containsExactly("restJwtDecoder");
+        }
+    }
+
+    @Test
+    void withTheSharedRestDecoderOffTheRestPlaneKeepsSpringBootsDecoder() {
+        try (ConfigurableApplicationContext context = boot(withS2s(JWK_SET_URI, ISSUER_URI,
+                "ecclesiaflow.rest.jwt.enabled=false"))) {
             assertThat(context.getBeanNamesForType(JwtDecoder.class)).containsExactly("jwtDecoderByJwkKeySetUri");
         }
     }
 
     @Test
     void wiresTheS2sPipeline() {
-        try (ConfigurableApplicationContext context = boot(withS2s(JWK_SET_URI))) {
+        try (ConfigurableApplicationContext context = boot(withS2s(JWK_SET_URI, ISSUER_URI))) {
             assertThat(context.getBeansOfType(S2sTokenProvider.class)).hasSize(1);
             assertThat(context.getBeansOfType(S2sAuthClientInterceptor.class)).hasSize(1);
             assertThat(context.getBeansOfType(S2sAuthServerInterceptor.class)).hasSize(1);
@@ -61,9 +71,9 @@ class PlatformRpcAutoConfigurationImportTest {
 
     @Test
     void staysInertWithoutAClientId() {
-        try (ConfigurableApplicationContext context = boot(JWK_SET_URI)) {
+        try (ConfigurableApplicationContext context = boot(JWK_SET_URI, ISSUER_URI)) {
             assertThat(context.getBeansOfType(S2sAuthServerInterceptor.class)).isEmpty();
-            assertThat(context.getBeanNamesForType(JwtDecoder.class)).containsExactly("jwtDecoderByJwkKeySetUri");
+            assertThat(context.getBeanNamesForType(JwtDecoder.class)).containsExactly("restJwtDecoder");
         }
     }
 

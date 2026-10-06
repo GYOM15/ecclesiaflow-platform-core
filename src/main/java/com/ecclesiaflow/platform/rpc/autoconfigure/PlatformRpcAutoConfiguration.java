@@ -47,8 +47,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>Beans are registered with {@link ConditionalOnMissingBean} so any consumer
  * can override individual pieces. No bean of type {@link JwtDecoder} is published:
  * the s2s decoder is an {@link S2sJwtDecoder}, so the module's REST plane keeps its
- * own decoder (Spring Boot's, or the one it declares) and a REST-side
- * {@code JwtDecoder} can never stand in for the s2s one either.</p>
+ * own decoder (the shared REST one, Spring Boot's, or the one it declares) and a
+ * REST-side {@code JwtDecoder} can never stand in for the s2s one either.</p>
  */
 @AutoConfiguration
 @EnableConfigurationProperties(S2sProperties.class)
