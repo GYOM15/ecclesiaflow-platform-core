@@ -5,6 +5,12 @@ on:
   push:
   pull_request:
 
+# On a pull request the action lists the PR commits through the API,
+# which the default read-only token refuses without pull-requests: read.
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   scan:
     runs-on: ubuntu-latest
