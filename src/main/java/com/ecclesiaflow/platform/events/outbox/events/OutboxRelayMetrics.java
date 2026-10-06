@@ -8,6 +8,7 @@ import org.springframework.context.event.EventListener;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.List;
 import java.util.Locale;
 import java.util.function.Supplier;
 
@@ -22,6 +23,12 @@ public class OutboxRelayMetrics {
     public static final String PENDING_METRIC = "ecclesiaflow.outbox.pending";
     public static final String PARKED_METRIC = "ecclesiaflow.outbox.parked";
     public static final String OLDEST_PENDING_AGE_METRIC = "ecclesiaflow.outbox.oldest.pending.age";
+
+    private static final String SENT = "sent";
+    private static final String RETRIED = "retried";
+    private static final String PARKED = "parked";
+    private static final String DEFERRED = "deferred";
+    private static final List<String> OUTCOMES = List.of(SENT, RETRIED, PARKED, DEFERRED);
 
     private final MeterRegistry registry;
 
@@ -43,42 +50,54 @@ public class OutboxRelayMetrics {
                 .description("Age of the oldest outbox row waiting to be relayed")
                 .baseUnit("seconds")
                 .register(registry);
+        // Published at zero: increase() cannot see the first increment of a series that starts with it.
+        OUTCOMES.forEach(this::relayCounter);
+        for (OutboxRelayEvents.Task task : OutboxRelayEvents.Task.values()) {
+            cycleFailureCounter(task);
+        }
     }
 
     @EventListener
     public void onMessageRelayed(OutboxRelayEvents.MessageRelayed event) {
-        countRelay("sent", 1);
+        countRelay(SENT, 1);
     }
 
     @EventListener
     public void onRetryScheduled(OutboxRelayEvents.RetryScheduled event) {
-        countRelay("retried", 1);
+        countRelay(RETRIED, 1);
     }
 
     @EventListener
     public void onMessageParked(OutboxRelayEvents.MessageParked event) {
-        countRelay("parked", 1);
+        countRelay(PARKED, 1);
     }
 
     @EventListener
     public void onMessagesDeferred(OutboxRelayEvents.MessagesDeferred event) {
-        countRelay("deferred", event.count());
+        countRelay(DEFERRED, event.count());
     }
 
     @EventListener
     public void onRelayCycleFailed(OutboxRelayEvents.RelayCycleFailed event) {
         if (registry != null) {
-            Counter.builder(CYCLE_FAILURE_METRIC)
-                    .tag("task", event.task().name().toLowerCase(Locale.ROOT))
-                    .register(registry)
-                    .increment();
+            cycleFailureCounter(event.task()).increment();
         }
     }
 
     private void countRelay(String outcome, int amount) {
         if (registry != null) {
-            Counter.builder(RELAY_METRIC).tag("outcome", outcome).register(registry).increment(amount);
+            relayCounter(outcome).increment(amount);
         }
+    }
+
+    private Counter relayCounter(String outcome) {
+        return Counter.builder(RELAY_METRIC).tag("outcome", outcome).register(registry);
+    }
+
+    private Counter cycleFailureCounter(OutboxRelayEvents.Task task) {
+        return Counter.builder(CYCLE_FAILURE_METRIC)
+                .tag("task", task.name().toLowerCase(Locale.ROOT))
+                .register(registry);
     }
 
     // A scrape must not fail because the database is down; NaN says « unknown », not « zero ».

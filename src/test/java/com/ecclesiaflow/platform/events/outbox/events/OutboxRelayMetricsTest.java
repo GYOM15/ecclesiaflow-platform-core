@@ -1,12 +1,16 @@
 package com.ecclesiaflow.platform.events.outbox.events;
 
 import com.ecclesiaflow.platform.events.outbox.relay.OutboxRepository;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -14,6 +18,7 @@ import org.springframework.dao.DataAccessResourceFailureException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Locale;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,6 +50,33 @@ class OutboxRelayMetricsTest {
     @Nested
     @DisplayName("counters")
     class Counters {
+
+        @ParameterizedTest
+        @ValueSource(strings = {"sent", "retried", "parked", "deferred"})
+        @DisplayName("Publishes each relay outcome at zero before anything happens, so increase() sees the first one")
+        void outcomesStartAtZero(String outcome) {
+            assertThat(registry.find(OutboxRelayMetrics.RELAY_METRIC).tag("outcome", outcome).counter())
+                    .isNotNull()
+                    .extracting(Counter::count).isEqualTo(0d);
+        }
+
+        @ParameterizedTest
+        @EnumSource(OutboxRelayEvents.Task.class)
+        @DisplayName("Publishes each task's failed cycles at zero before any failure")
+        void cycleFailuresStartAtZero(OutboxRelayEvents.Task task) {
+            assertThat(registry.find(OutboxRelayMetrics.CYCLE_FAILURE_METRIC)
+                    .tag("task", task.name().toLowerCase(Locale.ROOT)).counter())
+                    .isNotNull()
+                    .extracting(Counter::count).isEqualTo(0d);
+        }
+
+        @Test
+        @DisplayName("Keeps the series bounded to the known outcomes and tasks")
+        void boundedSeries() {
+            assertThat(registry.find(OutboxRelayMetrics.RELAY_METRIC).counters()).hasSize(4);
+            assertThat(registry.find(OutboxRelayMetrics.CYCLE_FAILURE_METRIC).counters())
+                    .hasSize(OutboxRelayEvents.Task.values().length);
+        }
 
         @Test
         @DisplayName("Counts each relay outcome under one metric")
