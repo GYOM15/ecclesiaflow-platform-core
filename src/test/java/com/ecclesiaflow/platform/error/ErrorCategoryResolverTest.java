@@ -2,6 +2,7 @@ package com.ecclesiaflow.platform.error;
 
 import com.ecclesiaflow.platform.ratelimit.RateLimitExceededException;
 import com.ecclesiaflow.platform.rpc.s2s.token.S2sTokenException;
+import com.ecclesiaflow.platform.upload.ImageDecodeCapacityExceededException;
 import io.grpc.Status;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -92,6 +93,16 @@ class ErrorCategoryResolverTest {
                     .isEqualTo(ErrorCategory.UNAVAILABLE);
             assertThat(defaults.resolve(Status.DEADLINE_EXCEEDED.asException())).isEqualTo(ErrorCategory.UNAVAILABLE);
             assertThat(defaults.resolve(Status.NOT_FOUND.asRuntimeException())).isEqualTo(ErrorCategory.INTERNAL);
+        }
+
+        @Test
+        @DisplayName("a saturated image decoder is UNAVAILABLE, even wrapped: the upload was never judged")
+        void saturatedImageDecoder() {
+            ImageDecodeCapacityExceededException busy =
+                    new ImageDecodeCapacityExceededException("all 1 image decode slots stayed busy for 5000 ms");
+
+            assertThat(defaults.resolve(busy)).isEqualTo(ErrorCategory.UNAVAILABLE);
+            assertThat(defaults.resolve(new AdapterException("cover image", busy))).isEqualTo(ErrorCategory.UNAVAILABLE);
         }
 
         @Test

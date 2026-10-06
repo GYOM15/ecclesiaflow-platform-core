@@ -2,6 +2,7 @@ package com.ecclesiaflow.platform.error;
 
 import com.ecclesiaflow.platform.ratelimit.RateLimitExceededException;
 import com.ecclesiaflow.platform.rpc.s2s.token.S2sTokenException;
+import com.ecclesiaflow.platform.upload.ImageDecodeCapacityExceededException;
 import io.grpc.Status;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
@@ -18,6 +19,7 @@ import java.util.Set;
 /**
  * An outage anywhere in the cause chain wins over the generic rules: reported as a caller error,
  * it tells the caller not to retry, which is how a Keycloak blip became a permanent "role not found".
+ * A saturated local resource is read the same way: the request was never judged, so a retry is right.
  */
 public final class ErrorCategoryResolver {
 
@@ -71,7 +73,7 @@ public final class ErrorCategoryResolver {
                 }
             }
         }
-        if (chain.stream().anyMatch(ErrorCategoryResolver::isDependencyFailure)) {
+        if (chain.stream().anyMatch(link -> isDependencyFailure(link) || isSaturation(link))) {
             return ErrorCategory.UNAVAILABLE;
         }
         if (error instanceof IllegalArgumentException) {
@@ -129,6 +131,10 @@ public final class ErrorCategoryResolver {
             }
         }
         return false;
+    }
+
+    private static boolean isSaturation(Throwable error) {
+        return error instanceof ImageDecodeCapacityExceededException;
     }
 
     private static Optional<ErrorCategory> byTypeName(Throwable error, Map<String, ErrorCategory> categories) {
