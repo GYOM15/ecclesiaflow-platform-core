@@ -4,6 +4,7 @@ import com.ecclesiaflow.platform.storage.ObjectStorage;
 import com.ecclesiaflow.platform.storage.ObjectStorageException;
 import com.ecclesiaflow.platform.storage.ObjectStorageProperties;
 import com.ecclesiaflow.platform.storage.StoredObject;
+import com.ecclesiaflow.platform.storage.StoredObjectNotFoundException;
 import com.ecclesiaflow.platform.storage.StoredObjectRef;
 import okhttp3.Headers;
 import okhttp3.mockwebserver.MockResponse;
@@ -19,10 +20,15 @@ import org.mockito.ArgumentCaptor;
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
@@ -42,6 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -250,6 +257,122 @@ class S3ObjectStorageTest {
     }
 
     @Nested
+    @DisplayName("copy")
+    class Copy {
+
+        private static final String SOURCE = "uploads/church-1/3f2a7c1e-0000-0000-0000-000000000001.webp";
+        private static final String TARGET = "images/church-1/3f2a7c1e-0000-0000-0000-000000000002.webp";
+
+        private CopyObjectRequest copied() {
+            ArgumentCaptor<CopyObjectRequest> captor = ArgumentCaptor.forClass(CopyObjectRequest.class);
+            verify(client).copyObject(captor.capture());
+            return captor.getValue();
+        }
+
+        private void sourceHas(HeadObjectResponse head) {
+            when(client.headObject(any(HeadObjectRequest.class))).thenReturn(head);
+            when(client.copyObject(any(CopyObjectRequest.class))).thenReturn(CopyObjectResponse.builder().build());
+        }
+
+        @Test
+        @DisplayName("the target keeps the source's content type and cache header, in the same bucket")
+        void keepsTypeAndCacheHeader() {
+            sourceHas(HeadObjectResponse.builder()
+                    .contentType("image/webp").cacheControl("public, max-age=31536000, immutable").build());
+
+            storage.copy(SOURCE, TARGET);
+
+            ArgumentCaptor<HeadObjectRequest> head = ArgumentCaptor.forClass(HeadObjectRequest.class);
+            verify(client).headObject(head.capture());
+            assertThat(head.getValue().bucket()).isEqualTo(BUCKET);
+            assertThat(head.getValue().key()).isEqualTo(SOURCE);
+            CopyObjectRequest request = copied();
+            assertThat(request.sourceBucket()).isEqualTo(BUCKET);
+            assertThat(request.sourceKey()).isEqualTo(SOURCE);
+            assertThat(request.destinationBucket()).isEqualTo(BUCKET);
+            assertThat(request.destinationKey()).isEqualTo(TARGET);
+            assertThat(request.metadataDirective()).isEqualTo(MetadataDirective.REPLACE);
+            assertThat(request.contentType()).isEqualTo("image/webp");
+            assertThat(request.cacheControl()).isEqualTo("public, max-age=31536000, immutable");
+        }
+
+        @Test
+        @DisplayName("a source without those headers gets the type of its extension and the target's cache rule")
+        void fallsBackWhenSourceHasNoHeaders() {
+            sourceHas(HeadObjectResponse.builder().contentType(" ").build());
+
+            storage.copy(SOURCE, TARGET);
+
+            CopyObjectRequest request = copied();
+            assertThat(request.contentType()).isEqualTo("image/webp");
+            assertThat(request.cacheControl()).isEqualTo("public, max-age=31536000, immutable");
+        }
+
+        @Test
+        @DisplayName("a private copy without a cache header is still kept out of shared caches")
+        void privateFallbackStaysPrivate() {
+            sourceHas(HeadObjectResponse.builder().build());
+
+            storage.copy("member-photos/a.jpg", "member-photos/b.jpg");
+
+            assertThat(copied().cacheControl()).isEqualTo("private, no-store");
+        }
+
+        @Test
+        @DisplayName("a copy across a private prefix is refused before any call to the bucket")
+        void crossingPrivatePrefixRefused() {
+            assertThatThrownBy(() -> storage.copy("member-photos/a.jpg", "images/a.jpg"))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> storage.copy("images/a.jpg", "member-photos/a.jpg"))
+                    .isInstanceOf(IllegalArgumentException.class);
+            verifyNoInteractions(client);
+        }
+
+        @Test
+        @DisplayName("a blank or missing key is refused before any call to the bucket")
+        void blankKeyRejected() {
+            assertThatThrownBy(() -> storage.copy(" ", TARGET)).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> storage.copy(SOURCE, null)).isInstanceOf(IllegalArgumentException.class);
+            verifyNoInteractions(client);
+        }
+
+        @Test
+        @DisplayName("an absent source is reported as not found and nothing is copied")
+        void absentSource() {
+            when(client.headObject(any(HeadObjectRequest.class))).thenThrow(NoSuchKeyException.builder().build());
+
+            assertThatThrownBy(() -> storage.copy(SOURCE, TARGET))
+                    .isInstanceOf(StoredObjectNotFoundException.class)
+                    .hasCauseInstanceOf(NoSuchKeyException.class);
+            verify(client, never()).copyObject(any(CopyObjectRequest.class));
+        }
+
+        @Test
+        @DisplayName("a source deleted between the read and the copy is reported as not found too")
+        void sourceGoneBeforeCopy() {
+            when(client.headObject(any(HeadObjectRequest.class)))
+                    .thenReturn(HeadObjectResponse.builder().contentType("image/webp").build());
+            when(client.copyObject(any(CopyObjectRequest.class))).thenThrow(NoSuchKeyException.builder().build());
+
+            assertThatThrownBy(() -> storage.copy(SOURCE, TARGET))
+                    .isInstanceOf(StoredObjectNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("an SDK failure surfaces as ObjectStorageException")
+        void sdkFailureWrapped() {
+            sourceHas(HeadObjectResponse.builder().contentType("image/webp").build());
+            when(client.copyObject(any(CopyObjectRequest.class)))
+                    .thenThrow(S3Exception.builder().message("boom").build());
+
+            assertThatThrownBy(() -> storage.copy(SOURCE, TARGET))
+                    .isInstanceOf(ObjectStorageException.class)
+                    .hasMessageContaining("copy")
+                    .hasCauseInstanceOf(S3Exception.class);
+        }
+    }
+
+    @Nested
     @DisplayName("on the wire (real client, local endpoint)")
     class OnTheWire {
 
@@ -320,6 +443,37 @@ class S3ObjectStorageTest {
             assertThat(request.getMethod()).isEqualTo("GET");
             assertThat(checksumHeaders(request.getHeaders())).isEmpty();
             assertThat(request.getHeader("x-amz-checksum-mode")).isNull();
+        }
+
+        @Test
+        @DisplayName("a copy names its source and sets the type and cache header itself")
+        void copyRequestOnTheWire() throws InterruptedException {
+            r2.enqueue(new MockResponse().setResponseCode(200)
+                    .setHeader("Content-Type", "image/png")
+                    .setHeader("Cache-Control", "public, max-age=31536000, immutable"));
+            r2.enqueue(new MockResponse().setResponseCode(200).setBody(
+                    "<CopyObjectResult><ETag>\"e\"</ETag>"
+                            + "<LastModified>2026-10-07T00:00:00.000Z</LastModified></CopyObjectResult>"));
+
+            wired.copy("uploads/church-1/a.png", "images/church-1/b.png");
+
+            assertThat(r2.takeRequest(5, TimeUnit.SECONDS).getMethod()).isEqualTo("HEAD");
+            RecordedRequest copy = r2.takeRequest(5, TimeUnit.SECONDS);
+            assertThat(copy.getMethod()).isEqualTo("PUT");
+            assertThat(copy.getPath()).isEqualTo("/" + BUCKET + "/images/church-1/b.png");
+            assertThat(copy.getHeader("x-amz-copy-source")).isEqualTo(BUCKET + "/uploads/church-1/a.png");
+            assertThat(copy.getHeader("x-amz-metadata-directive")).isEqualTo("REPLACE");
+            assertThat(copy.getHeader("Content-Type")).isEqualTo("image/png");
+            assertThat(copy.getHeader("Cache-Control")).isEqualTo("public, max-age=31536000, immutable");
+        }
+
+        @Test
+        @DisplayName("a source the bucket answers 404 for is reported as not found")
+        void absentSourceOnTheWire() {
+            r2.enqueue(new MockResponse().setResponseCode(404));
+
+            assertThatThrownBy(() -> wired.copy("uploads/church-1/a.png", "images/church-1/b.png"))
+                    .isInstanceOf(StoredObjectNotFoundException.class);
         }
 
         private static Set<String> checksumHeaders(Headers headers) {
