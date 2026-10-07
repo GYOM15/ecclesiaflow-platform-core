@@ -3,12 +3,8 @@ package com.ecclesiaflow.platform.ratelimit;
 import lombok.Getter;
 
 /**
- * Thrown when a caller has spent its allowance. Rendered as {@code 429} with a
- * {@code Retry-After} header by each module's exception handler.
- *
- * <p>It carries the wait rather than leaving the client to guess: a refusal with
- * no delay attached teaches clients to retry immediately, which turns one
- * limiter into a tight loop.
+ * Rendered as 429 with {@code Retry-After}: a refusal without a delay teaches clients to retry at once,
+ * which turns one limiter into a tight loop.
  */
 @Getter
 public class RateLimitExceededException extends RuntimeException {

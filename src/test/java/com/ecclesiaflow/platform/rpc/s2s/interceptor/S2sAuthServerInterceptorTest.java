@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -56,9 +57,7 @@ class S2sAuthServerInterceptorTest {
         scopeRegistry = mock(S2sScopeRegistry.class);
         when(call.getMethodDescriptor()).thenReturn(methodDescriptor);
         when(methodDescriptor.getFullMethodName()).thenReturn("test.Service/Method");
-        // By default, no per-method scope is required (most tests only exercise the
-        // generic check). The two tests that need a method-specific scope override
-        // this stub locally.
+        // No per-method scope by default; the tests that need one override this stub.
         when(scopeRegistry.requiredScope(anyString())).thenReturn(java.util.Optional.empty());
 
         props = new S2sProperties();
@@ -158,9 +157,7 @@ class S2sAuthServerInterceptorTest {
     @Test
     @SuppressWarnings("unchecked")
     void acceptsTokenWithRequiredScopeInScopeClaim() {
-        // Verifies scope extraction from the space-delimited `scope` claim. The
-        // RPC declares ef:email:send, which the token carries — so it passes the
-        // fail-closed per-method check too.
+        // The RPC declares ef:email:send and the token carries it, so the per-method check passes too.
         Jwt jwt = jwt(Map.of("scope", "ef:s2s ef:email:send"));
         when(decoder.decode("valid")).thenReturn(jwt);
         when(scopeRegistry.requiredScope("test.Service/Method"))
@@ -173,9 +170,7 @@ class S2sAuthServerInterceptorTest {
 
         verify(next).startCall(eq(call), eq(headers));
         verify(call, never()).close(any(), any());
-        // INVERTED. It asserted that an accepted call publishes NOTHING, which is
-        // the finding: every refusal was announced and every success was silent,
-        // so a lateral call between modules left no trace at all (F045).
+        // An accepted call is announced too, or a lateral call between modules leaves no trace.
         verify(events).publishEvent(any(S2sAuthEvents.InboundAccepted.class));
         assertThat(counted("accepted")).isEqualTo(1d);
     }
@@ -183,8 +178,6 @@ class S2sAuthServerInterceptorTest {
     @Test
     @SuppressWarnings("unchecked")
     void acceptsTokenWithRequiredScopeInScpClaimArray() {
-        // Verifies scope extraction from the `scp` array claim. Same fail-closed
-        // setup: the RPC declares ef:email:send and the token carries it.
         Jwt jwt = jwt(Map.of("scp", List.of("ef:s2s", "ef:email:send")));
         when(decoder.decode("valid")).thenReturn(jwt);
         when(scopeRegistry.requiredScope("test.Service/Method"))
@@ -202,10 +195,8 @@ class S2sAuthServerInterceptorTest {
     @Test
     @SuppressWarnings("unchecked")
     void rejectsTokenMissingMethodScope() {
-        // Token has the generic ef:s2s but not the method-specific ef:members:write
         Jwt jwt = jwt(Map.of("scope", "ef:s2s ef:email:send"));
         when(decoder.decode("valid")).thenReturn(jwt);
-        // The called RPC requires ef:members:write per its @S2sScopeRequired annotation.
         when(scopeRegistry.requiredScope("test.Service/Method"))
                 .thenReturn(java.util.Optional.of("ef:members:write"));
 
@@ -242,14 +233,10 @@ class S2sAuthServerInterceptorTest {
     @Test
     @SuppressWarnings("unchecked")
     void rejectsUnannotatedBusinessMethodFailClosed() {
-        // A hypothetical business RPC that was added without @S2sScopeRequired:
-        // it maps to no per-method scope and is not infrastructure. Fail-closed
-        // means it is denied even though the token carries the generic ef:s2s.
         when(methodDescriptor.getFullMethodName()).thenReturn("ecclesiaflow.members.MembersService/SomeNewRpc");
         Jwt jwt = jwt(Map.of("scope", "ef:s2s"));
         when(decoder.decode("valid")).thenReturn(jwt);
-        // requiredScope() returns empty (default stub) and isInfrastructureService()
-        // returns false (mock default) — i.e. an unmapped business method.
+        // Default mocks: no declared scope, and not an infrastructure service.
 
         Metadata headers = new Metadata();
         headers.put(S2sAuthServerInterceptor.AUTHORIZATION_KEY, "Bearer valid");
@@ -266,9 +253,6 @@ class S2sAuthServerInterceptorTest {
     @Test
     @SuppressWarnings("unchecked")
     void allowsUnannotatedInfrastructureHealthService() {
-        // The gRPC Health service is intentionally unannotated and must stay
-        // reachable so liveness/readiness probes keep working. It maps to no
-        // per-method scope but is whitelisted as infrastructure.
         when(methodDescriptor.getFullMethodName()).thenReturn("grpc.health.v1.Health/Check");
         when(scopeRegistry.isInfrastructureService("grpc.health.v1.Health/Check")).thenReturn(true);
         Jwt jwt = jwt(Map.of("scope", "ef:s2s"));
@@ -281,23 +265,16 @@ class S2sAuthServerInterceptorTest {
 
         verify(next).startCall(eq(call), eq(headers));
         verify(call, never()).close(any(), any());
-        // The bypass is announced too, but as its own event: the health probe
-        // fires every few seconds and must not be logged at the same level as a
-        // business call.
+        // Its own event: the health probe fires every few seconds and must not log like a business call.
         verify(events).publishEvent(any(S2sAuthEvents.InboundInfrastructureBypass.class));
         assertThat(counted("infrastructure_bypass")).isEqualTo(1d);
     }
 
-    // ========================================================================
-    // Allowed authorized parties (F042) — the barrier that does not need the realm
-    // ========================================================================
-
     @Test
     @SuppressWarnings("unchecked")
     void rejectsATokenMintedForAClientThatIsNotOnTheAllowList() {
-        // The realm stamps aud=ecclesiaflow-internal on EVERY client, so a frontend
-        // token that has somehow acquired ef:s2s passes the audience check and both
-        // scope checks. The client id is what actually separates the two planes.
+        // The realm stamps aud=ecclesiaflow-internal on every client, so a frontend token that
+        // somehow acquired ef:s2s passes the audience and scope checks; only the client id stops it.
         props.setAllowedAzp(List.of("ecclesiaflow-church-backend", "ecclesiaflow-members-backend"));
         interceptor = new S2sAuthServerInterceptor(decoder, props, events, scopeRegistry, meters);
         Jwt jwt = jwt(Map.of("scope", "ef:s2s ef:members:read", "azp", "ecclesiaflow-frontend"));
@@ -374,6 +351,15 @@ class S2sAuthServerInterceptorTest {
     }
 
     @Test
+    void aRequiredAllowListThatIsEmptyRefusesToBuild() {
+        props.setRequireAllowedAzp(true);
+
+        assertThatThrownBy(() -> new S2sAuthServerInterceptor(decoder, props, events, scopeRegistry, meters))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("allowed-azp");
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void blankAllowListEntriesAreIgnoredRatherThanLockingEveryoneOut() {
         // A property set to an empty string binds to [""] — which would otherwise
@@ -392,10 +378,6 @@ class S2sAuthServerInterceptorTest {
 
         verify(next).startCall(eq(call), eq(headers));
     }
-
-    // ========================================================================
-    // The audit trail itself (F045)
-    // ========================================================================
 
     @Test
     @SuppressWarnings("unchecked")
@@ -473,13 +455,7 @@ class S2sAuthServerInterceptorTest {
         verify(next).startCall(eq(call), eq(headers));
     }
 
-    /**
-     * Builds a decoded JWT as it would look <em>after</em> the decoder has already
-     * accepted it. Real iss + aud claims are stamped so the fixtures mirror what an
-     * internal service-account token actually carries; the interceptor itself trusts
-     * the decoder, so iss/aud enforcement is covered by
-     * {@code PlatformRpcJwtDecoderValidatorTest}, not here.
-     */
+    /** A token as the decoder hands it over; iss and aud are covered by {@code PlatformRpcJwtDecoderValidatorTest}. */
     private static Jwt jwt(Map<String, Object> claims) {
         return Jwt.withTokenValue("token")
                 .header("alg", "RS256")

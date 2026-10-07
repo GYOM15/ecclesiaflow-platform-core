@@ -5,38 +5,24 @@ import com.ecclesiaflow.platform.ratelimit.RateLimitRuleRegistry;
 import com.ecclesiaflow.platform.ratelimit.RateLimitSubjectResolver;
 import com.ecclesiaflow.platform.ratelimit.RateLimiter;
 import com.ecclesiaflow.platform.ratelimit.RedisRateLimiter;
+import com.ecclesiaflow.platform.ratelimit.events.RateLimitEventListener;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
- * Wires the limiter when — and only when — a module actually asks for one.
- *
- * <p>Three conditions, each removing a way to get this wrong:
- * <ul>
- *   <li>the classes must be on the path, so a module that carries neither Redis
- *       nor Spring MVC is untouched;</li>
- *   <li>the module must supply both a {@link RateLimitRuleRegistry} and a
- *       {@link RateLimitSubjectResolver}. Without them there is nothing to
- *       enforce and nobody to count, so half-wiring is impossible;</li>
- *   <li>{@code ecclesiaflow.rate-limit.enabled} may switch it off — for a test
- *       that has no Redis, never for production convenience.</li>
- * </ul>
+ * Ordered after Redis: {@code @ConditionalOnBean} is evaluated when this class is processed, and before
+ * RedisAutoConfiguration no StringRedisTemplate exists, so no RateLimiter would ever be created.
+ * {@code ecclesiaflow.rate-limit.enabled=false} is for tests without Redis, never for production.
  */
-// AFTER Redis, and this is load-bearing. @ConditionalOnBean is evaluated at the
-// moment the auto-configuration runs, so without an explicit order this class is
-// processed BEFORE RedisAutoConfiguration, StringRedisTemplate does not exist
-// yet, the condition below silently fails, and no RateLimiter is ever created.
-// The application then dies at startup on whatever injects one — which is how
-// this was found: in production, not in the tests, because a test slice
-// registers its beans in a different order.
 @AutoConfiguration(after = RedisAutoConfiguration.class)
 @ConditionalOnClass({StringRedisTemplate.class, WebMvcConfigurer.class})
 @ConditionalOnProperty(prefix = "ecclesiaflow.rate-limit", name = "enabled",
@@ -46,15 +32,17 @@ public class PlatformRateLimitAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnBean(StringRedisTemplate.class)
-    public RateLimiter ecclesiaflowRateLimiter(StringRedisTemplate redis) {
-        return new RedisRateLimiter(redis);
+    public RateLimiter ecclesiaflowRateLimiter(StringRedisTemplate redis, ApplicationEventPublisher events) {
+        return new RedisRateLimiter(redis, events);
     }
 
-    /**
-     * Registers the interceptor only once BOTH module-supplied beans exist.
-     * Missing either one leaves the application running with no limiter rather
-     * than with a broken one.
-     */
+    @Bean
+    @ConditionalOnMissingBean
+    public RateLimitEventListener rateLimitEventListener() {
+        return new RateLimitEventListener();
+    }
+
+    /** Without the module's registry and resolver there is nothing to enforce: no interceptor, not a broken one. */
     @Bean
     @ConditionalOnBean({RateLimiter.class, RateLimitRuleRegistry.class, RateLimitSubjectResolver.class})
     public WebMvcConfigurer ecclesiaflowRateLimitWebMvcConfigurer(

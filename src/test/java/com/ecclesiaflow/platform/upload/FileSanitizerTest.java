@@ -1,11 +1,13 @@
 package com.ecclesiaflow.platform.upload;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
 
@@ -29,6 +31,65 @@ class FileSanitizerTest {
         // Bytes are returned unchanged for non-image files.
         assertThat(result.data()).isEqualTo(csv);
         assertThat(result.size()).isEqualTo(csv.length);
+    }
+
+    @Nested
+    @DisplayName("CSV text encoding")
+    class CsvEncoding {
+
+        private static final String TEXT =
+                "Nom;Prénom;Email\r\nCœur;Hélène;h@ex.fr\r\nGarçon;Achille Lèvre;a@ex.fr\r\nDon;10 €;d@ex.fr\r\n";
+
+        @Test
+        @DisplayName("a Windows-1252 CSV is accepted and handed back as UTF-8 without mojibake")
+        void windows1252TranscodedToUtf8() {
+            byte[] cp1252 = TEXT.getBytes(Charset.forName("windows-1252"));
+            // Real single-byte cp1252 octets, not UTF-8 sequences.
+            assertThat(cp1252).contains((byte) 0xE9, (byte) 0xE8, (byte) 0xE7, (byte) 0x9C, (byte) 0x80);
+
+            SanitizedUpload result = sanitizer.sanitizeFile(cp1252, FilePolicy.spreadsheetImport());
+
+            assertThat(result.contentType()).isEqualTo(MagicBytes.TEXT_CSV);
+            assertThat(new String(result.data(), StandardCharsets.UTF_8)).isEqualTo(TEXT);
+            assertThat(result.size()).isEqualTo(result.data().length);
+        }
+
+        @Test
+        @DisplayName("a UTF-8 CSV with a BOM is handed back as UTF-8 without the BOM")
+        void utf8BomStripped() {
+            byte[] body = TEXT.getBytes(StandardCharsets.UTF_8);
+            byte[] withBom = new byte[body.length + 3];
+            withBom[0] = (byte) 0xEF;
+            withBom[1] = (byte) 0xBB;
+            withBom[2] = (byte) 0xBF;
+            System.arraycopy(body, 0, withBom, 3, body.length);
+
+            SanitizedUpload result = sanitizer.sanitizeFile(withBom, FilePolicy.spreadsheetImport());
+
+            assertThat(result.data()).isEqualTo(body);
+            assertThat(result.size()).isEqualTo(body.length);
+        }
+
+        @Test
+        @DisplayName("a UTF-8 CSV with accents is returned byte for byte")
+        void utf8Unchanged() {
+            byte[] utf8 = TEXT.getBytes(StandardCharsets.UTF_8);
+
+            SanitizedUpload result = sanitizer.sanitizeFile(utf8, FilePolicy.spreadsheetImport());
+
+            assertThat(result.data()).isEqualTo(utf8);
+        }
+
+        @Test
+        @DisplayName("a byte undefined in Windows-1252 (0x81) is rejected UNSUPPORTED_TYPE")
+        void undefinedWindows1252ByteRejected() {
+            byte[] bytes = {'a', ';', (byte) 0xE9, (byte) 0x81, '\n'};
+
+            assertThatThrownBy(() -> sanitizer.sanitizeFile(bytes, FilePolicy.spreadsheetImport()))
+                    .isInstanceOf(UploadRejectedException.class)
+                    .extracting(e -> ((UploadRejectedException) e).getReason())
+                    .isEqualTo(UploadRejectedException.Reason.UNSUPPORTED_TYPE);
+        }
     }
 
     @Test

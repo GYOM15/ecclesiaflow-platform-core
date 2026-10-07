@@ -10,35 +10,13 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import java.time.Clock;
 
 /**
- * Publish-side hook that stamps the {@value DomainEventSigner#SIGNATURE_HEADER}
- * and {@value DomainEventSigner#SIGNED_AT_HEADER} headers onto every outbound
- * domain event (security findings C07 and F054). Wire it into a publisher's
- * domain-events {@link RabbitTemplate} via
- * {@link RabbitTemplate#addBeforePublishPostProcessors} (or
- * {@code setBeforePublishPostProcessors}) so it runs on the fully serialized
- * message just before publication.
+ * Publish-side hook that stamps the signature headers on every outbound domain event; register it with
+ * {@link RabbitTemplate#addBeforePublishPostProcessors}. A no-op while signing is disabled.
  *
- * <p>The body is left untouched; only headers are added — existing consumers
- * deserialize the exact same bytes. When signing is disabled (blank secret)
- * this is a no-op, so a publisher can run unsigned during migration.</p>
- *
- * <h2>Where the destination comes from</h2>
- *
- * <p>The signature binds the exchange and routing key, and neither is on the
- * outbound {@link org.springframework.amqp.core.MessageProperties} — they are
- * arguments to {@code convertAndSend}. Spring AMQP hands them to the
- * <em>four-argument</em> {@link MessagePostProcessor#postProcessMessage(Message,
- * Correlation, String, String)} overload, which {@code RabbitTemplate.doSend}
- * calls for every before-publish post-processor. Overriding that overload is
- * what lets one template-wide post-processor sign correctly for every
- * destination; the alternative — passing a per-call post-processor at each
- * {@code convertAndSend} site — signs nothing at the site somebody forgets.</p>
- *
- * <p>The one-argument overload therefore <strong>throws</strong>: reached only
- * by a hand-rolled call, it has no destination to bind, and a signature bound to
- * the empty destination is exactly the hole F054 closes. Failing at the publish
- * site is loud and local; the alternative is a message every strict consumer
- * silently dead-letters.</p>
+ * <p>The exchange and routing key are not on the outbound message properties: Spring AMQP passes them
+ * only to the four-argument overload, which {@code RabbitTemplate.doSend} calls for every before-publish
+ * post-processor. The one-argument overload therefore throws: a signature bound to an empty destination
+ * reopens the replay hole, and every strict consumer would dead-letter the message.</p>
  */
 public class SigningMessagePostProcessor implements MessagePostProcessor {
 
@@ -49,7 +27,6 @@ public class SigningMessagePostProcessor implements MessagePostProcessor {
         this(signer, Clock.systemUTC());
     }
 
-    /** @param clock source of the {@value DomainEventSigner#SIGNED_AT_HEADER} stamp; injected for tests. */
     public SigningMessagePostProcessor(DomainEventSigner signer, Clock clock) {
         this.signer = signer;
         this.clock = clock;
@@ -77,6 +54,8 @@ public class SigningMessagePostProcessor implements MessagePostProcessor {
         String signature = signer.sign(exchange, routingKey, signedAt, message.getBody());
         message.getMessageProperties().setHeader(DomainEventSigner.SIGNED_AT_HEADER, Long.toString(signedAt));
         message.getMessageProperties().setHeader(DomainEventSigner.SIGNATURE_HEADER, signature);
+        message.getMessageProperties().setHeader(
+                DomainEventSigner.SIGNATURE_VERSION_HEADER, DomainEventSigner.SIGNATURE_VERSION);
         return message;
     }
 }

@@ -1,47 +1,46 @@
 package com.ecclesiaflow.platform.ratelimit;
 
+import com.ecclesiaflow.platform.ratelimit.events.RateLimitEvents;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 
-import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
 /**
- * A fixed-window counter in Redis: one {@code INCR}, and an {@code EXPIRE} on
- * the call that created the key.
- *
- * <p><strong>Why the expiry is set only on the first hit.</strong> Refreshing it
- * on every call would let a steady stream hold the window open for ever, so the
- * counter would never reset and a caller would stay locked out permanently after
- * a single burst. The key must die on its own schedule, not on the caller's.
- *
- * <p><strong>Why Redis and not a map.</strong> An in-memory counter resets on
- * every redeploy and counts separately on each instance, so N instances multiply
- * every limit by N. The landing app carried exactly that on its contact form
- * before this existed.
- *
- * <p>The key embeds the window number rather than relying on a sliding
- * structure: a division of the epoch second by the window length. It costs one
- * round trip, and the boundary effect it allows — up to twice the limit across
- * two adjacent windows — is a price worth paying here, where the limit exists to
- * stop runaway loops and accidental fan-out rather than to meter a paid API.
+ * Fixed-window counter admitted by one Lua script: Redis runs it without interleaving, so a refused cost
+ * never touches the counter. In Redis because an in-memory counter resets on redeploy and multiplies the
+ * limit by the instance count. Up to twice the limit can pass across two adjacent windows, acceptable for
+ * a limiter that stops runaway loops rather than metering a paid API.
  */
 @RequiredArgsConstructor
 public class RedisRateLimiter implements RateLimiter {
 
-    private static final Logger log = LoggerFactory.getLogger(RedisRateLimiter.class);
-
     /** Namespaced so these counters can never collide with a session or a cache. */
     static final String KEY_PREFIX = "ecclesiaflow:ratelimit:";
 
-    private final StringRedisTemplate redis;
+    /** What the script answers for a refused call; an admitted one gets the new count, at least 1. */
+    static final long REFUSED = -1L;
 
-    @Override
-    public RateLimitDecision consume(RateLimitRule rule, String subject) {
-        return consume(rule, subject, 1);
-    }
+    // ARGV: cost, limit, window in seconds. Only a key with no expiry gets one, so a
+    // steady stream never extends the window and a key left without one still dies.
+    static final RedisScript<Long> CONSUME_SCRIPT = RedisScript.of("""
+            local cost = tonumber(ARGV[1])
+            local count = tonumber(redis.call('GET', KEYS[1]) or '0')
+            if count + cost > tonumber(ARGV[2]) then
+              return -1
+            end
+            count = redis.call('INCRBY', KEYS[1], cost)
+            if redis.call('TTL', KEYS[1]) < 0 then
+              redis.call('EXPIRE', KEYS[1], ARGV[3])
+            end
+            return count
+            """, Long.class);
+
+    private final StringRedisTemplate redis;
+    private final ApplicationEventPublisher events;
 
     @Override
     public RateLimitDecision consume(RateLimitRule rule, String subject, int cost) {
@@ -54,41 +53,27 @@ public class RedisRateLimiter implements RateLimiter {
         String key = KEY_PREFIX + rule.name() + ':' + subject + ':' + windowNumber;
 
         try {
-            Long count = redis.opsForValue().increment(key, cost);
+            // String arguments: the template's serializer only takes strings.
+            Long count = redis.execute(CONSUME_SCRIPT, List.of(key),
+                    String.valueOf(cost), String.valueOf(rule.limit()), String.valueOf(windowSeconds));
             if (count == null) {
-                return unreadable(rule, "Redis returned no count");
+                return unreadable(rule, null);
             }
-            // The expiry is set on the call that CREATED the key, which for a
-            // batch is the one whose count lands exactly on its own cost.
-            if (count == cost) {
-                redis.expire(key, Duration.ofSeconds(windowSeconds));
-            }
-            if (count > rule.limit()) {
+            if (count == REFUSED) {
                 return RateLimitDecision.refused(rule.limit(), windowSeconds - (now % windowSeconds));
             }
             return RateLimitDecision.allowed(rule.limit(), (int) (rule.limit() - count));
         } catch (RuntimeException e) {
-            return unreadable(rule, e.toString());
+            return unreadable(rule, e);
         }
     }
 
-    /**
-     * What to do when the counter cannot be read at all.
-     *
-     * <p>The rule decides, and both answers are defensible for different
-     * operations — which is why it is a property of the rule and not of this
-     * class. Either way it is logged at WARN: a limiter silently doing nothing
-     * is indistinguishable from a limiter working, and that is how an outage
-     * goes unnoticed for weeks.
-     */
-    private RateLimitDecision unreadable(RateLimitRule rule, String cause) {
+    /** The rule decides; an event is published either way so the blind spot is reported. */
+    private RateLimitDecision unreadable(RateLimitRule rule, RuntimeException cause) {
+        events.publishEvent(new RateLimitEvents.CounterUnavailable(rule.name(), rule.failOpen(), cause));
         if (rule.failOpen()) {
-            log.warn("Rate limit '{}' not enforced — the counter could not be read: {}",
-                    rule.name(), cause);
             return RateLimitDecision.allowed(rule.limit(), rule.limit());
         }
-        log.warn("Rate limit '{}' refusing — the counter could not be read: {}",
-                rule.name(), cause);
         return RateLimitDecision.refused(rule.limit(), rule.window().getSeconds());
     }
 }

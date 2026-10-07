@@ -11,12 +11,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Exercises the issuer + audience validation that {@link PlatformRpcAutoConfiguration}
- * wires onto the s2s {@link org.springframework.security.oauth2.jwt.JwtDecoder} (H01/H02).
- *
- * <p>We validate decoded {@link Jwt}s directly against the composite validator,
- * which lets us assert iss/aud behaviour without standing up a JWKS endpoint —
- * signature + expiry are the decoder's job and are covered upstream by Nimbus.</p>
+ * Runs decoded tokens through the composite validator, without a JWKS endpoint: signature and expiry
+ * are Nimbus's job, issuer and audience are what this library adds.
  */
 class PlatformRpcJwtDecoderValidatorTest {
 
@@ -37,15 +33,8 @@ class PlatformRpcJwtDecoderValidatorTest {
 
     @Test
     void rejectsTokenCarryingSomeOtherAudience() {
-        // RENAMED. This was called rejectsTokenWithoutExpectedAudience and its
-        // comment read « a frontend/user token never carries
-        // aud=ecclesiaflow-internal ». That is false: the realm attaches the
-        // audience mapper to every client, frontend included
-        // (realm-ecclesiaflow.json:284), so a user token carries exactly the same
-        // audience as a module's service account. What this test really shows is
-        // narrower — a token minted for an unrelated audience is refused.
-        // See frontendTokenIsAcceptedByTheS2sValidatorToday for the part that was
-        // being claimed and is not true (F052).
+        // The realm stamps the internal audience on every client, frontend included, so this
+        // only proves that a token minted for an unrelated audience is refused.
         OAuth2TokenValidator<Jwt> validator =
                 PlatformRpcAutoConfiguration.s2sTokenValidator(ISSUER, AUDIENCE);
 
@@ -57,16 +46,9 @@ class PlatformRpcJwtDecoderValidatorTest {
     }
 
     /**
-     * Pins the fact, so nobody re-derives the comfortable belief from the test
-     * names above: the s2s validator accepts a token minted for the FRONTEND
-     * client, because the realm stamps {@code aud=ecclesiaflow-internal} on it
-     * too. The audience is not the fence between the two planes — the {@code azp}
-     * allow-list on {@link com.ecclesiaflow.platform.rpc.s2s.interceptor.S2sAuthServerInterceptor}
-     * is (F042).
-     *
-     * <p>This assertion is expected to INVERT on the day the realm stops stamping
-     * {@code ecclesiaflow-internal} on {@code ecclesiaflow-frontend} (F038). When
-     * that lands, flip it to {@code isTrue()} and say so here — do not delete it.</p>
+     * The realm stamps {@code aud=ecclesiaflow-internal} on the frontend client too, so the s2s validator
+     * accepts a user token: the {@code azp} allow-list is the fence, not the audience. Flip this to
+     * {@code isTrue()} once the realm stops stamping it on {@code ecclesiaflow-frontend}; do not delete it.
      */
     @Test
     void frontendTokenIsAcceptedByTheS2sValidatorToday() {

@@ -2,11 +2,17 @@ package com.ecclesiaflow.platform.storage.autoconfigure;
 
 import com.ecclesiaflow.platform.storage.FilesystemObjectStorage;
 import com.ecclesiaflow.platform.storage.ObjectStorage;
+import com.ecclesiaflow.platform.storage.ObjectStorageException;
 import com.ecclesiaflow.platform.storage.s3.S3ObjectStorage;
+import nl.altindag.log.LogCaptor;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -17,11 +23,12 @@ class PlatformObjectStorageAutoConfigurationTest {
             .withConfiguration(AutoConfigurations.of(PlatformObjectStorageAutoConfiguration.class));
 
     @Test
-    @DisplayName("defaults to the filesystem adapter when no provider is set")
-    void defaultsToFilesystem() {
-        runner.run(context -> assertThat(context)
-                .getBean(ObjectStorage.class)
-                .isInstanceOf(FilesystemObjectStorage.class));
+    @DisplayName("no provider set means no adapter, rather than a silent temporary directory")
+    void noProviderNoAdapter() {
+        runner.run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context).doesNotHaveBean(ObjectStorage.class);
+        });
     }
 
     @Test
@@ -31,6 +38,38 @@ class PlatformObjectStorageAutoConfigurationTest {
                 .run(context -> assertThat(context)
                         .getBean(ObjectStorage.class)
                         .isInstanceOf(FilesystemObjectStorage.class));
+    }
+
+    @Test
+    @DisplayName("the auto-configuration announces the filesystem adapter it activated")
+    void announcesTheFilesystemAdapter() {
+        try (LogCaptor logs = LogCaptor.forClass(PlatformObjectStorageAutoConfiguration.class)) {
+            runner.withPropertyValues("ecclesiaflow.object-storage.provider=filesystem")
+                    .run(context -> assertThat(context).hasSingleBean(ObjectStorage.class));
+
+            assertThat(logs.getInfoLogs()).singleElement().asString()
+                    .startsWith("OBJECT-STORAGE: filesystem adapter active");
+        }
+    }
+
+    @Test
+    @DisplayName("the S3 announcement names the bucket and never the endpoint or the keys")
+    void announcesTheS3AdapterWithoutSecrets() {
+        try (LogCaptor logs = LogCaptor.forClass(PlatformObjectStorageAutoConfiguration.class)) {
+            runner.withPropertyValues(
+                            "ecclesiaflow.object-storage.provider=s3",
+                            "ecclesiaflow.object-storage.s3.endpoint=https://acct.r2.cloudflarestorage.com",
+                            "ecclesiaflow.object-storage.s3.access-key-id=key-id-value",
+                            "ecclesiaflow.object-storage.s3.secret-access-key=secret-value",
+                            "ecclesiaflow.object-storage.s3.bucket=ecclesiaflow-media")
+                    .run(context -> assertThat(context).hasSingleBean(ObjectStorage.class));
+
+            assertThat(logs.getInfoLogs()).singleElement().asString()
+                    .isEqualTo("OBJECT-STORAGE: s3 adapter active, bucket=ecclesiaflow-media")
+                    .doesNotContain("r2.cloudflarestorage.com")
+                    .doesNotContain("key-id-value")
+                    .doesNotContain("secret-value");
+        }
     }
 
     @Test
@@ -46,5 +85,40 @@ class PlatformObjectStorageAutoConfigurationTest {
                     assertThat(context).hasSingleBean(ObjectStorage.class);
                     assertThat(context).getBean(ObjectStorage.class).isInstanceOf(S3ObjectStorage.class);
                 });
+    }
+
+    @Nested
+    @DisplayName("prod profile")
+    class ProdProfile {
+
+        @TempDir
+        Path volume;
+
+        @Test
+        @DisplayName("refuses to start a filesystem adapter on the temporary directory")
+        void refusesTemporaryDirectory() {
+            runner.withPropertyValues(
+                            "spring.profiles.active=prod",
+                            "ecclesiaflow.object-storage.provider=filesystem")
+                    .run(context -> {
+                        assertThat(context).hasFailed();
+                        assertThat(context.getStartupFailure())
+                                .rootCause()
+                                .isInstanceOf(ObjectStorageException.class)
+                                .hasMessageContaining("ecclesiaflow.object-storage.filesystem.base-path");
+                    });
+        }
+
+        @Test
+        @DisplayName("accepts a filesystem adapter on an explicit base path")
+        void acceptsExplicitBasePath() {
+            runner.withPropertyValues(
+                            "spring.profiles.active=prod",
+                            "ecclesiaflow.object-storage.provider=filesystem",
+                            "ecclesiaflow.object-storage.filesystem.base-path=" + volume)
+                    .run(context -> assertThat(context)
+                            .getBean(ObjectStorage.class)
+                            .isInstanceOf(FilesystemObjectStorage.class));
+        }
     }
 }

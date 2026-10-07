@@ -1,0 +1,143 @@
+// Published by the church module. Consumers load the class named by the __TypeId__
+// header, so java_package and message names are on the wire like field numbers.
+
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.events.church";
+option java_outer_classname = "ChurchDomainEventsProto";
+
+package ecclesiaflow.events.church.v1;
+
+// Domain events emitted by church-module onto the cross-module topic exchange
+// "ecclesiaflow.domain-events". Consumers (e.g. communication-module) bind
+// queues to the relevant routing keys and react. Mirrors auth-module's
+// domain_events.proto. See docs/adr/0001-domain-events-cross-module-via-rabbitmq.md.
+
+// Emitted right after an invitation row is persisted WITH a target email — i.e.
+// the admin asked the platform to DELIVER the join link by email. Link-only
+// invitations (no email) do not emit this event.
+// Routing key: "church.invitation.created.v1".
+message ChurchInvitationCreatedEvent {
+  // UUIDv4. Consumers may dedupe on this to make their handler idempotent.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC).
+  int64 occurred_at_epoch_ms = 2;
+
+  // Recipient email — the invitee's delivery address.
+  string recipient_email = 3;
+
+  // Raw, opaque, single-use join token. Transits the broker; ensure broker
+  // connectivity uses TLS in prod.
+  string invitation_token = 4;
+
+  // The inviting church.
+  string church_id = 5;
+
+  // Church display name, for the email body ("rejoindre <church_name>").
+  string church_name = 6;
+
+  // Invitation TTL in seconds (consumer surfaces "valable 7 jours").
+  int32 expires_in_seconds = 7;
+}
+
+// Emitted right after a member is removed from a church (hard delete of their
+// membership). The chat module consumes this to cut the removed member's chat
+// access: it drops them from every group conversation of that church AND freezes
+// their 1:1 conversations (history visible, no send/receive). Idempotent on
+// event_id — a re-delivery must not re-post the in-thread system notices.
+// Routing key: "church.member.removed-from-church.v1".
+message MemberRemovedFromChurchEvent {
+  // UUIDv4. Consumers dedupe on this to make their handler idempotent.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC).
+  int64 occurred_at_epoch_ms = 2;
+
+  // The church the member was removed from — the chat-side isolation boundary.
+  string church_id = 3;
+
+  // The removed member's user id (Keycloak sub / chat participant id).
+  string member_user_id = 4;
+
+  // The removed member's display name, for the in-thread system notice copy
+  // (« {Nom} n'est plus membre de l'église … »). May be empty if unknown.
+  string member_display_name = 5;
+}
+
+// Emitted right after a member is (re)admitted to a church (their membership
+// row is created/activated, e.g. an accepted membership request). The chat
+// module consumes this to (re)open the member's chat access to that church.
+// Idempotent on event_id.
+// Routing key: "church.member.admitted-to-church.v1".
+message MemberAdmittedToChurchEvent {
+  // UUIDv4. Consumers dedupe on this to make their handler idempotent.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC).
+  int64 occurred_at_epoch_ms = 2;
+
+  // The church the member was admitted to — the chat-side isolation boundary.
+  string church_id = 3;
+
+  // The admitted member's user id (Keycloak sub / chat participant id).
+  string member_user_id = 4;
+
+  // The admitted member's display name, for chat-side system notice copy.
+  // May be empty if unknown.
+  string member_display_name = 5;
+}
+
+// Emitted right after a member is added to a single group of a church. The
+// chat module consumes this to add that member to the group's chat
+// conversation participants. Idempotent on event_id.
+// Routing key: "church.member.added-to-group.v1".
+message MemberAddedToGroupEvent {
+  // UUIDv4. Consumers dedupe on this to make their handler idempotent.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC).
+  int64 occurred_at_epoch_ms = 2;
+
+  // The church owning the group — the chat-side isolation boundary.
+  string church_id = 3;
+
+  // The church group the member was added to. The chat conversation is
+  // resolved by this id (the GROUP conversation's opaque church_group_id).
+  string group_id = 4;
+
+  // The added member's user id (Keycloak sub / chat participant id).
+  string member_user_id = 5;
+
+  // The added member's display name, for chat-side system notice copy.
+  // May be empty if unknown.
+  string member_display_name = 6;
+}
+
+// Emitted right after a member is removed from a single group of a church. The
+// chat module consumes this to remove that member from the group's chat
+// conversation participants (they lose read of NEW messages + cannot send) and
+// posts a « {Nom} a été retiré du groupe » system notice. Idempotent on event_id.
+// Routing key: "church.member.removed-from-group.v1".
+message MemberRemovedFromGroupEvent {
+  // UUIDv4. Consumers dedupe on this to make their handler idempotent.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC).
+  int64 occurred_at_epoch_ms = 2;
+
+  // The church owning the group — the chat-side isolation boundary.
+  string church_id = 3;
+
+  // The church group the member was removed from. The chat conversation is
+  // resolved by this id (the GROUP conversation's opaque church_group_id).
+  string group_id = 4;
+
+  // The removed member's user id (Keycloak sub / chat participant id).
+  string member_user_id = 5;
+
+  // The removed member's display name, for the « {Nom} a été retiré du groupe »
+  // system notice. May be empty if unknown.
+  string member_display_name = 6;
+}

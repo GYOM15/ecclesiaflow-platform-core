@@ -1,0 +1,75 @@
+// Published by the auth module. Consumers load the class named by the __TypeId__
+// header, so java_package and message names are on the wire like field numbers.
+
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.events.auth";
+option java_outer_classname = "AuthDomainEventsProto";
+
+package ecclesiaflow.events.auth.v1;
+
+// Domain events emitted by auth-module onto the cross-module topic exchange
+// "ecclesiaflow.domain-events". Consumers (e.g. communication-module) bind
+// queues to the relevant routing keys and react accordingly. See
+// docs/adr/0001-domain-events-cross-module-via-rabbitmq.md.
+
+// Emitted right after a setup_token row is persisted, by either:
+//   - GenerateTemporaryToken (legacy member flow)
+//   - ProvisionUserAndIssueSetupToken (church signup flow)
+// Routing key: "auth.setup-token.issued.v1".
+message SetupTokenIssuedEvent {
+  // UUIDv4. Consumers may dedupe on this to make their handler idempotent.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC).
+  int64 occurred_at_epoch_ms = 2;
+
+  // Recipient email — same value as the setup_token row.
+  string email = 3;
+
+  // Raw, opaque, single-use token. Transits the broker; ensure broker
+  // connectivity uses TLS in prod.
+  string raw_token = 4;
+
+  // Producer-defined identifier of the business flow that issued the token.
+  // Used by the consumer to pick a template and subject line.
+  // Known value: "church_signup".
+  string flow_id = 5;
+
+  // Opaque JSON pass-through filled by the producer for the consumer's
+  // template rendering. Schema is producer-owned (e.g. church saga ships
+  // {"first_name":"...","church_name":"..."}).
+  string display_context_json = 6;
+
+  // Setup-token TTL in seconds. Consumers may surface it ("link valid for
+  // 24 hours").
+  int32 expires_in_seconds = 7;
+}
+
+// Emitted when a signup targets an email whose Keycloak account already exists
+// and holds no pending setup token: a church-signup replay through
+// ProvisionUserAndIssueSetupToken, whose call still fails FAILED_PRECONDITION,
+// or a member signup through SendExistingAccountNotice. Anti-enumeration: the
+// signup client learns nothing; this fire-and-forget event lets
+// communication-module tell the REAL inbox owner they already have an account,
+// with a log-in / reset-password call to action. It carries no attacker-
+// supplied data — only the account's own email and the existing user's locale.
+// Routing key: "auth.existing-account.notice.v1".
+message ExistingAccountNoticeEvent {
+  // Recipient email — the existing account's address (its login username).
+  string email = 1;
+
+  // Recipient render locale (BCP-47) — the EXISTING Keycloak user's locale,
+  // never the signup request's. Defaults to "fr" when unknown or unsupported.
+  string locale = 2;
+
+  // Names the church signup request, or the account's notice window for a
+  // member signup, not the delivery: a name-based UUID (v3) derived from the
+  // account and the request's metadata or the window, so the same request staged
+  // twice, or member signups within one window, carry one id. Random (v4) when a
+  // church request carries no metadata. The outbox delivers at least once, so
+  // consumers dedupe on it. Empty from an auth build that predates the field:
+  // such a notice cannot be deduplicated and is handled as before.
+  string event_id = 3;
+}

@@ -129,11 +129,7 @@ class DomainEventVerifierTest {
                     .isEqualTo(Decision.REJECT_INVALID);
         }
 
-        /**
-         * F054, the whole point: a genuinely signed event re-published under a
-         * sibling routing key. Before the destination was signed material this
-         * returned ACCEPT.
-         */
+        /** A genuinely signed event re-published under a sibling routing key. */
         @Test
         void genuineEventReplayedUnderAnotherRoutingKeyRejected() {
             assertThat(verifier.verify(EXCHANGE, "member.removed.v1", body(), validSignature(), SIGNED_AT))
@@ -205,6 +201,48 @@ class DomainEventVerifierTest {
     }
 
     @Nested
+    @DisplayName("signature format version")
+    class Version {
+
+        @Test
+        @DisplayName("no version header means a message signed before the label existed: version 1")
+        void absentVersionIsVersionOne() {
+            assertThat(verifier(true).verify(EXCHANGE, ROUTING_KEY, body(), validSignature(), SIGNED_AT, null))
+                    .isEqualTo(Decision.ACCEPT);
+            assertThat(verifier(true).verify(EXCHANGE, ROUTING_KEY, body(), validSignature(), SIGNED_AT, " "))
+                    .isEqualTo(Decision.ACCEPT);
+        }
+
+        @Test
+        void currentVersionIsVerifiedAsUsual() {
+            assertThat(verifier(true).verify(EXCHANGE, ROUTING_KEY, body(), validSignature(), SIGNED_AT, "1"))
+                    .isEqualTo(Decision.ACCEPT);
+            assertThat(verifier(true).verify(EXCHANGE, ROUTING_KEY, body(), "AAAA", SIGNED_AT, "1"))
+                    .isEqualTo(Decision.REJECT_INVALID);
+        }
+
+        @Test
+        @DisplayName("strict: a version this consumer does not know is rejected for what it is")
+        void unknownVersionRejectedInStrictMode() {
+            assertThat(verifier(true).verify(EXCHANGE, ROUTING_KEY, body(), validSignature(), SIGNED_AT, "2"))
+                    .isEqualTo(Decision.REJECT_UNSUPPORTED_VERSION);
+        }
+
+        @Test
+        void unknownVersionAcceptedUnverifiedInLenientMode() {
+            assertThat(verifier(false).verify(EXCHANGE, ROUTING_KEY, body(), validSignature(), SIGNED_AT, "2"))
+                    .isEqualTo(Decision.ACCEPT_UNVERIFIED);
+        }
+
+        @Test
+        @DisplayName("an unsigned message is missing its signature, whatever version it claims")
+        void missingSignatureWinsOverTheVersion() {
+            assertThat(verifier(true).verify(EXCHANGE, ROUTING_KEY, body(), null, SIGNED_AT, "2"))
+                    .isEqualTo(Decision.REJECT_MISSING);
+        }
+    }
+
+    @Nested
     @DisplayName("Decision.isAccepted")
     class DecisionFlag {
         @Test
@@ -218,6 +256,7 @@ class DomainEventVerifierTest {
             assertThat(Decision.REJECT_MISSING.isAccepted()).isFalse();
             assertThat(Decision.REJECT_INVALID.isAccepted()).isFalse();
             assertThat(Decision.REJECT_STALE.isAccepted()).isFalse();
+            assertThat(Decision.REJECT_UNSUPPORTED_VERSION.isAccepted()).isFalse();
         }
     }
 }

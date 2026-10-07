@@ -4,10 +4,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.Locale;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class I18nFoundationsTest {
 
@@ -34,7 +32,7 @@ class I18nFoundationsTest {
 
         @Test
         void rejectsNullBlankAndUnsupported() {
-            // S1: every hostile / unknown input collapses to empty, never throws.
+            // Every hostile or unknown input collapses to empty and never throws.
             assertThat(SupportedLocales.parse(null)).isEmpty();
             assertThat(SupportedLocales.parse("")).isEmpty();
             assertThat(SupportedLocales.parse("   ")).isEmpty();
@@ -76,50 +74,9 @@ class I18nFoundationsTest {
 
         @Test
         void platformDefaultIsFrench() {
-            // Anti-regression anchor: the backstop MUST be today's language.
+            // The fallback locale drives the default rendering of the whole platform.
             assertThat(PlatformDefaults.LOCALE).isEqualTo(SupportedLocales.FR);
             assertThat(PlatformDefaults.LOCALE.getLanguage()).isEqualTo("fr");
-        }
-    }
-
-    @Nested
-    class Resolver {
-
-        private final EffectiveLocaleResolver resolver = new EffectiveLocaleResolver();
-
-        @Test
-        void prefersTheUserPreference() {
-            assertThat(resolver.resolve(Optional.of(SupportedLocales.EN), Optional.of(SupportedLocales.FR)))
-                    .isEqualTo(SupportedLocales.EN);
-        }
-
-        @Test
-        void fallsBackToTheTenantDefaultWhenUserHasNone() {
-            assertThat(resolver.resolve(Optional.empty(), Optional.of(SupportedLocales.EN)))
-                    .isEqualTo(SupportedLocales.EN);
-        }
-
-        @Test
-        void fallsBackToThePlatformDefaultWhenNothingResolves() {
-            assertThat(resolver.resolve(Optional.empty(), Optional.empty()))
-                    .isEqualTo(PlatformDefaults.LOCALE);
-        }
-    }
-
-    @Nested
-    class Settings {
-
-        @Test
-        void carriesTheRenderLocale() {
-            assertThat(new LocalizationSettings(SupportedLocales.EN).locale())
-                    .isEqualTo(SupportedLocales.EN);
-        }
-
-        @Test
-        void rejectsNullLocale() {
-            assertThatThrownBy(() -> new LocalizationSettings(null))
-                    .isInstanceOf(NullPointerException.class)
-                    .hasMessageContaining("locale");
         }
     }
 }

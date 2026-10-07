@@ -15,7 +15,7 @@ class PlatformEventSigningAutoConfigurationTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(
                     PlatformEventSigningAutoConfiguration.class,
-                    PlatformEventSigningAutoConfiguration.AmqpHelpers.class));
+                    PlatformEventSigningAmqpAutoConfiguration.class));
 
     @Test
     void inertWhenSecretUnset() {
@@ -29,14 +29,11 @@ class PlatformEventSigningAutoConfigurationTest {
 
     @Test
     void signerPresentButDisabledWhenSecretBlank() {
-        // An explicitly-blank secret satisfies @ConditionalOnProperty (the property
-        // is present), so the beans wire — but the signer reports disabled, which is
-        // the real escape hatch: signing/verification is inert despite the wiring.
+        // A blank secret satisfies @ConditionalOnProperty, so the beans wire, but the signer is disabled.
         runner.withPropertyValues("ecclesiaflow.events.hmac-secret=")
                 .run(context -> {
                     assertThat(context).hasSingleBean(DomainEventSigner.class);
                     assertThat(context.getBean(DomainEventSigner.class).isEnabled()).isFalse();
-                    // disabled verifier accepts everything regardless of the strict flag
                     assertThat(context.getBean(DomainEventVerifier.class)
                             .verify("ex", "rk", new byte[]{1}, null, null).isAccepted()).isTrue();
                 });
@@ -61,7 +58,6 @@ class PlatformEventSigningAutoConfigurationTest {
                         "ecclesiaflow.events.verify-signatures=true")
                 .run(context -> {
                     DomainEventVerifier verifier = context.getBean(DomainEventVerifier.class);
-                    // strict mode → unsigned rejected
                     assertThat(verifier.verify("ex", "rk", new byte[]{1}, null, null).isAccepted()).isFalse();
                 });
     }
@@ -71,7 +67,6 @@ class PlatformEventSigningAutoConfigurationTest {
         runner.withPropertyValues("ecclesiaflow.events.hmac-secret=my-shared-secret")
                 .run(context -> {
                     DomainEventVerifier verifier = context.getBean(DomainEventVerifier.class);
-                    // default lenient → unsigned accepted (unverified)
                     assertThat(verifier.verify("ex", "rk", new byte[]{1}, null, null).isAccepted()).isTrue();
                 });
     }

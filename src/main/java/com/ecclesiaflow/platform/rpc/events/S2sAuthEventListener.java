@@ -1,21 +1,12 @@
 package com.ecclesiaflow.platform.rpc.events;
 
-import com.ecclesiaflow.platform.rpc.events.S2sAuthEvents;
+import com.ecclesiaflow.platform.logging.SecurityMaskingUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
 
 /**
- * Subscribes to authentication and authorization events emitted by the gRPC
- * interceptors and turns them into operator-facing log lines.
- *
- * <p>Why a listener instead of an aspect: gRPC invokes {@code ServerInterceptor}
- * and {@code ClientInterceptor} directly, bypassing Spring's proxy. Spring AOP
- * pointcuts on {@code interceptCall()} would silently no-op. Events are the
- * idiomatic Spring escape hatch for that case — they also let downstream
- * consumers add their own audit or metrics listeners with zero coupling.</p>
- *
- * @author EcclesiaFlow Team
- * @since 0.1.0
+ * A listener rather than an aspect: gRPC calls the interceptors outside Spring's proxy, so a pointcut on
+ * {@code interceptCall()} would silently never fire.
  */
 @Slf4j
 public class S2sAuthEventListener {
@@ -23,7 +14,7 @@ public class S2sAuthEventListener {
     @EventListener
     public void onOutboundTokenUnavailable(S2sAuthEvents.OutboundTokenUnavailable event) {
         log.warn("S2S-OUT: ❌ Aborting {} — token unavailable ({})",
-                event.fullMethodName(), event.reason());
+                event.fullMethodName(), SecurityMaskingUtils.sanitizeInfra(event.reason()));
     }
 
     @EventListener
@@ -35,7 +26,7 @@ public class S2sAuthEventListener {
     @EventListener
     public void onInboundInvalidToken(S2sAuthEvents.InboundInvalidToken event) {
         log.warn("S2S-IN: ❌ Rejected {} — invalid JWT ({})",
-                event.fullMethodName(), event.reason());
+                event.fullMethodName(), SecurityMaskingUtils.sanitizeInfra(event.reason()));
     }
 
     @EventListener
@@ -57,11 +48,19 @@ public class S2sAuthEventListener {
                 event.fullMethodName(), event.azp() == null ? "<no azp claim>" : event.azp());
     }
 
-    /**
-     * INFO, not WARN: this is the ordinary case. It exists so the audit trail
-     * shows who called what, and it is the line an operator greps after an
-     * incident to answer « did anything actually get through ».
-     */
+    @EventListener
+    public void onInboundAzpPolicy(S2sAuthEvents.InboundAzpPolicy event) {
+        if (event.enforced()) {
+            log.info("S2S-IN: ✅ azp allow-list enforced — clients allowed on this gRPC plane: {}",
+                    event.allowedAzp());
+            return;
+        }
+        log.warn("S2S-IN: ⚠ azp allow-list is empty — any client of the realm holding the generic scope "
+                + "reaches this gRPC plane. Set ecclesiaflow.platform.rpc.s2s.allowed-azp to the backend "
+                + "clients that call this module.");
+    }
+
+    /** INFO: the ordinary case, and the line an operator greps to learn whether anything got through. */
     @EventListener
     public void onInboundAccepted(S2sAuthEvents.InboundAccepted event) {
         log.info("S2S-IN: ✅ Accepted {} — client={} subject={} scope={}",
@@ -69,12 +68,8 @@ public class S2sAuthEventListener {
     }
 
     /**
-     * Split by service, and deliberately not all at the same level. The health
-     * probe fires every few seconds: logging it at WARN would bury every real
-     * signal within the hour, so it goes to DEBUG. Reflection is another matter
-     * — nothing in this fleet calls it in production, so a reflection call is
-     * either a debugging session or someone enumerating the API surface, and
-     * that is worth a WARN.
+     * Health probes fire every few seconds, so DEBUG; nothing in the fleet calls reflection in production,
+     * so a reflection call is a debugging session or an API enumeration, hence WARN.
      */
     @EventListener
     public void onInboundInfrastructureBypass(S2sAuthEvents.InboundInfrastructureBypass event) {

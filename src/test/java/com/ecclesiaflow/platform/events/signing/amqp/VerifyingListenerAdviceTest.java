@@ -2,10 +2,16 @@ package com.ecclesiaflow.platform.events.signing.amqp;
 
 import com.ecclesiaflow.platform.events.signing.DomainEventSigner;
 import com.ecclesiaflow.platform.events.signing.DomainEventVerifier;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import nl.altindag.log.LogCaptor;
 import org.aopalliance.intercept.MethodInvocation;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
@@ -15,9 +21,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -73,10 +82,22 @@ class VerifyingListenerAdviceTest {
     }
 
     private double counted(String decision) {
-        io.micrometer.core.instrument.Counter counter = meters.find(VerifyingListenerAdvice.METRIC)
+        Counter counter = meters.find(VerifyingListenerAdvice.METRIC)
                 .tag("decision", decision)
                 .counter();
         return counter == null ? 0d : counter.count();
+    }
+
+    @ParameterizedTest
+    @EnumSource(DomainEventVerifier.Decision.class)
+    @DisplayName("Publishes every decision at zero before any message, so increase() sees the first one")
+    void everyDecisionStartsAtZero(DomainEventVerifier.Decision decision) {
+        advice(true);
+
+        assertThat(meters.find(VerifyingListenerAdvice.METRIC)
+                .tag("decision", decision.name().toLowerCase(Locale.ROOT)).counter())
+                .isNotNull()
+                .extracting(Counter::count).isEqualTo(0d);
     }
 
     @Test
@@ -125,9 +146,8 @@ class VerifyingListenerAdviceTest {
     }
 
     /**
-     * The finding: a genuinely signed event, re-delivered under a sibling
-     * routing key. The advice must read the destination the BROKER reports, not
-     * one the publisher put in a header — and refuse.
+     * A genuinely signed event re-delivered under a sibling routing key: the advice must use the destination
+     * the broker reports, not one the publisher put in a header.
      */
     @Test
     void strictGenuineEventReplayedUnderAnotherRoutingKeyRejected() throws Throwable {
@@ -152,6 +172,41 @@ class VerifyingListenerAdviceTest {
                 .hasMessageContaining("freshness window");
         verify(inv, never()).proceed();
         assertThat(counted("reject_stale")).isEqualTo(1d);
+    }
+
+    @Test
+    void strictRejectsASignatureVersionItDoesNotKnow() throws Throwable {
+        Message fromANewerPublisher = signedMessage();
+        fromANewerPublisher.getMessageProperties().setHeader("x-ef-signature-version", "2");
+        MethodInvocation inv = invocationWith(fromANewerPublisher);
+
+        assertThatThrownBy(() -> advice(true).invoke(inv))
+                .isInstanceOf(AmqpRejectAndDontRequeueException.class)
+                .hasMessageContaining("signature version");
+        verify(inv, never()).proceed();
+        assertThat(counted("reject_unsupported_version")).isEqualTo(1d);
+    }
+
+    @Test
+    void lenientAcceptsAnUnknownSignatureVersionAsUnverified() throws Throwable {
+        Message fromANewerPublisher = signedMessage();
+        fromANewerPublisher.getMessageProperties().setHeader("x-ef-signature-version", "2");
+        MethodInvocation inv = invocationWith(fromANewerPublisher);
+
+        advice(false).invoke(inv);
+
+        verify(inv, times(1)).proceed();
+        assertThat(counted("accept_unverified")).isEqualTo(1d);
+    }
+
+    @Test
+    void strictAcceptsAMessageLabelledWithTheCurrentVersion() throws Throwable {
+        Message labelled = signedMessage();
+        labelled.getMessageProperties().setHeader("x-ef-signature-version", "1");
+        MethodInvocation inv = invocationWith(labelled);
+
+        assertThat(advice(true).invoke(inv)).isEqualTo("listener-result");
+        assertThat(counted("accept")).isEqualTo(1d);
     }
 
     @Test
@@ -186,16 +241,7 @@ class VerifyingListenerAdviceTest {
         assertThat(noMeters.invoke(inv)).isEqualTo("listener-result");
     }
 
-    /**
-     * INVERTED. These two asserted that the counter carries a {@code routing_key}
-     * tag. It must not: the value is {@code getReceivedRoutingKey()}, chosen by
-     * whoever PUBLISHED the message — the attacker, under this advice's own
-     * threat model — on queues bound with topic wildcards, and counted BEFORE
-     * the reject. Every forged key would have minted a permanent time series.
-     * The comment that justified the tag ("routing keys are a closed,
-     * code-defined set") was false for exactly the messages this class exists to
-     * refuse.
-     */
+    /** The routing key is publisher-chosen: as a tag, every forged key would mint a permanent series. */
     @Test
     void theCounterCarriesNoPublisherControlledTag() throws Throwable {
         advice(true).invoke(invocationWith(signedMessage()));
@@ -217,20 +263,65 @@ class VerifyingListenerAdviceTest {
                     .isInstanceOf(AmqpRejectAndDontRequeueException.class);
         }
 
-        // Four different forged keys, one series: reject_invalid.
-        assertThat(meters.find(VerifyingListenerAdvice.METRIC).counters()).hasSize(1);
+        // Four different forged keys, no new series: only the decisions exist.
+        assertThat(meters.find(VerifyingListenerAdvice.METRIC).counters())
+                .hasSize(DomainEventVerifier.Decision.values().length);
         assertThat(meters.find(VerifyingListenerAdvice.METRIC).tag("decision", "reject_invalid")
                 .counter().count()).isEqualTo(4d);
     }
 
     @Test
     void aMessageWithNoRoutingKeyIsStillCounted() throws Throwable {
-        // it used to need a "unknown" fallback because a null tag value throws
-        // inside Micrometer; with no wire-derived tag there is nothing to fall back on
         MethodInvocation inv = invocationWith(message(EXCHANGE, null, null, null));
 
         advice(false).invoke(inv);
 
         assertThat(counted("accept_unverified")).isEqualTo(1d);
+    }
+
+    @Nested
+    @DisplayName("log lines")
+    class LogLines {
+
+        private static final String FORGED = "2026-09-17T09:00:00Z INFO granted ADMIN to mallory";
+
+        private VerifyingListenerAdvice deciding(DomainEventVerifier.Decision decision) {
+            DomainEventVerifier verifier = mock(DomainEventVerifier.class);
+            when(verifier.verify(any(), any(), any(), any(), any(), any())).thenReturn(decision);
+            return new VerifyingListenerAdvice(verifier);
+        }
+
+        @ParameterizedTest
+        @EnumSource(value = DomainEventVerifier.Decision.class, names = "ACCEPT", mode = EnumSource.Mode.EXCLUDE)
+        @DisplayName("a CR/LF or escape sequence from the publisher cannot forge or rewrite a log line")
+        void noValueFromTheMessageBreaksALogLine(DomainEventVerifier.Decision decision) throws Throwable {
+            Message hostile = message(EXCHANGE + "\u001b[2K", ROUTING_KEY + "\r\n" + FORGED,
+                    signature(), "1\n" + FORGED);
+
+            try (LogCaptor logs = LogCaptor.forClass(VerifyingListenerAdvice.class)) {
+                Throwable thrown = catchThrowable(() -> deciding(decision).invoke(invocationWith(hostile)));
+
+                assertThat(thrown == null).isEqualTo(decision.isAccepted());
+                assertThat(logs.getLogs()).singleElement().asString()
+                        .doesNotContain("\r").doesNotContain("\n").doesNotContain("\u001b")
+                        .contains("exchange=" + EXCHANGE + "\\u001B[2K")
+                        .contains("routing_key=" + ROUTING_KEY + "\\r\\n" + FORGED);
+            }
+        }
+
+        @Test
+        @DisplayName("signed_at is escaped like the routing key")
+        void signedAtIsEscaped() throws Throwable {
+            Message replayed = message(EXCHANGE, ROUTING_KEY, signature(), "1\r\n" + FORGED);
+
+            try (LogCaptor logs = LogCaptor.forClass(VerifyingListenerAdvice.class)) {
+                assertThatThrownBy(() -> deciding(DomainEventVerifier.Decision.REJECT_STALE)
+                        .invoke(invocationWith(replayed)))
+                        .isInstanceOf(AmqpRejectAndDontRequeueException.class);
+
+                assertThat(logs.getErrorLogs()).singleElement().asString()
+                        .contains("signed_at=1\\r\\n" + FORGED);
+            }
+        }
     }
 }

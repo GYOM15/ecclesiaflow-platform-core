@@ -2,14 +2,7 @@ package com.ecclesiaflow.platform.storage;
 
 import java.util.Objects;
 
-/**
- * The bytes and MIME type returned by {@link ObjectStorage#get}. The
- * {@code contentType} is resolved from the stored key's extension, so a caller
- * can serve the object without consulting its own metadata columns.
- *
- * @param data        the object bytes (never null)
- * @param contentType the resolved MIME type (never blank)
- */
+/** {@code contentType} comes from the key's extension, so a caller needs no metadata column to serve it. */
 public record StoredObject(byte[] data, String contentType) {
 
     public StoredObject {

@@ -1,0 +1,147 @@
+// Served by the members module. Field numbers and types are on the wire:
+// add fields, never renumber, retype or reuse one.
+
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.members";
+option java_outer_classname = "MembersServiceProto";
+
+package ecclesiaflow.members;
+
+service MembersService {
+  rpc GetMemberConfirmationStatus(ConfirmationStatusRequest) returns (ConfirmationStatusResponse);
+  rpc NotifyAccountActivated(AccountActivatedRequest) returns (AccountActivatedResponse);
+  rpc NotifyLocalCredentialsAdded(LocalCredentialsAddedRequest) returns (LocalCredentialsAddedResponse);
+  rpc GetMemberProfile(GetMemberProfileRequest) returns (GetMemberProfileResponse);
+  rpc GetMemberContacts(GetMemberContactsRequest) returns (GetMemberContactsResponse);
+  rpc ProvisionMember (ProvisionMemberRequest) returns (ProvisionMemberResponse);
+}
+
+message ConfirmationStatusRequest {
+  string email = 1;
+}
+
+message ConfirmationStatusResponse {
+  bool member_exists = 1;
+  bool is_confirmed = 2;
+}
+
+message AccountActivatedRequest {
+  string member_id = 1;
+  string keycloak_user_id = 2;
+}
+
+message AccountActivatedResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message LocalCredentialsAddedRequest {
+  string keycloak_user_id = 1;
+}
+
+message LocalCredentialsAddedResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Resolve a member's editable profile identity by their Keycloak user id —
+// the authoritative source for first/last name (which the JWT may not reflect
+// after a profile edit). `found` is false when no member maps to the id.
+message GetMemberProfileRequest {
+  string keycloak_user_id = 1;
+  // Tenant of the calling church, resolved server-side by the caller (NOT a raw
+  // claim). When set, the server returns the profile ONLY if the member belongs
+  // to this church (members.church_id == caller_church_id); a member with a NULL
+  // church_id is treated as not-this-tenant (fail-closed). When blank/absent the
+  // server keeps the legacy unscoped behavior, so un-upgraded callers still work.
+  string caller_church_id = 2;
+}
+
+// The member's answer to the baptism question — see the identically-shaped
+// BaptismDeclaration in members_events.proto. Deliberately redeclared rather
+// than imported: no .proto in this module imports another, so the RPC contract
+// and the event contract stay independently versionable. The two MUST keep the
+// same ordinals; a consumer that maps one to the other relies on it.
+//
+// Three-valued rather than a bool because proto3 bools have no presence: an
+// absent field would arrive as false and render a never-asked member as "pas
+// baptisé", asserting something they never said. UNSPECIFIED is the zero value
+// so silence degrades to "pas encore renseigné".
+enum BaptismDeclaration {
+  // Not yet declared — legacy members and pastor-provisioned members. Consumers
+  // MUST render this distinctly from NOT_BAPTISED.
+  BAPTISM_DECLARATION_UNSPECIFIED = 0;
+  // Declared NOT baptised. The three baptism_* strings are EMPTY, meaningfully.
+  BAPTISM_DECLARATION_NOT_BAPTISED = 1;
+  // Declared baptised. baptism_date and baptism_type are both populated.
+  BAPTISM_DECLARATION_BAPTISED = 2;
+}
+
+message GetMemberProfileResponse {
+  bool found = 1;
+  string first_name = 2;
+  string last_name = 3;
+  string email = 4;
+
+  // Baptism + phone-sharing consent, mirroring MemberProfileChangedEvent field
+  // for field. The event is the push path (a consumer refreshes its snapshot when
+  // the member edits); this is the matching PULL path, so a consumer can backfill
+  // members who have not edited their profile since the feature shipped instead of
+  // waiting indefinitely for an event that may never come.
+  //
+  // ISO-8601 "YYYY-MM-DD", EMPTY unless baptism_declared == BAPTISED.
+  string baptism_date = 5;
+  // One of IMMERSION, ASPERSION, AFFUSION, INFANT, OTHER; EMPTY unless
+  // baptism_declared == BAPTISED.
+  string baptism_type = 6;
+  // Free-text rite name, set IFF baptism_type == "OTHER"; EMPTY otherwise.
+  string baptism_type_label = 7;
+  // Whether the member consents to their phone being shared with their church.
+  // Absent reads as false (proto3 default), so a stale consumer fails CLOSED.
+  bool phone_shared_with_church = 8;
+
+  // The member's answer to the baptism question. The three strings above are
+  // EMPTY both for "declared not baptised" and for "never asked", so this is the
+  // only field that separates them — a pastor's directory needs that separation.
+  BaptismDeclaration baptism_declared = 9;
+}
+
+// Batch resolve members' phone numbers by Keycloak user id — the members module
+// is the sole owner of the phone (the church membership snapshot has none). PII,
+// so this RPC is scope-gated (`ef:members:read`) and only ever called service to
+// service by the church backend to populate its admin member list; never reachable
+// by an end-user token. Unknown ids and members with no phone are simply omitted
+// from the response, so the caller treats a missing entry as "no phone".
+message GetMemberContactsRequest {
+  // Keycloak user ids to resolve. Capped at 500 per call (request rejected
+  // with INVALID_ARGUMENT above the cap); empty is allowed and returns no contacts.
+  repeated string keycloak_user_ids = 1;
+  // Tenant of the calling church, resolved server-side by the caller (NOT a raw
+  // claim). When set, a contact is returned ONLY if the member belongs to this
+  // church (members.church_id == caller_church_id); a member with a NULL
+  // church_id is excluded under a set tenant (fail-closed). When blank/absent the
+  // server keeps the legacy unscoped behavior, so un-upgraded callers still work.
+  string caller_church_id = 2;
+}
+
+message GetMemberContactsResponse {
+  repeated MemberContact contacts = 1;
+}
+
+// One resolved member contact. Only present when the id maps to a member that
+// HAS a phone — entries are omitted for unknown ids and phone-less members.
+message MemberContact {
+  string keycloak_user_id = 1;
+  string phone_number = 2;
+}
+
+// Idempotently provision a members.member row for a Keycloak-verified identity
+// (Etape 2). Called service-to-service by the church signup saga / backfill so a
+// pastor's church membership materialises a member profile. Scope-gated by the
+// dedicated `ef:members:provision` scope. keyed on keycloak_user_id: provisioning
+// the same subject twice is a no-op. Identity (email/first_name/last_name) is
+// sourced from the signup command / membership snapshot, never from a raw JWT.
+message ProvisionMemberRequest { string keycloak_user_id = 1; string email = 2; string first_name = 3; string last_name = 4; string church_id = 5; string address = 6; string phone_number = 7; }
+message ProvisionMemberResponse { string member_id = 1; bool created = 2; }   // created=false when it already existed

@@ -6,11 +6,11 @@ import com.ecclesiaflow.platform.storage.ObjectStorageProperties;
 import com.ecclesiaflow.platform.storage.StorageKeys;
 import com.ecclesiaflow.platform.storage.StoredObject;
 import com.ecclesiaflow.platform.storage.StoredObjectRef;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.ResponseBytes;
+import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
+import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
@@ -23,34 +23,48 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.net.URI;
+import java.util.LinkedHashSet;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
- * S3-compatible {@link ObjectStorage} adapter — the production backend, pointed
- * at Cloudflare R2 by default (any S3 API works: AWS S3, MinIO).
- *
- * <p>Mirrors the proven frontend R2 client ({@code lib/storage/r2.ts}):
- * path-style addressing, {@code region=auto}, random content-addressed keys, and
- * a one-year immutable cache header (safe because keys never change). The bucket
- * stays PRIVATE; public assets are served through a CDN base URL, access-
- * controlled assets are proxied back through the backend via {@link #get}.</p>
- *
- * <p>Implements {@link AutoCloseable} so Spring closes the underlying
- * {@link S3Client} (and its connection pool) on context shutdown.</p>
+ * Production adapter, Cloudflare R2 by default. The bucket stays private: public assets are served
+ * through a CDN base URL, access-controlled ones are proxied through {@link #get}. AutoCloseable so
+ * Spring releases the client's connection pool on shutdown.
  */
 public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
 
-    private static final Logger log = LoggerFactory.getLogger(S3ObjectStorage.class);
-
-    /** One year, immutable — keys are unique per upload so content never changes. */
+    /** Keys are unique per upload, so the content never changes. */
     private static final String IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
+    // A shared cache must not keep personal data that outlives its deletion.
+    private static final String PRIVATE_CACHE_CONTROL = "private, no-store";
+
+    // Keys are "<prefix>/<uuid>.<ext>": anything else after the public base
+    // (dot segments, escapes, a query) could resolve elsewhere in a browser.
+    private static final Pattern CLEAN_KEY =
+            Pattern.compile("[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*");
 
     private final S3Client client;
     private final String bucket;
+    private final Set<String> privateKeyPrefixes;
+    private final String publicBase;
 
     public S3ObjectStorage(ObjectStorageProperties.S3 props) {
+        this(newClient(props), props);
+    }
+
+    // Package-visible constructor for tests to inject a mock client.
+    S3ObjectStorage(S3Client client, ObjectStorageProperties.S3 props) {
+        this.client = client;
         this.bucket = requireConfigured(props.getBucket(), "bucket");
-        this.client = S3Client.builder()
+        this.privateKeyPrefixes = normalisedPrefixes(props.getPrivateKeyPrefixes());
+        this.publicBase = withTrailingSlash(props.getPublicBaseUrl());
+    }
+
+    private static S3Client newClient(ObjectStorageProperties.S3 props) {
+        return S3Client.builder()
                 .region(Region.of(requireConfigured(props.getRegion(), "region")))
                 .endpointOverride(URI.create(requireConfigured(props.getEndpoint(), "endpoint")))
                 .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(
@@ -58,17 +72,15 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
                         requireConfigured(props.getSecretAccessKey(), "secret-access-key"))))
                 .serviceConfiguration(S3Configuration.builder()
                         .pathStyleAccessEnabled(props.isPathStyleAccess())
+                        // R2 answers an aws-chunked upload with a signature mismatch (403).
+                        .chunkedEncodingEnabled(false)
                         .build())
+                // Flexible checksums, on by default since SDK 2.30, stay off: the requests
+                // remain the ones R2 was validated with.
+                .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
+                .responseChecksumValidation(ResponseChecksumValidation.WHEN_REQUIRED)
                 .httpClient(UrlConnectionHttpClient.create())
                 .build();
-        // Never log the endpoint host with credentials; bucket name only.
-        log.info("OBJECT-STORAGE: s3 adapter active, bucket={}", bucket);
-    }
-
-    // Package-visible constructor for tests to inject a mock client.
-    S3ObjectStorage(S3Client client, String bucket) {
-        this.client = client;
-        this.bucket = bucket;
     }
 
     @Override
@@ -82,7 +94,7 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
                     .bucket(bucket)
                     .key(key)
                     .contentType(contentType)
-                    .cacheControl(IMMUTABLE_CACHE_CONTROL)
+                    .cacheControl(isPrivate(key) ? PRIVATE_CACHE_CONTROL : IMMUTABLE_CACHE_CONTROL)
                     .build(), RequestBody.fromBytes(data));
             return new StoredObjectRef(key);
         } catch (NoSuchKeyException e) {
@@ -128,6 +140,25 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
     }
 
     @Override
+    public Optional<String> publicUrl(String key) {
+        requireKey(key);
+        if (publicBase == null || isPrivate(key)) {
+            return Optional.empty();
+        }
+        return Optional.of(publicBase + key);
+    }
+
+    @Override
+    public boolean isOwnPublicUrl(String url) {
+        if (publicBase == null || url == null
+                || url.length() <= publicBase.length() || !url.startsWith(publicBase)) {
+            return false;
+        }
+        String key = url.substring(publicBase.length());
+        return CLEAN_KEY.matcher(key).matches() && !isPrivate(key);
+    }
+
+    @Override
     public String providerName() {
         return "s3";
     }
@@ -143,6 +174,36 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
                     "ecclesiaflow.object-storage.s3." + name + " must be set when provider=s3");
         }
         return value;
+    }
+
+    private boolean isPrivate(String key) {
+        for (String prefix : privateKeyPrefixes) {
+            if (key.startsWith(prefix + "/")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Set<String> normalisedPrefixes(Set<String> prefixes) {
+        Set<String> normalised = new LinkedHashSet<>();
+        if (prefixes != null) {
+            for (String prefix : prefixes) {
+                String trimmed = prefix == null ? "" : prefix.trim().replaceAll("^/+", "").replaceAll("/+$", "");
+                if (!trimmed.isEmpty()) {
+                    normalised.add(trimmed);
+                }
+            }
+        }
+        return Set.copyOf(normalised);
+    }
+
+    private static String withTrailingSlash(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            return null;
+        }
+        String trimmed = baseUrl.trim();
+        return trimmed.endsWith("/") ? trimmed : trimmed + "/";
     }
 
     private static void requireKey(String key) {

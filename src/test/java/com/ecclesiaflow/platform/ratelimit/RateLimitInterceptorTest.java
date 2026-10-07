@@ -21,13 +21,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** What the interceptor does with the annotation it finds — and what it refuses to do. */
 class RateLimitInterceptorTest {
 
     private static final RateLimitRule IMPORT =
             RateLimitRule.perChurch("import", 3, Duration.ofMinutes(1));
 
-    /** A controller whose methods carry the annotations under test. */
+    /** Its methods are only reached by reflection. */
     @SuppressWarnings("unused")
     static class Controller {
         @RateLimited("import")
@@ -91,14 +90,18 @@ class RateLimitInterceptorTest {
     @Test
     @DisplayName("a refusal throws BEFORE the controller, carrying Retry-After")
     void refusesBeforeTheControllerRuns() throws Exception {
-        // The whole point of limiting an expensive operation is that the expense
-        // is not paid before the refusal: no transaction, no query, no fan-out.
+        // The expense must not be paid before the refusal: no transaction, no query, no fan-out.
         when(subjects.resolve(RateLimitScope.PER_CHURCH)).thenReturn(Optional.of("church-1"));
         when(limiter.consume(IMPORT, "church-1")).thenReturn(RateLimitDecision.refused(3, 42));
 
         assertThatThrownBy(() -> interceptor.preHandle(request, response, handler("limited")))
                 .isInstanceOf(RateLimitExceededException.class)
-                .hasMessageContaining("import");
+                .hasMessageContaining("import")
+                .satisfies(refusal -> {
+                    RateLimitExceededException exceeded = (RateLimitExceededException) refusal;
+                    assertThat(exceeded.getRule()).isEqualTo("import");
+                    assertThat(exceeded.getRetryAfterSeconds()).isEqualTo(42);
+                });
 
         verify(response).setHeader("Retry-After", "42");
     }
@@ -106,9 +109,8 @@ class RateLimitInterceptorTest {
     @Test
     @DisplayName("no resolvable subject: the call passes, nothing is counted")
     void letsThroughWhenThereIsNoSubject() throws Exception {
-        // Inventing a shared subject like « anonymous » would let one caller
-        // spend everyone else's allowance. The operation's own authorization
-        // refuses an unauthenticated call a moment later anyway.
+        // A shared subject would let one caller spend everyone's allowance; the operation's
+        // own authorization refuses the unauthenticated call next.
         when(subjects.resolve(RateLimitScope.PER_CHURCH)).thenReturn(Optional.empty());
 
         assertThat(interceptor.preHandle(request, response, handler("limited"))).isTrue();
@@ -118,8 +120,7 @@ class RateLimitInterceptorTest {
     @Test
     @DisplayName("a method claiming an UNDECLARED rule fails loudly, it is not let through")
     void refusesToRunWithAnUnknownRule() throws Exception {
-        // A limit everybody believes in and that silently does not apply is
-        // worse than no limit at all.
+        // A limit everybody believes in that silently does not apply is worse than none.
         assertThatThrownBy(() ->
                 interceptor.preHandle(request, response, handler("limitedByAnUnknownRule")))
                 .isInstanceOf(IllegalStateException.class)
