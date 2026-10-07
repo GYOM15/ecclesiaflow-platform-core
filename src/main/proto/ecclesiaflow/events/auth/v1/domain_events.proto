@@ -47,27 +47,29 @@ message SetupTokenIssuedEvent {
   int32 expires_in_seconds = 7;
 }
 
-// Emitted by ProvisionUserAndIssueSetupToken when a church-signup replay
-// targets an email whose Keycloak account is ALREADY ACTIVE (no pending setup
-// token). The gRPC call still fails FAILED_PRECONDITION (anti-enumeration: the
-// signup client learns nothing); this fire-and-forget event lets
+// Emitted when a signup targets an email whose Keycloak account already exists
+// and holds no pending setup token: a church-signup replay through
+// ProvisionUserAndIssueSetupToken, whose call still fails FAILED_PRECONDITION,
+// or a member signup through SendExistingAccountNotice. Anti-enumeration: the
+// signup client learns nothing; this fire-and-forget event lets
 // communication-module tell the REAL inbox owner they already have an account,
 // with a log-in / reset-password call to action. It carries no attacker-
 // supplied data — only the account's own email and the existing user's locale.
 // Routing key: "auth.existing-account.notice.v1".
 message ExistingAccountNoticeEvent {
-  // Recipient email — the already-active account's address (its login username).
+  // Recipient email — the existing account's address (its login username).
   string email = 1;
 
   // Recipient render locale (BCP-47) — the EXISTING Keycloak user's locale,
   // never the signup request's. Defaults to "fr" when unknown or unsupported.
   string locale = 2;
 
-  // Names the signup request, not the delivery: a name-based UUID (v3) derived
-  // from the account and the request's metadata, so the same request staged
-  // twice carries the same id and a new request a new one. Random (v4) when the
-  // request carries no metadata. The outbox delivers at least once, so consumers
-  // dedupe on it. Empty from an auth build that predates the field: such a
-  // notice cannot be deduplicated and is handled as before.
+  // Names the church signup request, or the account's notice window for a
+  // member signup, not the delivery: a name-based UUID (v3) derived from the
+  // account and the request's metadata or the window, so the same request staged
+  // twice, or member signups within one window, carry one id. Random (v4) when a
+  // church request carries no metadata. The outbox delivers at least once, so
+  // consumers dedupe on it. Empty from an auth build that predates the field:
+  // such a notice cannot be deduplicated and is handled as before.
   string event_id = 3;
 }

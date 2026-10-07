@@ -24,6 +24,9 @@ service AuthService {
   // writer of that map: a Keycloak user PUT replaces it whole, so two services
   // each reading, merging and writing it can erase each other's attribute.
   rpc SetChurchClaims(SetChurchClaimsRequest) returns (SetChurchClaimsResponse);
+  // Tells an account's owner that a member signup reused their address, so the
+  // signup itself can answer exactly as it does for a new address.
+  rpc SendExistingAccountNotice(SendExistingAccountNoticeRequest) returns (SendExistingAccountNoticeResponse);
 }
 
 // ============================================================================
@@ -214,4 +217,18 @@ message SetChurchClaimsRequest {
 
 // Failures are reported through the gRPC status, never in the response.
 message SetChurchClaimsResponse {
+}
+
+// ============================================================================
+// Send Existing Account Notice
+// ============================================================================
+
+// Auth reads the address and locale from Keycloak, so nothing from the signup
+// request reaches the email.
+message SendExistingAccountNoticeRequest {
+  string keycloak_user_id = 1;
+}
+
+// Failures are reported through the gRPC status, never in the response.
+message SendExistingAccountNoticeResponse {
 }

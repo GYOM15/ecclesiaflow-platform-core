@@ -167,6 +167,7 @@ class ContractWireCompatibilityTest {
               AssignRealmRole ecclesiaflow.auth.AssignRealmRoleRequest -> ecclesiaflow.auth.AssignRealmRoleResponse
               RevokeRealmRole ecclesiaflow.auth.RevokeRealmRoleRequest -> ecclesiaflow.auth.RevokeRealmRoleResponse
               SetChurchClaims ecclesiaflow.auth.SetChurchClaimsRequest -> ecclesiaflow.auth.SetChurchClaimsResponse
+              SendExistingAccountNotice ecclesiaflow.auth.SendExistingAccountNoticeRequest -> ecclesiaflow.auth.SendExistingAccountNoticeResponse
             message ecclesiaflow.auth.TemporaryTokenRequest
               1 string email
               2 string member_id
@@ -235,6 +236,9 @@ class ContractWireCompatibilityTest {
               4 repeated string capabilities
               5 int64 capabilities_expire_at_epoch_ms
             message ecclesiaflow.auth.SetChurchClaimsResponse
+            message ecclesiaflow.auth.SendExistingAccountNoticeRequest
+              1 string keycloak_user_id
+            message ecclesiaflow.auth.SendExistingAccountNoticeResponse
             file ecclesiaflow/church/church_service.proto package ecclesiaflow.church java_package com.ecclesiaflow.grpc.church
             service ecclesiaflow.church.ChurchService
               OnSignupCompleted ecclesiaflow.church.OnSignupCompletedRequest -> ecclesiaflow.church.OnSignupCompletedResponse
