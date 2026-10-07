@@ -333,6 +333,59 @@ class SecurityMaskingUtilsTest {
     }
 
     @Nested
+    @DisplayName("maskIdsInText")
+    class MaskIdsInText {
+
+        private static final String ID = "123e4567-e89b-12d3-a456-426614174000";
+
+        @Test
+        @DisplayName("a UUID inside an exception message keeps only what maskId keeps")
+        void rootMessageMasksTheId() {
+            Throwable error = new IllegalStateException("Member " + ID + " not found");
+
+            assertThat(SecurityMaskingUtils.rootMessage(error)).isEqualTo("Member 123e4567******** not found");
+        }
+
+        @Test
+        @DisplayName("every UUID of the text is masked, in either case")
+        void masksEveryId() {
+            String text = "Church " + ID + " has no member 3F2B1C4D-0000-4000-8000-000000000001.";
+
+            assertThat(SecurityMaskingUtils.maskIdsInText(text))
+                    .isEqualTo("Church 123e4567******** has no member 3F2B1C4D********.");
+        }
+
+        @Test
+        @DisplayName("a database key detail loses the id between its parentheses")
+        void masksKeyDetail() {
+            assertThat(SecurityMaskingUtils.sanitizeInfra("Key (id)=(" + ID + ") already exists."))
+                    .isEqualTo("Key (id)=(123e4567********) already exists.");
+        }
+
+        @Test
+        @DisplayName("an object key is masked as an id, not taken for a host name")
+        void objectKeyMaskedBeforeHostPatterns() {
+            assertThat(SecurityMaskingUtils.sanitizeInfra("No object at images/" + ID + ".png"))
+                    .isEqualTo("No object at images/123e4567********.png");
+        }
+
+        @Test
+        @DisplayName("a hex run longer than a UUID is not taken for one")
+        void longerHexRunUntouched() {
+            String digest = "0" + ID + "f";
+
+            assertThat(SecurityMaskingUtils.maskIdsInText("digest " + digest)).isEqualTo("digest " + digest);
+        }
+
+        @Test
+        @DisplayName("text without a UUID is returned as is, null included")
+        void textWithoutIdUnchanged() {
+            assertThat(SecurityMaskingUtils.maskIdsInText("Connection refused")).isEqualTo("Connection refused");
+            assertThat(SecurityMaskingUtils.maskIdsInText(null)).isNull();
+        }
+    }
+
+    @Nested
     @DisplayName("sanitizeInfra - personal data inside exception messages")
     class SanitizePersonalData {
 

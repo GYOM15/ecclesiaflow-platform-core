@@ -37,6 +37,9 @@ public final class SecurityMaskingUtils {
             Pattern.compile("(?<![^\\s@()<>])[^\\s@()<>]+@[^\\s@()<>]+");
     private static final Pattern E164_IN_TEXT =
             Pattern.compile("(?<![\\w+])\\+\\d{8,15}(?!\\d)");
+    // Hex on either side means a longer run, not a UUID.
+    private static final Pattern UUID_IN_TEXT = Pattern.compile(
+            "(?<![0-9a-fA-F])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?![0-9a-fA-F])");
     // InetSocketAddress.toString(): "redis/<unresolved>:6379", "keycloak/172.18.0.3:8080".
     private static final Pattern SOCKET_ADDRESS_IN_TEXT =
             Pattern.compile("(?<![a-zA-Z0-9._-])[a-zA-Z0-9._-]*/(?:<unresolved>|[0-9a-fA-F.:]+):\\d{2,5}(?!\\d)");
@@ -139,6 +142,11 @@ public final class SecurityMaskingUtils {
         return s.substring(0, 8) + "********";
     }
 
+    public static String maskIdsInText(String text) {
+        if (text == null) return null;
+        return UUID_IN_TEXT.matcher(text).replaceAll(m -> Matcher.quoteReplacement(maskId(m.group())));
+    }
+
     public static String maskArgs(Object[] args) {
         if (args == null) return "[]";
         String[] masked = new String[args.length];
@@ -200,7 +208,7 @@ public final class SecurityMaskingUtils {
     /**
      * Strips what an exception message may carry from the infrastructure or about
      * a person: bearer tokens and JWTs, URIs of any scheme, emails, E.164 phone
-     * numbers, socket addresses, {@code host:port} and bare host names.
+     * numbers, UUIDs, socket addresses, {@code host:port} and bare host names.
      */
     public static String sanitizeInfra(String msg) {
         if (msg == null || msg.isBlank()) return msg;
@@ -210,6 +218,8 @@ public final class SecurityMaskingUtils {
         s = URI_IN_TEXT.matcher(s).replaceAll(Matcher.quoteReplacement("[URL]"));
         s = EMAIL_IN_TEXT.matcher(s).replaceAll(m -> Matcher.quoteReplacement(maskEmailInText(m.group())));
         s = E164_IN_TEXT.matcher(s).replaceAll(m -> Matcher.quoteReplacement(maskPhone(m.group())));
+        // Before the host patterns, which would read an object key such as "images/<uuid>.png" as a host.
+        s = maskIdsInText(s);
         s = SOCKET_ADDRESS_IN_TEXT.matcher(s).replaceAll(Matcher.quoteReplacement("[HOST:PORT]"));
         s = HOST_PORT_IN_TEXT.matcher(s).replaceAll(Matcher.quoteReplacement("[HOST:PORT]"));
         s = HOST_IN_TEXT.matcher(s).replaceAll(Matcher.quoteReplacement("[HOST]"));
