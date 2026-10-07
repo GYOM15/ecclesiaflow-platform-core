@@ -216,6 +216,37 @@ class S3ObjectStorageTest {
         void privateObjectUrlNotOurs() {
             assertThat(cdn.isOwnPublicUrl("https://cdn.example.com/member-photos/a.jpg")).isFalse();
         }
+
+        @Test
+        @DisplayName("the key behind one of our public URLs is the path after the base")
+        void keyOfOwnUrl() {
+            assertThat(cdn.keyOfOwnPublicUrl("https://cdn.example.com/images/church-1/a.png"))
+                    .contains("images/church-1/a.png");
+        }
+
+        @Test
+        @DisplayName("another host, another base, a dot segment or a private object yield no key")
+        void noKeyBehindForeignUrls() {
+            ObjectStorage underPath = new S3ObjectStorage(mock(S3Client.class), props("https://cdn.example.com/media"));
+
+            assertThat(cdn.keyOfOwnPublicUrl("https://evil.net/images/a.png")).isEmpty();
+            assertThat(cdn.keyOfOwnPublicUrl("https://cdn.example.com.evil.net/images/a.png")).isEmpty();
+            assertThat(underPath.keyOfOwnPublicUrl("https://cdn.example.com/images/a.png")).isEmpty();
+            assertThat(underPath.keyOfOwnPublicUrl("https://cdn.example.com/media-old/images/a.png")).isEmpty();
+            assertThat(underPath.keyOfOwnPublicUrl("https://cdn.example.com/media/images/a.png"))
+                    .contains("images/a.png");
+            assertThat(cdn.keyOfOwnPublicUrl("https://cdn.example.com/images/../member-photos/a.jpg")).isEmpty();
+            assertThat(cdn.keyOfOwnPublicUrl("https://cdn.example.com/../images/a.png")).isEmpty();
+            assertThat(cdn.keyOfOwnPublicUrl("https://cdn.example.com/member-photos/a.jpg")).isEmpty();
+            assertThat(cdn.keyOfOwnPublicUrl("https://cdn.example.com/")).isEmpty();
+            assertThat(cdn.keyOfOwnPublicUrl(null)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("without a public base no URL has a key")
+        void noKeyWithoutPublicBase() {
+            assertThat(storage.keyOfOwnPublicUrl("https://cdn.example.com/images/a.png")).isEmpty();
+        }
     }
 
     @Nested

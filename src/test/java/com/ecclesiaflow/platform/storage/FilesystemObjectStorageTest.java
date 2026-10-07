@@ -80,6 +80,16 @@ class FilesystemObjectStorageTest {
     }
 
     @Test
+    @DisplayName("a local store finds no key behind any URL")
+    void noKeyBehindAnyUrl() {
+        StoredObjectRef ref = storage.put("images", "x".getBytes(StandardCharsets.UTF_8), "image/png");
+
+        assertThat(storage.keyOfOwnPublicUrl("https://cdn.example.com/" + ref.key())).isEmpty();
+        assertThat(storage.keyOfOwnPublicUrl(ref.key())).isEmpty();
+        assertThat(storage.keyOfOwnPublicUrl(null)).isEmpty();
+    }
+
+    @Test
     @DisplayName("providerName is filesystem")
     void providerName() {
         assertThat(storage.providerName()).isEqualTo("filesystem");

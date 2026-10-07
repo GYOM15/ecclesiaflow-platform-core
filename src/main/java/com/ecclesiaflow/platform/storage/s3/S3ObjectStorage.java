@@ -149,13 +149,16 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
     }
 
     @Override
-    public boolean isOwnPublicUrl(String url) {
+    public Optional<String> keyOfOwnPublicUrl(String url) {
         if (publicBase == null || url == null
                 || url.length() <= publicBase.length() || !url.startsWith(publicBase)) {
-            return false;
+            return Optional.empty();
         }
         String key = url.substring(publicBase.length());
-        return CLEAN_KEY.matcher(key).matches() && !isPrivate(key);
+        if (!CLEAN_KEY.matcher(key).matches() || isPrivate(key)) {
+            return Optional.empty();
+        }
+        return Optional.of(key);
     }
 
     @Override

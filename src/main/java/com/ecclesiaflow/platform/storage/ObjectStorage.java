@@ -28,7 +28,12 @@ public interface ObjectStorage {
     }
 
     default boolean isOwnPublicUrl(String url) {
-        return false;
+        return keyOfOwnPublicUrl(url).isPresent();
+    }
+
+    /** Empty for any URL this store did not hand out, a private object's included. */
+    default Optional<String> keyOfOwnPublicUrl(String url) {
+        return Optional.empty();
     }
 
     /** For diagnostics, e.g. {@code "s3"}; never carries credentials. */
