@@ -33,6 +33,9 @@ service ChurchService {
   rpc OnSignupCompleted(OnSignupCompletedRequest) returns (OnSignupCompletedResponse);
   rpc RepublishActiveMemberships(RepublishActiveMembershipsRequest)
       returns (RepublishActiveMembershipsResponse);
+  // Asked before an account is closed: a church left without its owner or its
+  // last administrator could no longer be managed by anyone.
+  rpc CheckAccountClosure(CheckAccountClosureRequest) returns (CheckAccountClosureResponse);
 }
 
 // ============================================================================
@@ -76,4 +79,20 @@ message RepublishActiveMembershipsRequest {
 message RepublishActiveMembershipsResponse {
   // Number of active memberships for which an admission event was re-emitted.
   int64 republished_count = 1;
+}
+
+// ============================================================================
+// Check Account Closure
+// ============================================================================
+
+message CheckAccountClosureRequest {
+  string keycloak_user_id = 1;
+}
+
+// Both lists empty means the account may close. Failures are reported through
+// the gRPC status, never in the response.
+message CheckAccountClosureResponse {
+  repeated string owned_church_ids = 1;
+  // Churches where this user is the only active CHURCH_ADMIN.
+  repeated string last_admin_church_ids = 2;
 }

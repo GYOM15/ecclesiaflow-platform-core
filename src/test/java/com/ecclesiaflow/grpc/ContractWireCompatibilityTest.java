@@ -243,6 +243,7 @@ class ContractWireCompatibilityTest {
             service ecclesiaflow.church.ChurchService
               OnSignupCompleted ecclesiaflow.church.OnSignupCompletedRequest -> ecclesiaflow.church.OnSignupCompletedResponse
               RepublishActiveMemberships ecclesiaflow.church.RepublishActiveMembershipsRequest -> ecclesiaflow.church.RepublishActiveMembershipsResponse
+              CheckAccountClosure ecclesiaflow.church.CheckAccountClosureRequest -> ecclesiaflow.church.CheckAccountClosureResponse
             message ecclesiaflow.church.OnSignupCompletedRequest
               1 string user_id
               2 string church_id
@@ -254,6 +255,11 @@ class ContractWireCompatibilityTest {
               1 int32 schema_version
             message ecclesiaflow.church.RepublishActiveMembershipsResponse
               1 int64 republished_count
+            message ecclesiaflow.church.CheckAccountClosureRequest
+              1 string keycloak_user_id
+            message ecclesiaflow.church.CheckAccountClosureResponse
+              1 repeated string owned_church_ids
+              2 repeated string last_admin_church_ids
             enum ecclesiaflow.church.ActivationStatus
               0 ACTIVATION_STATUS_UNSPECIFIED
               1 ACTIVATED
