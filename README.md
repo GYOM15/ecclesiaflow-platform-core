@@ -241,6 +241,30 @@ The gauge is a `MeterBinder`, bound by the actuator; it needs `spring-rabbit` an
 `ecclesiaflow.events.dead-letter-metrics.enabled=false` turns it off. A queue that dead-letters
 without an explicit routing key is not followed.
 
+### Dead-lettering by policy
+
+RabbitMQ never changes the arguments of a durable queue: a new dead-letter key on a queue that
+declares one means deleting and recreating that queue. A broker policy carries the same keys and
+changes in place, but an argument declared by the module overrides it. A subscription that moves to
+a policy is declared without the two arguments, and the module declares a `DeadLetterRoute` bean
+naming it and its dead-letter queue:
+
+```java
+@Bean
+DeadLetterRoute setupTokenIssuedDeadLetterRoute() {
+    return new DeadLetterRoute("comm.subscriber.setup-token-issued", "comm.subscriber.setup-token-issued.dlq");
+}
+```
+
+The route gets the dead-letter queue measured like one found by its arguments; a module may mix both
+while it moves. `DeadLetterQueues.policies(topology, routes)` turns the routes into the policies the
+broker needs, one per subscription: its dead letters go to the exchange and key the dead-letter
+queue is bound under, or through the default exchange when it is bound nowhere. Each
+`DeadLetterPolicy` renders its `rabbitmqctl set_policy` arguments, applied to queues only. A route
+whose dead-letter queue is not declared or is bound more than once has no policy, and the call
+throws. The policies must be on the broker before the queue is declared without its arguments,
+otherwise a rejected message is dropped.
+
 ## Transactional outbox for domain events (opt-in)
 
 A domain event staged with `OutboxPublisher.append(...)` is written to the module's
