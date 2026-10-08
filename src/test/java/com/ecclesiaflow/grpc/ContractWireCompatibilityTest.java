@@ -410,6 +410,8 @@ class ContractWireCompatibilityTest {
               5 string flow_id
               6 string display_context_json
               7 int32 expires_in_seconds
+              8 bytes sealed_raw_token
+              9 string sealed_key_id
             message ecclesiaflow.events.auth.v1.ExistingAccountNoticeEvent
               1 string email
               2 string locale

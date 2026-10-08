@@ -18,8 +18,8 @@ Shared platform library for EcclesiaFlow backend modules. Main concerns:
 4. **gRPC and domain-event contracts** — the `.proto` files every module speaks,
    compiled once here into messages and gRPC stubs (see
    [Contracts](#grpc-and-domain-event-contracts)).
-5. **Domain events on RabbitMQ** — transactional outbox, HMAC signing, the protobuf
-   wire format and dead-letter queue depth.
+5. **Domain events on RabbitMQ** — transactional outbox, HMAC signing, sealed fields,
+   the protobuf wire format and dead-letter queue depth.
 6. **Shared service plumbing** — object storage, upload sanitizing, rate limiting,
    error responses, the clock and the architecture rules (see
    [Other building blocks](#other-building-blocks)).
@@ -324,6 +324,42 @@ A signature more than 5 minutes away from the consumer's clock is stale. Turn on
 `verify-signatures` once `ecclesiaflow_domain_events_signature_total{decision="accept_unverified"}`
 stays at zero on every consumer. The counter cannot reveal an unsigned fleet: with a blank secret
 every message counts as `accept`.
+
+## Sealed event fields
+
+The signature proves who sent an event; it hides nothing. A secret an event must carry, such as the
+setup token of `SetupTokenIssuedEvent`, is sealed by
+`com.ecclesiaflow.platform.events.sealing.EventFieldSealer`: AES-256-GCM, a random 12-byte nonce,
+the event id as associated data. The sealed bytes are the nonce, then the ciphertext and its tag;
+the key id travels in its own field (`sealed_key_id`). A value moved into another event, altered,
+or sealed under a key the consumer does not hold throws `SealedFieldUnreadableException` with its
+`Reason`, and never the value.
+
+`SealingKeyProperties` holds the keys of one sealed field. The module binds it under that field's
+prefix and builds the sealer from it:
+
+```java
+@Bean
+@ConfigurationProperties("ecclesiaflow.setup-token.sealing")
+SealingKeyProperties setupTokenSealingKeys() {
+    return new SealingKeyProperties();
+}
+
+@Bean
+EventFieldSealer setupTokenSealer(SealingKeyProperties setupTokenSealingKeys) {
+    return new EventFieldSealer(setupTokenSealingKeys.toKeyring());
+}
+```
+
+| Property (under the field's prefix) | Default | Effect |
+|---|---|---|
+| `key-id` | blank | Sent beside every sealed value; a new key takes a new id |
+| `key` | blank | Base64 of 32 random bytes (`openssl rand -base64 32`), shared by producer and consumer |
+| `retired-keys.<id>` | none | Open-only keys, kept until no value they sealed can still be delivered |
+
+`isConfigured()` is false while the key or its id is blank, and `toKeyring()` then refuses: the
+module decides whether that stops its startup. To rotate, deploy the old key under
+`retired-keys` with the new one current on every consumer first, then on the producer.
 
 ## Other building blocks
 

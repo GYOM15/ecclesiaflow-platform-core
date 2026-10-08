@@ -28,9 +28,9 @@ message SetupTokenIssuedEvent {
   // Recipient email — same value as the setup_token row.
   string email = 3;
 
-  // Raw, opaque, single-use token. Transits the broker; ensure broker
-  // connectivity uses TLS in prod.
-  string raw_token = 4;
+  // The token in clear, superseded by sealed_raw_token. Read only when
+  // sealed_raw_token is empty: an event staged by an auth build that predates it.
+  string raw_token = 4 [deprecated = true];
 
   // Producer-defined identifier of the business flow that issued the token.
   // Used by the consumer to pick a template and subject line.
@@ -45,6 +45,15 @@ message SetupTokenIssuedEvent {
   // Setup-token TTL in seconds. Consumers may surface it ("link valid for
   // 24 hours").
   int32 expires_in_seconds = 7;
+
+  // The token sealed by platform-core's EventFieldSealer, with event_id as
+  // associated data: whoever reads the broker, the outbox or a dead-letter
+  // queue cannot create the account's password.
+  bytes sealed_raw_token = 8;
+
+  // Key that sealed sealed_raw_token, so keys rotate while older events still
+  // wait in a queue.
+  string sealed_key_id = 9;
 }
 
 // Emitted when a signup targets an email whose Keycloak account already exists
