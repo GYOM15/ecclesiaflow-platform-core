@@ -174,4 +174,46 @@ class JdbcOutboxPublisherIntegrationTest {
             assertThat(rows()).isZero();
         }
     }
+
+    @Nested
+    @DisplayName("discardDelivered")
+    class DiscardDelivered {
+
+        @BeforeEach
+        void relayedRow() {
+            business.executeWithoutResult(status -> publisher.append(MESSAGE, KEY));
+            jdbc.update("UPDATE outbox_event SET status = 'SENT', sent_at = now()");
+        }
+
+        @Test
+        @DisplayName("Deletes in the business transaction, next to the events it stages")
+        void commitsWithTheBusinessChange() {
+            business.executeWithoutResult(status -> {
+                publisher.discardDelivered(KEY);
+                publisher.append(MESSAGE, KEY);
+            });
+
+            assertThat(jdbc.queryForList("SELECT status FROM outbox_event", String.class)).containsExactly("PENDING");
+        }
+
+        @Test
+        @DisplayName("Keeps the rows when the business transaction rolls back")
+        void rollsBackWithTheBusinessChange() {
+            business.executeWithoutResult(status -> {
+                publisher.discardDelivered(KEY);
+                status.setRollbackOnly();
+            });
+
+            assertThat(rows()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Refuses to delete when no transaction is active, and deletes nothing")
+        void refusesWithoutTransaction() {
+            assertThatThrownBy(() -> publisher.discardDelivered(KEY))
+                    .isInstanceOf(IllegalTransactionStateException.class);
+
+            assertThat(rows()).isEqualTo(1);
+        }
+    }
 }

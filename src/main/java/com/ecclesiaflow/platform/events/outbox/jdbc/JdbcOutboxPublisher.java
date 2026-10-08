@@ -22,6 +22,9 @@ public class JdbcOutboxPublisher implements OutboxPublisher {
                  aggregate_key, status, attempts, next_attempt_at, created_at)
             VALUES (?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, 'PENDING', 0, ?, ?)""";
 
+    static final String DISCARD_DELIVERED_SQL =
+            "DELETE FROM outbox_event WHERE aggregate_key = ? AND status IN ('SENT', 'PARKED')";
+
     private final JdbcTemplate jdbcTemplate;
     private final AmqpOutboxMessageMapper mapper;
     private final Clock clock;
@@ -46,6 +49,15 @@ public class JdbcOutboxPublisher implements OutboxPublisher {
         insert(message, aggregateKey);
     }
 
+    @Override
+    public void discardDelivered(String aggregateKey) {
+        requireWritableTransaction();
+        if (aggregateKey == null || aggregateKey.isBlank()) {
+            throw new IllegalArgumentException("Discarding outbox rows needs the ordering key they were staged under");
+        }
+        jdbcTemplate.update(DISCARD_DELIVERED_SQL, aggregateKey);
+    }
+
     private void insert(OutboxMessage message, String aggregateKey) {
         Timestamp now = Timestamp.from(clock.instant());
         jdbcTemplate.update(INSERT_SQL, message.exchange(), message.routingKey(), message.payload(),
@@ -63,16 +75,16 @@ public class JdbcOutboxPublisher implements OutboxPublisher {
     private void requireWritableTransaction() {
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalTransactionStateException(
-                    "An outbox message must be appended inside the business transaction; no transaction is active");
+                    "The outbox is written inside the business transaction; no transaction is active");
         }
         if (TransactionSynchronizationManager.isCurrentTransactionReadOnly()) {
-            throw new IllegalTransactionStateException("An outbox message cannot be appended in a read-only transaction");
+            throw new IllegalTransactionStateException("The outbox cannot be written in a read-only transaction");
         }
         // A transaction managed on another DataSource (church's finance unit, say) would leave
-        // this insert on a separate auto-committed connection.
+        // this write on a separate auto-committed connection.
         if (!TransactionSynchronizationManager.hasResource(jdbcTemplate.getDataSource())) {
             throw new IllegalTransactionStateException("The active transaction holds no connection of the outbox "
-                    + "DataSource; the outbox row would commit on its own");
+                    + "DataSource; the outbox write would commit on its own");
         }
     }
 }

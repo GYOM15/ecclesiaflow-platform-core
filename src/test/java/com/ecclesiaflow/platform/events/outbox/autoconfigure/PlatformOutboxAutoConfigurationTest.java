@@ -179,6 +179,10 @@ class PlatformOutboxAutoConfigurationTest {
                 @Override
                 public void append(OutboxMessage message, String aggregateKey) {
                 }
+
+                @Override
+                public void discardDelivered(String aggregateKey) {
+                }
             };
             module.withBean(OutboxPublisher.class, () -> own)
                     .withPropertyValues("ecclesiaflow.events.outbox.enabled=true")

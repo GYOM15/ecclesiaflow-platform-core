@@ -25,4 +25,11 @@ public interface OutboxPublisher {
     }
 
     void append(OutboxMessage message, String aggregateKey);
+
+    /**
+     * Deletes the relayed and parked rows staged under {@code aggregateKey}; its pending rows stay and
+     * still leave. Meant for an erasure: those rows hold the person's events, and a parked one would
+     * hold back the events the erasure stages next under the same key.
+     */
+    void discardDelivered(String aggregateKey);
 }

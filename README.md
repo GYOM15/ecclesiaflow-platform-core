@@ -280,11 +280,17 @@ staging order; an event without a key leaves as soon as it is due.
 unreachable broker parks nothing. Watch `ecclesiaflow_outbox_oldest_pending_age_seconds` and
 `ecclesiaflow_outbox_parked`.
 
-### Retention
+### Retention and erasure
 
 A relayed row still carries the event's personal data, so the relay deletes it
 `sent-retention` after the broker's confirm (`PT1H` by default), checking every
 `purge-interval` (`PT5M`). Modules keep these defaults.
+
+A module that erases a person calls `discardDelivered(aggregateKey)` in the erasure
+transaction, before it stages the erasure events under the same key. It deletes the relayed
+and parked rows of that key, so the person's past events leave the table and a parked one no
+longer holds back the erasure events; pending rows stay and are relayed first. Like `append`,
+it throws `IllegalTransactionStateException` outside a writable transaction.
 
 ### Parked rows
 

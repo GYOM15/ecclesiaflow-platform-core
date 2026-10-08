@@ -350,6 +350,47 @@ class JdbcOutboxRepositoryIntegrationTest {
     }
 
     @Nested
+    @DisplayName("discardDelivered")
+    class DiscardDelivered {
+
+        @Test
+        @DisplayName("discardDelivered keeps pending rows and other keys")
+        void keepsPendingRowsAndOtherKeys() {
+            stage(MEMBER_7, "relayed", "parked", "pending");
+            stage(MEMBER_8, "other-relayed");
+            stage(null, "unkeyed");
+            assertThat(claim(STAGED_AT, 10)).containsExactly("relayed", "other-relayed", "unkeyed");
+            repository.markSent(List.of(idOf("relayed"), idOf("other-relayed"), idOf("unkeyed")), STAGED_AT);
+            assertThat(claim(STAGED_AT, 10)).containsExactly("parked");
+            repository.park(idOf("parked"), STAGED_AT.plus(LEASE), 10, STAGED_AT, "unroutable, no queue bound");
+
+            business.executeWithoutResult(status -> publisher.discardDelivered(MEMBER_7));
+
+            assertThat(jdbc.queryForList("SELECT routing_key FROM outbox_event ORDER BY id", String.class))
+                    .containsExactly("pending", "other-relayed", "unkeyed");
+            assertThat(rowOf("pending")).containsEntry("status", "PENDING");
+        }
+
+        @Test
+        @DisplayName("Lets the key move on once its parked row is discarded")
+        void discardedParkedRowReleasesItsKey() {
+            stage(MEMBER_7, "profile-changed");
+            assertThat(claim(STAGED_AT, 10)).containsExactly("profile-changed");
+            repository.park(idOf("profile-changed"), STAGED_AT.plus(LEASE), 10, STAGED_AT,
+                    "unroutable, no queue bound");
+
+            business.executeWithoutResult(status -> {
+                publisher.discardDelivered(MEMBER_7);
+                publisher.append(new OutboxMessage("ecclesiaflow.domain-events", "anonymized",
+                        "anonymized".getBytes(StandardCharsets.UTF_8), "application/x-protobuf", null, null, Map.of()),
+                        MEMBER_7);
+            });
+
+            assertThat(claim(STAGED_AT.plus(LEASE), 10)).containsExactly("anonymized");
+        }
+    }
+
+    @Nested
     @DisplayName("purgeSent")
     class PurgeSent {
 
