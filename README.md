@@ -364,6 +364,12 @@ Consumers then resolve the local snapshot before reaching GitHub Packages.
 
 ## Releasing the library (maintainers)
 
+### Branch CI
+
+`.github/workflows/ci.yml` runs `mvn -B verify` (unit tests, the Testcontainers integration tests
+and the coverage gate) on every push to a `feature/**` or `fix/**` branch and on every pull request
+to `main`. It publishes nothing. `main` itself is verified by `snapshot.yml` before it publishes.
+
 ### Snapshots (continuous integration)
 
 Every push to `main` triggers `.github/workflows/snapshot.yml`, which publishes
