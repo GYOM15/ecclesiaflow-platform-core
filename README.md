@@ -172,7 +172,7 @@ generated classes and the `.proto` files.
 | `email/email_service.proto` | communication (`EmailService`, `EmailQueueMessage`) | `com.ecclesiaflow.grpc.email` |
 | `events/auth/v1/domain_events.proto` | auth (`SetupTokenIssuedEvent`, `ExistingAccountNoticeEvent`) | `com.ecclesiaflow.grpc.events.auth` |
 | `events/church/v1/church_events.proto` | church (invitation, admission, removal, group events) | `com.ecclesiaflow.grpc.events.church` |
-| `events/members/v1/members_events.proto` | members (`MemberProfileChangedEvent`, `MemberAnonymizedEvent`, `MemberContactsErasedEvent`) | `com.ecclesiaflow.grpc.events.members` |
+| `events/members/v1/members_events.proto` | members (`MemberProfileChangedEvent`, `MemberAnonymizedEvent`, `MemberContactsErasedEvent`, `MemberDeactivatedEvent`, `MemberReactivatedEvent`) | `com.ecclesiaflow.grpc.events.members` |
 
 A module that calls or serves an RPC, or publishes or consumes an event, uses these classes. It
 keeps no `.proto` of its own and needs no protobuf plugin. Consumers bring `grpc-protobuf`

@@ -159,3 +159,46 @@ message MemberContactsErasedEvent {
   // acts on keycloak_user_id.
   repeated string recipient_digests = 4;
 }
+
+// Emitted when a member deactivates their account, which opens the grace
+// period before anonymization: the modules that show the person to others
+// (directory, groups, chat, campaigns) hide them at once instead of waiting
+// for the erasure. Carries the key and the address digests (RecipientDigest,
+// as on MemberContactsErasedEvent) because communication finds a recipient by
+// address only. A redelivered event can arrive after a later reactivation, so
+// a consumer keeps the latest occurred_at_epoch_ms per user and ignores an
+// older event. Idempotent on event_id.
+// Routing key: "members.account.deactivated".
+message MemberDeactivatedEvent {
+  // UUIDv4. Consumers dedupe on this to make their handler idempotent.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the account was deactivated.
+  int64 occurred_at_epoch_ms = 2;
+
+  // The member's Keycloak sub, the cross-module key.
+  string keycloak_user_id = 3;
+
+  // One RecipientDigest per address the member holds: the email, then the
+  // phone number when there is one.
+  repeated string recipient_digests = 4;
+}
+
+// Emitted when a member reactivates their account within the grace period:
+// what MemberDeactivatedEvent hid is shown again. Same fields and ordering
+// rule as MemberDeactivatedEvent. Idempotent on event_id.
+// Routing key: "members.account.reactivated".
+message MemberReactivatedEvent {
+  // UUIDv4. Consumers dedupe on this to make their handler idempotent.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the account was reactivated.
+  int64 occurred_at_epoch_ms = 2;
+
+  // The member's Keycloak sub, the cross-module key.
+  string keycloak_user_id = 3;
+
+  // One RecipientDigest per address the member holds: the email, then the
+  // phone number when there is one.
+  repeated string recipient_digests = 4;
+}
