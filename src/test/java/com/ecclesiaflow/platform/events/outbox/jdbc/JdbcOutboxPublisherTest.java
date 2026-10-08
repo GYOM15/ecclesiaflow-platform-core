@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -198,6 +199,69 @@ class JdbcOutboxPublisherTest {
 
             assertThatThrownBy(() -> publisher.append(MESSAGE))
                     .isInstanceOf(org.springframework.dao.DataAccessResourceFailureException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("discardDelivered")
+    class DiscardDelivered {
+
+        @Test
+        @DisplayName("Refuses to delete outside a writable transaction")
+        void refusesOutsideWritableTransaction() {
+            assertThatThrownBy(() -> publisher.discardDelivered(KEY))
+                    .isInstanceOf(IllegalTransactionStateException.class)
+                    .hasMessageContaining("no transaction");
+            openTransactionOn(dataSource, true);
+            assertThatThrownBy(() -> publisher.discardDelivered(KEY))
+                    .isInstanceOf(IllegalTransactionStateException.class)
+                    .hasMessageContaining("read-only");
+
+            verify(jdbcTemplate, never()).update(anyString(), any(Object[].class));
+        }
+
+        @Test
+        @DisplayName("Refuses to delete when the transaction runs on another DataSource")
+        void refusesTransactionOnAnotherDataSource() {
+            when(jdbcTemplate.getDataSource()).thenReturn(dataSource);
+            DataSource financeDataSource = mock(DataSource.class);
+            openTransactionOn(financeDataSource, false);
+            try {
+                assertThatThrownBy(() -> publisher.discardDelivered(KEY))
+                        .isInstanceOf(IllegalTransactionStateException.class)
+                        .hasMessageContaining("commit on its own");
+            } finally {
+                TransactionSynchronizationManager.unbindResource(financeDataSource);
+            }
+        }
+
+        @Test
+        @DisplayName("Deletes the relayed and parked rows of the key, never a pending one")
+        void deletesDeliveredRowsOfTheKey() {
+            when(jdbcTemplate.getDataSource()).thenReturn(dataSource);
+            openTransactionOn(dataSource, false);
+
+            publisher.discardDelivered(KEY);
+
+            verify(jdbcTemplate).update(JdbcOutboxPublisher.DISCARD_DELIVERED_SQL, KEY);
+            assertThat(JdbcOutboxPublisher.DISCARD_DELIVERED_SQL)
+                    .contains("aggregate_key = ?")
+                    .contains("status IN ('SENT', 'PARKED')")
+                    .doesNotContain("PENDING");
+        }
+
+        @Test
+        @DisplayName("Rejects a missing or blank key, which names no aggregate")
+        void rejectsMissingKey() {
+            when(jdbcTemplate.getDataSource()).thenReturn(dataSource);
+            openTransactionOn(dataSource, false);
+
+            assertThatThrownBy(() -> publisher.discardDelivered(null))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> publisher.discardDelivered(" "))
+                    .isInstanceOf(IllegalArgumentException.class);
+
+            verify(jdbcTemplate, never()).update(anyString(), any(Object[].class));
         }
     }
 }

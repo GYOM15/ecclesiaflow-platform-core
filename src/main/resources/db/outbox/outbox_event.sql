@@ -10,10 +10,12 @@
 --            once next_attempt_at is due. A claim moves next_attempt_at to the end of a lease
 --            and later writes are fenced on that value, so two relays never record over each other.
 --   SENT     the broker confirmed the message and routed it to a queue. Deleted after
---            ecclesiaflow.events.outbox.sent-retention (7 days by default).
+--            ecclesiaflow.events.outbox.sent-retention (1 hour by default), or with its key by
+--            OutboxPublisher.discardDelivered when the person behind it is erased.
 --   PARKED   max-attempts failures at the broker (nack, no confirm, no bound queue). Never retried
---            nor purged, and it holds back every later row of its aggregate_key: fix the cause, then
---            replay it by hand, or drop it to let its key move on:
+--            nor purged by age, and it holds back every later row of its aggregate_key until
+--            discardDelivered removes it, or an operator fixes the cause and replays it by hand, or
+--            drops it to let its key move on:
 --
 --              UPDATE outbox_event
 --              SET status = 'PENDING', parked_at = NULL, attempts = 0, next_attempt_at = now()

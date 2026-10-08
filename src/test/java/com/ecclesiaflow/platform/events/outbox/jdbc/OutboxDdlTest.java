@@ -14,6 +14,7 @@ class OutboxDdlTest {
     void declaresEveryColumnTheAdaptersUse() {
         List<String> statements = List.of(
                 JdbcOutboxPublisher.INSERT_SQL,
+                JdbcOutboxPublisher.DISCARD_DELIVERED_SQL,
                 JdbcOutboxRepository.CLAIM_SQL,
                 JdbcOutboxRepository.MARK_SENT_SQL,
                 JdbcOutboxRepository.RESCHEDULE_SQL,
