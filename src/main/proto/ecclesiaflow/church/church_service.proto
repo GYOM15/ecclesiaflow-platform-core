@@ -31,8 +31,12 @@ package ecclesiaflow.church;
 
 service ChurchService {
   rpc OnSignupCompleted(OnSignupCompletedRequest) returns (OnSignupCompletedResponse);
+  // No client holds its scope, and church's admission reconciler re-projects
+  // every active membership every six hours; kept for wire compatibility.
   rpc RepublishActiveMemberships(RepublishActiveMembershipsRequest)
-      returns (RepublishActiveMembershipsResponse);
+      returns (RepublishActiveMembershipsResponse) {
+    option deprecated = true;
+  }
   // Asked before an account is closed: a church left without its owner or its
   // last administrator could no longer be managed by anyone.
   rpc CheckAccountClosure(CheckAccountClosureRequest) returns (CheckAccountClosureResponse);
