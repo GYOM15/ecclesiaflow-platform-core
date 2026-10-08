@@ -3,6 +3,7 @@ package com.ecclesiaflow.platform.storage.s3;
 import com.ecclesiaflow.platform.storage.ObjectStorageException;
 import com.ecclesiaflow.platform.storage.ObjectStorageProperties;
 import com.ecclesiaflow.platform.storage.StoredObject;
+import com.ecclesiaflow.platform.storage.StoredObjectNotFoundException;
 import com.ecclesiaflow.platform.storage.StoredObjectRef;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -19,9 +20,11 @@ import software.amazon.awssdk.core.checksums.ResponseChecksumValidation;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 
 import java.net.URI;
 import java.util.Random;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -123,6 +126,30 @@ class S3ObjectStorageIntegrationTest {
             assertThatThrownBy(() -> forged.put("church-logos", new byte[]{1}, "image/png"))
                     .isInstanceOf(ObjectStorageException.class);
         }
+    }
+
+    @Test
+    @DisplayName("a copy reads back byte for byte, with the source's content type and cache header")
+    void copyKeepsBytesAndHeaders() {
+        byte[] data = new byte[64 * 1024];
+        new Random(7).nextBytes(data);
+        StoredObjectRef source = storage.put("uploads/church-1", data, "image/webp");
+        String target = "images/church-1/" + UUID.randomUUID() + ".webp";
+
+        storage.copy(source.key(), target);
+
+        assertThat(storage.get(target).orElseThrow().data()).isEqualTo(data);
+        HeadObjectResponse head = admin.headObject(request -> request.bucket(BUCKET).key(target));
+        assertThat(head.contentType()).isEqualTo("image/webp");
+        assertThat(head.cacheControl()).isEqualTo("public, max-age=31536000, immutable");
+        assertThat(storage.get(source.key())).isPresent();
+    }
+
+    @Test
+    @DisplayName("copying an absent object is reported as not found")
+    void copyOfAbsentObject() {
+        assertThatThrownBy(() -> storage.copy("uploads/" + UUID.randomUUID() + ".png", "images/a.png"))
+                .isInstanceOf(StoredObjectNotFoundException.class);
     }
 
     @Test

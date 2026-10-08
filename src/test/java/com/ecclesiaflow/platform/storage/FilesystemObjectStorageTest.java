@@ -2,6 +2,7 @@ package com.ecclesiaflow.platform.storage;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -9,6 +10,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -77,6 +79,89 @@ class FilesystemObjectStorageTest {
 
         assertThat(storage.publicUrl(ref.key())).isEmpty();
         assertThat(storage.isOwnPublicUrl("https://cdn.example.com/" + ref.key())).isFalse();
+    }
+
+    @Test
+    @DisplayName("a local store finds no key behind any URL")
+    void noKeyBehindAnyUrl() {
+        StoredObjectRef ref = storage.put("images", "x".getBytes(StandardCharsets.UTF_8), "image/png");
+
+        assertThat(storage.keyOfOwnPublicUrl("https://cdn.example.com/" + ref.key())).isEmpty();
+        assertThat(storage.keyOfOwnPublicUrl(ref.key())).isEmpty();
+        assertThat(storage.keyOfOwnPublicUrl(null)).isEmpty();
+    }
+
+    @Nested
+    @DisplayName("copy")
+    class Copy {
+
+        @Test
+        @DisplayName("the target holds the same bytes and content type, and the source stays")
+        void copiesBytesAndType() {
+            byte[] data = "the-bytes".getBytes(StandardCharsets.UTF_8);
+            StoredObjectRef source = storage.put("uploads/church-1", data, "image/webp");
+            String target = "images/church-1/" + UUID.randomUUID() + ".webp";
+
+            storage.copy(source.key(), target);
+
+            StoredObject copied = storage.get(target).orElseThrow();
+            assertThat(copied.data()).isEqualTo(data);
+            assertThat(copied.contentType()).isEqualTo("image/webp");
+            assertThat(storage.get(source.key())).isPresent();
+        }
+
+        @Test
+        @DisplayName("an existing target is replaced, as an S3 copy does")
+        void replacesExistingTarget() {
+            StoredObjectRef source = storage.put("uploads", new byte[]{1, 2}, "image/png");
+            StoredObjectRef target = storage.put("images", new byte[]{9}, "image/png");
+
+            storage.copy(source.key(), target.key());
+
+            assertThat(storage.get(target.key()).orElseThrow().data()).containsExactly(1, 2);
+        }
+
+        @Test
+        @DisplayName("an absent source is reported as not found and writes nothing")
+        void absentSource() {
+            String target = "images/" + UUID.randomUUID() + ".png";
+
+            assertThatThrownBy(() -> storage.copy("uploads/" + UUID.randomUUID() + ".png", target))
+                    .isInstanceOf(StoredObjectNotFoundException.class);
+            assertThat(storage.get(target)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("a key escaping the base directory is rejected on either side")
+        void traversalRejected() {
+            StoredObjectRef source = storage.put("uploads", new byte[]{1}, "image/png");
+
+            assertThatThrownBy(() -> storage.copy(source.key(), "../outside.png"))
+                    .isInstanceOf(ObjectStorageException.class);
+            assertThatThrownBy(() -> storage.copy("../../etc/passwd", "images/a.png"))
+                    .isInstanceOf(ObjectStorageException.class);
+            assertThat(tmp.getParent().resolve("outside.png")).doesNotExist();
+        }
+
+        @Test
+        @DisplayName("a blank or missing key is a caller error")
+        void blankKeyRejected() {
+            assertThatThrownBy(() -> storage.copy(" ", "images/a.png")).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> storage.copy("uploads/a.png", null))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
+        @DisplayName("a write the disk refuses surfaces as ObjectStorageException")
+        void failedWriteIsWrapped() throws IOException {
+            StoredObjectRef source = storage.put("uploads", new byte[]{1}, "image/png");
+            Files.writeString(tmp.resolve("images"), "a file where the prefix directory should be");
+
+            assertThatThrownBy(() -> storage.copy(source.key(), "images/a.png"))
+                    .isInstanceOf(ObjectStorageException.class)
+                    .hasMessageContaining("copy")
+                    .hasCauseInstanceOf(IOException.class);
+        }
     }
 
     @Test

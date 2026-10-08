@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.Optional;
 
 /** Local-disk adapter for development and tests; multi-instance production needs the {@code s3} provider. */
@@ -62,6 +63,21 @@ public class FilesystemObjectStorage implements ObjectStorage {
             Files.deleteIfExists(target);
         } catch (IOException e) {
             throw new ObjectStorageException("could not delete object", e);
+        }
+    }
+
+    @Override
+    public void copy(String sourceKey, String targetKey) {
+        Path source = resolveWithinBase(sourceKey);
+        Path target = resolveWithinBase(targetKey);
+        if (!Files.isRegularFile(source)) {
+            throw new StoredObjectNotFoundException("no object to copy at the source key");
+        }
+        try {
+            Files.createDirectories(target.getParent());
+            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            throw new ObjectStorageException("could not copy object", e);
         }
     }
 

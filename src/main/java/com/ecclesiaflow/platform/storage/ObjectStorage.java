@@ -28,8 +28,19 @@ public interface ObjectStorage {
     }
 
     default boolean isOwnPublicUrl(String url) {
-        return false;
+        return keyOfOwnPublicUrl(url).isPresent();
     }
+
+    /** Empty for any URL this store did not hand out, a private object's included. */
+    default Optional<String> keyOfOwnPublicUrl(String url) {
+        return Optional.empty();
+    }
+
+    /**
+     * Keeps the source's content type and cache header; an absent source throws
+     * {@link StoredObjectNotFoundException}. An existing target is overwritten, so pass a fresh key.
+     */
+    void copy(String sourceKey, String targetKey);
 
     /** For diagnostics, e.g. {@code "s3"}; never carries credentials. */
     String providerName();

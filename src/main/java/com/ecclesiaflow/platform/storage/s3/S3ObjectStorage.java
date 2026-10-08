@@ -5,6 +5,7 @@ import com.ecclesiaflow.platform.storage.ObjectStorageException;
 import com.ecclesiaflow.platform.storage.ObjectStorageProperties;
 import com.ecclesiaflow.platform.storage.StorageKeys;
 import com.ecclesiaflow.platform.storage.StoredObject;
+import com.ecclesiaflow.platform.storage.StoredObjectNotFoundException;
 import com.ecclesiaflow.platform.storage.StoredObjectRef;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -16,9 +17,13 @@ import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.MetadataDirective;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
@@ -94,7 +99,7 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
                     .bucket(bucket)
                     .key(key)
                     .contentType(contentType)
-                    .cacheControl(isPrivate(key) ? PRIVATE_CACHE_CONTROL : IMMUTABLE_CACHE_CONTROL)
+                    .cacheControl(cacheControlFor(key))
                     .build(), RequestBody.fromBytes(data));
             return new StoredObjectRef(key);
         } catch (NoSuchKeyException e) {
@@ -149,13 +154,46 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
     }
 
     @Override
-    public boolean isOwnPublicUrl(String url) {
+    public Optional<String> keyOfOwnPublicUrl(String url) {
         if (publicBase == null || url == null
                 || url.length() <= publicBase.length() || !url.startsWith(publicBase)) {
-            return false;
+            return Optional.empty();
         }
         String key = url.substring(publicBase.length());
-        return CLEAN_KEY.matcher(key).matches() && !isPrivate(key);
+        if (!CLEAN_KEY.matcher(key).matches() || isPrivate(key)) {
+            return Optional.empty();
+        }
+        return Optional.of(key);
+    }
+
+    @Override
+    public void copy(String sourceKey, String targetKey) {
+        requireKey(sourceKey);
+        requireKey(targetKey);
+        // The cache header travels with the copy: a private object would become cacheable, or the reverse.
+        if (isPrivate(sourceKey) != isPrivate(targetKey)) {
+            throw new IllegalArgumentException("a copy must not cross a private key prefix");
+        }
+        try {
+            HeadObjectResponse source = client.headObject(HeadObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(sourceKey)
+                    .build());
+            client.copyObject(CopyObjectRequest.builder()
+                    .sourceBucket(bucket)
+                    .sourceKey(sourceKey)
+                    .destinationBucket(bucket)
+                    .destinationKey(targetKey)
+                    // Not every S3 server keeps these headers under the default COPY directive.
+                    .metadataDirective(MetadataDirective.REPLACE)
+                    .contentType(orElse(source.contentType(), StorageKeys.contentTypeForKey(sourceKey)))
+                    .cacheControl(orElse(source.cacheControl(), cacheControlFor(targetKey)))
+                    .build());
+        } catch (NoSuchKeyException e) {
+            throw new StoredObjectNotFoundException("no object to copy at the source key", e);
+        } catch (RuntimeException e) {
+            throw new ObjectStorageException("could not copy object", e);
+        }
     }
 
     @Override
@@ -174,6 +212,14 @@ public class S3ObjectStorage implements ObjectStorage, AutoCloseable {
                     "ecclesiaflow.object-storage.s3." + name + " must be set when provider=s3");
         }
         return value;
+    }
+
+    private String cacheControlFor(String key) {
+        return isPrivate(key) ? PRIVATE_CACHE_CONTROL : IMMUTABLE_CACHE_CONTROL;
+    }
+
+    private static String orElse(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     private boolean isPrivate(String key) {
