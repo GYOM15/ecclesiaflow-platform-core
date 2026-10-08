@@ -1,6 +1,7 @@
 package com.ecclesiaflow.platform.events.outbox.jdbc;
 
 import com.ecclesiaflow.platform.events.outbox.OutboxMessage;
+import com.ecclesiaflow.platform.events.outbox.OutboxProperties;
 import com.ecclesiaflow.platform.events.outbox.amqp.AmqpOutboxMessageMapper;
 import com.ecclesiaflow.platform.events.outbox.relay.ClaimedOutboxMessage;
 import org.junit.jupiter.api.BeforeAll;
@@ -345,6 +346,28 @@ class JdbcOutboxRepositoryIntegrationTest {
             assertThat(jdbc.update(OutboxDdl.documentedStatement("DELETE FROM outbox_event"), idOf("k1"))).isEqualTo(1);
 
             assertThat(claim(STAGED_AT.plus(LEASE), 10)).containsExactly("k2");
+        }
+    }
+
+    @Nested
+    @DisplayName("purgeSent")
+    class PurgeSent {
+
+        @Test
+        @DisplayName("With the default retention, deletes the rows relayed over an hour ago and nothing else")
+        void purgesAfterTheDefaultRetention() {
+            Instant now = STAGED_AT.plus(Duration.ofHours(2));
+            stage(null, "sent-61-minutes-ago", "sent-59-minutes-ago", "parked", "pending");
+            assertThat(claim(STAGED_AT, 10)).hasSize(4);
+            repository.markSent(List.of(idOf("sent-61-minutes-ago")), now.minus(Duration.ofMinutes(61)));
+            repository.markSent(List.of(idOf("sent-59-minutes-ago")), now.minus(Duration.ofMinutes(59)));
+            repository.park(idOf("parked"), STAGED_AT.plus(LEASE), 10, STAGED_AT, "unroutable, no queue bound");
+
+            int purged = repository.purgeSent(now.minus(new OutboxProperties().getSentRetention()), 500);
+
+            assertThat(purged).isEqualTo(1);
+            assertThat(jdbc.queryForList("SELECT routing_key FROM outbox_event ORDER BY id", String.class))
+                    .containsExactly("sent-59-minutes-ago", "parked", "pending");
         }
     }
 }

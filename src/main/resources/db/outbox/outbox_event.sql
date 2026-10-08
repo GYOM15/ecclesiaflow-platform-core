@@ -10,7 +10,7 @@
 --            once next_attempt_at is due. A claim moves next_attempt_at to the end of a lease
 --            and later writes are fenced on that value, so two relays never record over each other.
 --   SENT     the broker confirmed the message and routed it to a queue. Deleted after
---            ecclesiaflow.events.outbox.sent-retention (7 days by default).
+--            ecclesiaflow.events.outbox.sent-retention (1 hour by default).
 --   PARKED   max-attempts failures at the broker (nack, no confirm, no bound queue). Never retried
 --            nor purged, and it holds back every later row of its aggregate_key: fix the cause, then
 --            replay it by hand, or drop it to let its key move on:

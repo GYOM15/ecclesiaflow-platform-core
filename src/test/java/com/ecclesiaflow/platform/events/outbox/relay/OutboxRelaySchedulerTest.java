@@ -1,5 +1,6 @@
 package com.ecclesiaflow.platform.events.outbox.relay;
 
+import com.ecclesiaflow.platform.events.outbox.OutboxProperties;
 import com.ecclesiaflow.platform.events.outbox.events.OutboxRelayEvents;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -151,6 +152,19 @@ class OutboxRelaySchedulerTest {
             verify(repository, times(3)).purgeSent(cutoff, OutboxRelayScheduler.PURGE_CHUNK);
             verify(events).publishEvent(new OutboxRelayEvents.SentPurged(
                     2 * OutboxRelayScheduler.PURGE_CHUNK + 12, cutoff));
+        }
+
+        @Test
+        @DisplayName("With the default retention, deletes the rows relayed more than an hour ago")
+        void purgesAfterAnHourByDefault() {
+            OutboxProperties defaults = new OutboxProperties();
+            OutboxRelayScheduler withDefaults = new OutboxRelayScheduler(relay, repository, events,
+                    Clock.fixed(NOW, ZoneOffset.UTC), new OutboxRelayScheduler.Schedule(defaults.getPollInterval(),
+                            defaults.getPurgeInterval(), defaults.getSentRetention(), Duration.ofSeconds(2)));
+
+            withDefaults.purgeCycle();
+
+            verify(repository).purgeSent(NOW.minus(Duration.ofHours(1)), OutboxRelayScheduler.PURGE_CHUNK);
         }
 
         @Test

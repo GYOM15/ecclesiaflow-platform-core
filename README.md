@@ -278,7 +278,28 @@ staging order; an event without a key leaves as soon as it is due.
 `IllegalTransactionStateException`. A message that fails at the broker `max-attempts` times
 (10 by default, about half an hour) is parked, and holds back the later events of its key; an
 unreachable broker parks nothing. Watch `ecclesiaflow_outbox_oldest_pending_age_seconds` and
-`ecclesiaflow_outbox_parked`; the replay statement for a parked row is in the DDL file.
+`ecclesiaflow_outbox_parked`.
+
+### Retention
+
+A relayed row still carries the event's personal data, so the relay deletes it
+`sent-retention` after the broker's confirm (`PT1H` by default), checking every
+`purge-interval` (`PT5M`). Modules keep these defaults.
+
+### Parked rows
+
+A parked row is never retried nor purged by age. Once its cause is fixed (no queue bound to
+the routing key, a message the broker refuses), replay it, or drop it to let its key move on:
+
+```sql
+-- Replay: the relay picks it up on its next run.
+UPDATE outbox_event
+SET status = 'PENDING', parked_at = NULL, attempts = 0, next_attempt_at = now()
+WHERE status = 'PARKED' AND id = <id>;
+
+-- Drop: the event is lost; the later events of its key leave.
+DELETE FROM outbox_event WHERE status = 'PARKED' AND id = <id>;
+```
 
 ## Domain-event signing
 

@@ -140,7 +140,8 @@ class PlatformOutboxAutoConfigurationTest {
         }
 
         @Test
-        @DisplayName("Ships defaults that relay within a second and park after about half an hour of failures")
+        @DisplayName("Ships defaults that relay within a second, park after about half an hour of failures "
+                + "and keep relayed rows for an hour")
         void defaults() {
             OutboxProperties defaults = new OutboxProperties();
 
@@ -154,8 +155,8 @@ class PlatformOutboxAutoConfigurationTest {
             assertThat(defaults.getInitialBackoff()).isEqualTo(Duration.ofSeconds(5));
             assertThat(defaults.getBackoffMultiplier()).isEqualTo(2.0);
             assertThat(defaults.getMaxBackoff()).isEqualTo(Duration.ofMinutes(10));
-            assertThat(defaults.getSentRetention()).isEqualTo(Duration.ofDays(7));
-            assertThat(defaults.getPurgeInterval()).isEqualTo(Duration.ofHours(1));
+            assertThat(defaults.getSentRetention()).isEqualTo(Duration.ofHours(1));
+            assertThat(defaults.getPurgeInterval()).isEqualTo(Duration.ofMinutes(5));
         }
 
         @Test

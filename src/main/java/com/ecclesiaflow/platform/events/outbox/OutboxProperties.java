@@ -37,10 +37,10 @@ public class OutboxProperties {
 
     private Duration maxBackoff = Duration.ofMinutes(10);
 
-    /** How long relayed rows are kept before the purge deletes them. Parked rows are never purged. */
-    private Duration sentRetention = Duration.ofDays(7);
+    /** Relayed rows still carry the events' personal data, so they go soon. Parked rows are never purged by age. */
+    private Duration sentRetention = Duration.ofHours(1);
 
-    private Duration purgeInterval = Duration.ofHours(1);
+    private Duration purgeInterval = Duration.ofMinutes(5);
 
     public boolean isEnabled() {
         return enabled;
