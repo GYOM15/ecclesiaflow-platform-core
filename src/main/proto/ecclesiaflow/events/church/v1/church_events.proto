@@ -40,6 +40,11 @@ message ChurchInvitationCreatedEvent {
 
   // Invitation TTL in seconds (consumer surfaces "valable 7 jours").
   int32 expires_in_seconds = 7;
+
+  // Locale of the invitation email (BCP-47): the inviting admin's, else the
+  // church's language. Empty (a church build that predates the field) or
+  // unsupported: "fr".
+  string locale = 8;
 }
 
 // Emitted right after a member is removed from a church (hard delete of their

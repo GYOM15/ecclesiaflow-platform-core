@@ -54,6 +54,10 @@ message SetupTokenIssuedEvent {
   // Key that sealed sealed_raw_token, so keys rotate while older events still
   // wait in a queue.
   string sealed_key_id = 9;
+
+  // The account's locale (BCP-47): the setup email is written in it. Empty
+  // (an auth build that predates the field) or unsupported: "fr".
+  string locale = 10;
 }
 
 // Emitted when a signup targets an email whose Keycloak account already exists

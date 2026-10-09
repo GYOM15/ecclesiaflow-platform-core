@@ -48,6 +48,10 @@ message TemporaryTokenRequest {
   // right downstream consumer (e.g. {"church_id":"<uuid>"} for the church
   // signup saga). Empty/omitted = legacy member flow, no routing metadata.
   string metadata = 3;
+  // Interface language of the signup (BCP-47), kept as the account's locale
+  // and used for the setup email. Empty (an older caller) or unsupported:
+  // "fr".
+  string locale = 4;
 }
 
 
@@ -78,6 +82,10 @@ message ProvisionUserAndIssueSetupTokenRequest {
   // surfaced to AFTER_COMMIT listeners (e.g. {"church_id":"<uuid>"} for the
   // church signup saga).
   string metadata = 4;
+  // Interface language of the church signup (BCP-47), kept as the account's
+  // locale and used for the setup email. Empty (an older caller) or
+  // unsupported: "fr".
+  string locale = 5;
 }
 
 message ProvisionUserAndIssueSetupTokenResponse {
