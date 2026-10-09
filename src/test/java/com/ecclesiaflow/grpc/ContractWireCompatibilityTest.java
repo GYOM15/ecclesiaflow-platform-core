@@ -173,10 +173,12 @@ class ContractWireCompatibilityTest {
               RevokeRealmRole ecclesiaflow.auth.RevokeRealmRoleRequest -> ecclesiaflow.auth.RevokeRealmRoleResponse
               SetChurchClaims ecclesiaflow.auth.SetChurchClaimsRequest -> ecclesiaflow.auth.SetChurchClaimsResponse
               SendExistingAccountNotice ecclesiaflow.auth.SendExistingAccountNoticeRequest -> ecclesiaflow.auth.SendExistingAccountNoticeResponse
+              NoticeSignupOnAddress ecclesiaflow.auth.NoticeSignupOnAddressRequest -> ecclesiaflow.auth.NoticeSignupOnAddressResponse
             message ecclesiaflow.auth.TemporaryTokenRequest
               1 string email
               2 string member_id
               3 string metadata
+              4 string locale
             message ecclesiaflow.auth.TemporaryTokenResponse
               1 string temporary_token
               2 int32 expires_in_seconds
@@ -186,6 +188,7 @@ class ContractWireCompatibilityTest {
               2 string first_name
               3 string last_name
               4 string metadata
+              5 string locale
             message ecclesiaflow.auth.ProvisionUserAndIssueSetupTokenResponse
               1 string keycloak_user_id
               2 string temporary_token
@@ -244,6 +247,10 @@ class ContractWireCompatibilityTest {
             message ecclesiaflow.auth.SendExistingAccountNoticeRequest
               1 string keycloak_user_id
             message ecclesiaflow.auth.SendExistingAccountNoticeResponse
+            message ecclesiaflow.auth.NoticeSignupOnAddressRequest
+              1 string email
+            message ecclesiaflow.auth.NoticeSignupOnAddressResponse
+              1 bool account_exists
             file ecclesiaflow/church/church_service.proto package ecclesiaflow.church java_package com.ecclesiaflow.grpc.church
             service ecclesiaflow.church.ChurchService
               OnSignupCompleted ecclesiaflow.church.OnSignupCompletedRequest -> ecclesiaflow.church.OnSignupCompletedResponse
@@ -412,6 +419,7 @@ class ContractWireCompatibilityTest {
               7 int32 expires_in_seconds
               8 bytes sealed_raw_token
               9 string sealed_key_id
+              10 string locale
             message ecclesiaflow.events.auth.v1.ExistingAccountNoticeEvent
               1 string email
               2 string locale
@@ -425,6 +433,7 @@ class ContractWireCompatibilityTest {
               5 string church_id
               6 string church_name
               7 int32 expires_in_seconds
+              8 string locale
             message ecclesiaflow.events.church.v1.MemberRemovedFromChurchEvent
               1 string event_id
               2 int64 occurred_at_epoch_ms

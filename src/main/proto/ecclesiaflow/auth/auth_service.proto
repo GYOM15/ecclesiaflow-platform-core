@@ -27,6 +27,9 @@ service AuthService {
   // Tells an account's owner that a member signup reused their address, so the
   // signup itself can answer exactly as it does for a new address.
   rpc SendExistingAccountNotice(SendExistingAccountNoticeRequest) returns (SendExistingAccountNoticeResponse);
+  // The same notice for a member signup whose address has no member record:
+  // only auth can see that Keycloak already holds the address.
+  rpc NoticeSignupOnAddress(NoticeSignupOnAddressRequest) returns (NoticeSignupOnAddressResponse);
 }
 
 // ============================================================================
@@ -48,6 +51,10 @@ message TemporaryTokenRequest {
   // right downstream consumer (e.g. {"church_id":"<uuid>"} for the church
   // signup saga). Empty/omitted = legacy member flow, no routing metadata.
   string metadata = 3;
+  // Interface language of the signup (BCP-47), kept as the account's locale
+  // and used for the setup email. Empty (an older caller) or unsupported:
+  // "fr".
+  string locale = 4;
 }
 
 
@@ -78,6 +85,10 @@ message ProvisionUserAndIssueSetupTokenRequest {
   // surfaced to AFTER_COMMIT listeners (e.g. {"church_id":"<uuid>"} for the
   // church signup saga).
   string metadata = 4;
+  // Interface language of the church signup (BCP-47), kept as the account's
+  // locale and used for the setup email. Empty (an older caller) or
+  // unsupported: "fr".
+  string locale = 5;
 }
 
 message ProvisionUserAndIssueSetupTokenResponse {
@@ -231,4 +242,20 @@ message SendExistingAccountNoticeRequest {
 
 // Failures are reported through the gRPC status, never in the response.
 message SendExistingAccountNoticeResponse {
+}
+
+// ============================================================================
+// Notice Signup On Address
+// ============================================================================
+
+// The address typed at signup. The notice goes to the account's own address
+// and locale read from Keycloak, never to this value.
+message NoticeSignupOnAddressRequest {
+  string email = 1;
+}
+
+// Tells the caller whether to skip the confirmation link. It answers an
+// account lookup, so it must never reach the signup client.
+message NoticeSignupOnAddressResponse {
+  bool account_exists = 1;
 }
