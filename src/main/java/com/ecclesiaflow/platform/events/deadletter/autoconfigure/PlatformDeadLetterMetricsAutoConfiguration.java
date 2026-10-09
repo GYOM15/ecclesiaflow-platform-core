@@ -2,6 +2,7 @@ package com.ecclesiaflow.platform.events.deadletter.autoconfigure;
 
 import com.ecclesiaflow.platform.events.deadletter.DeadLetterQueueMetrics;
 import com.ecclesiaflow.platform.events.deadletter.DeadLetterQueues;
+import com.ecclesiaflow.platform.events.deadletter.DeadLetterRoute;
 import io.micrometer.core.instrument.binder.MeterBinder;
 import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.core.Declarable;
@@ -29,10 +30,12 @@ public class PlatformDeadLetterMetricsAutoConfiguration {
     @ConditionalOnMissingBean
     public DeadLetterQueueMetrics deadLetterQueueMetrics(ObjectProvider<AmqpAdmin> amqpAdmin,
                                                          ObjectProvider<Declarable> declarables,
-                                                         ObjectProvider<Declarables> declarableGroups) {
+                                                         ObjectProvider<Declarables> declarableGroups,
+                                                         ObjectProvider<DeadLetterRoute> routes) {
         List<Declarable> topology = new ArrayList<>();
         declarables.orderedStream().forEach(topology::add);
         declarableGroups.orderedStream().forEach(group -> topology.addAll(group.getDeclarables()));
-        return new DeadLetterQueueMetrics(amqpAdmin.getIfUnique(), DeadLetterQueues.in(topology));
+        return new DeadLetterQueueMetrics(amqpAdmin.getIfUnique(),
+                DeadLetterQueues.in(topology, routes.orderedStream().toList()));
     }
 }

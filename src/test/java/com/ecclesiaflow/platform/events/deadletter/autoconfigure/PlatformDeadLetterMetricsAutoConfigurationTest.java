@@ -1,6 +1,7 @@
 package com.ecclesiaflow.platform.events.deadletter.autoconfigure;
 
 import com.ecclesiaflow.platform.events.deadletter.DeadLetterQueueMetrics;
+import com.ecclesiaflow.platform.events.deadletter.DeadLetterRoute;
 import io.micrometer.core.instrument.binder.MeterBinder;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -76,6 +77,37 @@ class PlatformDeadLetterMetricsAutoConfigurationTest {
             return new Declarables(main, dlq, new Binding(dlq.getName(), Binding.DestinationType.QUEUE,
                     "ecclesiaflow.domain-events", "church.member.admitted-to-church-dead", null));
         }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class RoutedSubscription {
+
+        @Bean
+        Queue addedQueue() {
+            return QueueBuilder.durable("chat.subscriber.member-added-to-group").build();
+        }
+
+        @Bean
+        Queue addedDlqQueue() {
+            return QueueBuilder.durable("chat.subscriber.member-added-to-group.dlq").build();
+        }
+
+        @Bean
+        DeadLetterRoute addedDeadLetterRoute() {
+            return new DeadLetterRoute("chat.subscriber.member-added-to-group",
+                    "chat.subscriber.member-added-to-group.dlq");
+        }
+    }
+
+    @Test
+    @DisplayName("Measures the dead-letter queue a route names, beside those found by their arguments")
+    void measuresRoutedDeadLetterQueues() {
+        runner.withUserConfiguration(RoutedSubscription.class)
+                .run(context -> assertThat(context.getBean(DeadLetterQueueMetrics.class).queues())
+                        .containsExactly(
+                                "chat.subscriber.member-added-to-group.dlq",
+                                "chat.subscriber.member-admitted-to-church.dlq",
+                                "chat.subscriber.member-removed-from-church.dlq"));
     }
 
     @Test
