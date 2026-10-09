@@ -37,7 +37,9 @@ class ContractDeprecationTest {
     @DisplayName("Exactly the retired RPCs, messages, fields and enum values carry the deprecated option")
     void deprecatedElementsAreTheRetiredOnes() {
         assertThat(deprecatedElements())
-                .containsExactly("ecclesiaflow.church.ChurchService.RepublishActiveMemberships");
+                .containsExactly(
+                        "ecclesiaflow.church.ChurchService.RepublishActiveMemberships",
+                        "ecclesiaflow.events.auth.v1.SetupTokenIssuedEvent.raw_token");
     }
 
     private static List<String> deprecatedElements() {
