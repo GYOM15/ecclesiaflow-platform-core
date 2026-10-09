@@ -173,6 +173,7 @@ class ContractWireCompatibilityTest {
               RevokeRealmRole ecclesiaflow.auth.RevokeRealmRoleRequest -> ecclesiaflow.auth.RevokeRealmRoleResponse
               SetChurchClaims ecclesiaflow.auth.SetChurchClaimsRequest -> ecclesiaflow.auth.SetChurchClaimsResponse
               SendExistingAccountNotice ecclesiaflow.auth.SendExistingAccountNoticeRequest -> ecclesiaflow.auth.SendExistingAccountNoticeResponse
+              NoticeSignupOnAddress ecclesiaflow.auth.NoticeSignupOnAddressRequest -> ecclesiaflow.auth.NoticeSignupOnAddressResponse
             message ecclesiaflow.auth.TemporaryTokenRequest
               1 string email
               2 string member_id
@@ -246,6 +247,10 @@ class ContractWireCompatibilityTest {
             message ecclesiaflow.auth.SendExistingAccountNoticeRequest
               1 string keycloak_user_id
             message ecclesiaflow.auth.SendExistingAccountNoticeResponse
+            message ecclesiaflow.auth.NoticeSignupOnAddressRequest
+              1 string email
+            message ecclesiaflow.auth.NoticeSignupOnAddressResponse
+              1 bool account_exists
             file ecclesiaflow/church/church_service.proto package ecclesiaflow.church java_package com.ecclesiaflow.grpc.church
             service ecclesiaflow.church.ChurchService
               OnSignupCompleted ecclesiaflow.church.OnSignupCompletedRequest -> ecclesiaflow.church.OnSignupCompletedResponse
