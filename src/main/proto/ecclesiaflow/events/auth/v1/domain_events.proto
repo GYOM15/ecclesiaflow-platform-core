@@ -63,11 +63,12 @@ message SetupTokenIssuedEvent {
 // Emitted when a signup targets an email whose Keycloak account already exists
 // and holds no pending setup token: a church-signup replay through
 // ProvisionUserAndIssueSetupToken, whose call still fails FAILED_PRECONDITION,
-// or a member signup through SendExistingAccountNotice. Anti-enumeration: the
-// signup client learns nothing; this fire-and-forget event lets
-// communication-module tell the REAL inbox owner they already have an account,
-// with a log-in / reset-password call to action. It carries no attacker-
-// supplied data — only the account's own email and the existing user's locale.
+// or a member signup through SendExistingAccountNotice or NoticeSignupOnAddress.
+// Anti-enumeration: the signup client learns nothing; this fire-and-forget
+// event lets communication-module tell the REAL inbox owner they already have
+// an account, with a log-in / reset-password call to action. It carries no
+// attacker-supplied data — only the account's own email and the existing
+// user's locale.
 // Routing key: "auth.existing-account.notice.v1".
 message ExistingAccountNoticeEvent {
   // Recipient email — the existing account's address (its login username).
