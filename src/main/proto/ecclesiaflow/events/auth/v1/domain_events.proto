@@ -87,3 +87,33 @@ message ExistingAccountNoticeEvent {
   // such a notice cannot be deduplicated and is handled as before.
   string event_id = 3;
 }
+
+// Emitted after auth removed a member's second factor at their own request: the
+// whole of it, or one authenticator app. Keycloak sends no notice for a removal
+// made through its admin API, so communication-module tells the account's inbox,
+// which a stolen recent session cannot silence. Carries no device label: that
+// is text the member typed.
+// Routing key: "auth.two-factor.removed.v1".
+message TwoFactorRemovedEvent {
+  // UUIDv4. The outbox delivers at least once: consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC).
+  int64 occurred_at_epoch_ms = 2;
+
+  // Recipient email: the account's address (its login username).
+  string email = 3;
+
+  // The account's locale (BCP-47). Empty or unsupported: "fr".
+  string locale = 4;
+
+  enum Removal {
+    // A producer newer than the consumer: render the generic notice.
+    REMOVAL_UNSPECIFIED = 0;
+    // Every authenticator app and the backup codes: two-step verification is off.
+    REMOVAL_ALL = 1;
+    // One authenticator app; at least one other remains.
+    REMOVAL_DEVICE = 2;
+  }
+  Removal removal = 5;
+}

@@ -224,6 +224,10 @@ message SetChurchClaimsRequest {
   repeated string capabilities = 4;
   // When the capabilities lapse, in ms since the Unix epoch; 0 for never.
   int64 capabilities_expire_at_epoch_ms = 5;
+  // Whether this person must sign in with a second factor: owner, admin, pastor
+  // or any finance right, which the token never carries. Absent: a caller older
+  // than this field; auth then keeps the stored value, except for an admin.
+  optional bool two_factor_required = 6;
 }
 
 // Failures are reported through the gRPC status, never in the response.

@@ -7,6 +7,7 @@ import com.ecclesiaflow.grpc.email.EmailServiceProto;
 import com.ecclesiaflow.grpc.events.auth.AuthDomainEventsProto;
 import com.ecclesiaflow.grpc.events.auth.ExistingAccountNoticeEvent;
 import com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent;
+import com.ecclesiaflow.grpc.events.auth.TwoFactorRemovedEvent;
 import com.ecclesiaflow.grpc.events.church.ChurchDomainEventsProto;
 import com.ecclesiaflow.grpc.events.church.ChurchInvitationCreatedEvent;
 import com.ecclesiaflow.grpc.events.church.MemberAddedToGroupEvent;
@@ -62,7 +63,7 @@ class ContractWireCompatibilityTest {
     @Test
     @DisplayName("Messages sent over RabbitMQ keep the class name their consumers resolve from __TypeId__")
     void queuedMessagesKeepTheirJavaNames() {
-        assertThat(List.of(SetupTokenIssuedEvent.class, ExistingAccountNoticeEvent.class,
+        assertThat(List.of(SetupTokenIssuedEvent.class, ExistingAccountNoticeEvent.class, TwoFactorRemovedEvent.class,
                 ChurchInvitationCreatedEvent.class, MemberRemovedFromChurchEvent.class,
                 MemberAdmittedToChurchEvent.class, MemberAddedToGroupEvent.class,
                 MemberRemovedFromGroupEvent.class, MemberProfileChangedEvent.class,
@@ -72,6 +73,7 @@ class ContractWireCompatibilityTest {
                 .containsExactly(
                         "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent",
                         "com.ecclesiaflow.grpc.events.auth.ExistingAccountNoticeEvent",
+                        "com.ecclesiaflow.grpc.events.auth.TwoFactorRemovedEvent",
                         "com.ecclesiaflow.grpc.events.church.ChurchInvitationCreatedEvent",
                         "com.ecclesiaflow.grpc.events.church.MemberRemovedFromChurchEvent",
                         "com.ecclesiaflow.grpc.events.church.MemberAdmittedToChurchEvent",
@@ -243,6 +245,7 @@ class ContractWireCompatibilityTest {
               3 bool church_admin
               4 repeated string capabilities
               5 int64 capabilities_expire_at_epoch_ms
+              6 optional bool two_factor_required
             message ecclesiaflow.auth.SetChurchClaimsResponse
             message ecclesiaflow.auth.SendExistingAccountNoticeRequest
               1 string keycloak_user_id
@@ -424,6 +427,16 @@ class ContractWireCompatibilityTest {
               1 string email
               2 string locale
               3 string event_id
+            message ecclesiaflow.events.auth.v1.TwoFactorRemovedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string email
+              4 string locale
+              5 ecclesiaflow.events.auth.v1.TwoFactorRemovedEvent.Removal removal
+            enum ecclesiaflow.events.auth.v1.TwoFactorRemovedEvent.Removal
+              0 REMOVAL_UNSPECIFIED
+              1 REMOVAL_ALL
+              2 REMOVAL_DEVICE
             file ecclesiaflow/events/church/v1/church_events.proto package ecclesiaflow.events.church.v1 java_package com.ecclesiaflow.grpc.events.church
             message ecclesiaflow.events.church.v1.ChurchInvitationCreatedEvent
               1 string event_id
