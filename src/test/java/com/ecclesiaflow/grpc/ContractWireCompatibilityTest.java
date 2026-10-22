@@ -4,22 +4,33 @@ import com.ecclesiaflow.grpc.auth.AuthServiceProto;
 import com.ecclesiaflow.grpc.church.ChurchServiceProto;
 import com.ecclesiaflow.grpc.email.EmailQueueMessage;
 import com.ecclesiaflow.grpc.email.EmailServiceProto;
+import com.ecclesiaflow.grpc.events.EventOptionsProto;
+import com.ecclesiaflow.grpc.events.EventRoutes;
+import com.ecclesiaflow.grpc.events.auth.AccountSessionsRevokedEvent;
 import com.ecclesiaflow.grpc.events.auth.AuthDomainEventsProto;
 import com.ecclesiaflow.grpc.events.auth.ExistingAccountNoticeEvent;
 import com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent;
 import com.ecclesiaflow.grpc.events.auth.TwoFactorRemovedEvent;
+import com.ecclesiaflow.grpc.events.chat.ChatDomainEventsProto;
+import com.ecclesiaflow.grpc.events.chat.ChatMessagePostedEvent;
 import com.ecclesiaflow.grpc.events.church.ChurchDomainEventsProto;
 import com.ecclesiaflow.grpc.events.church.ChurchInvitationCreatedEvent;
 import com.ecclesiaflow.grpc.events.church.MemberAddedToGroupEvent;
 import com.ecclesiaflow.grpc.events.church.MemberAdmittedToChurchEvent;
 import com.ecclesiaflow.grpc.events.church.MemberRemovedFromChurchEvent;
 import com.ecclesiaflow.grpc.events.church.MemberRemovedFromGroupEvent;
+import com.ecclesiaflow.grpc.events.church.NotificationCreatedEvent;
 import com.ecclesiaflow.grpc.events.members.MemberAnonymizedEvent;
 import com.ecclesiaflow.grpc.events.members.MemberContactsErasedEvent;
 import com.ecclesiaflow.grpc.events.members.MemberDeactivatedEvent;
 import com.ecclesiaflow.grpc.events.members.MemberProfileChangedEvent;
 import com.ecclesiaflow.grpc.events.members.MemberReactivatedEvent;
+import com.ecclesiaflow.grpc.events.members.MemberSuspendedEvent;
+import com.ecclesiaflow.grpc.events.members.MemberSuspensionLiftedEvent;
 import com.ecclesiaflow.grpc.events.members.MembersDomainEventsProto;
+import com.ecclesiaflow.grpc.events.moderation.ContentReportedEvent;
+import com.ecclesiaflow.grpc.events.moderation.ModerationActionTakenEvent;
+import com.ecclesiaflow.grpc.events.moderation.ModerationDomainEventsProto;
 import com.ecclesiaflow.grpc.members.MembersServiceProto;
 import com.google.protobuf.DescriptorProtos.DescriptorProto;
 import com.google.protobuf.DescriptorProtos.EnumDescriptorProto;
@@ -33,8 +44,22 @@ import com.google.protobuf.Descriptors.ServiceDescriptor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,19 +70,110 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ContractWireCompatibilityTest {
 
-    private static final List<FileDescriptor> CONTRACTS = List.of(
+    static final List<FileDescriptor> CONTRACTS = List.of(
             AuthServiceProto.getDescriptor(),
             ChurchServiceProto.getDescriptor(),
             MembersServiceProto.getDescriptor(),
             EmailServiceProto.getDescriptor(),
+            EventOptionsProto.getDescriptor(),
             AuthDomainEventsProto.getDescriptor(),
             ChurchDomainEventsProto.getDescriptor(),
-            MembersDomainEventsProto.getDescriptor());
+            MembersDomainEventsProto.getDescriptor(),
+            ChatDomainEventsProto.getDescriptor(),
+            ModerationDomainEventsProto.getDescriptor());
+
+    private static final Path PROTO_ROOT = Path.of("src/main/proto");
+
+    private static final String EVENTS_DIRECTORY = "ecclesiaflow/events/";
+
+    // Its event_id came later, at number 3: a notice from an older auth build cannot be deduplicated.
+    private static final List<String> ENVELOPE_EXCEPTIONS =
+            List.of("ecclesiaflow.events.auth.v1.ExistingAccountNoticeEvent");
+
+    // Published before the <module>.<aggregate>.<fact>.v<n> rule; a key never changes, so they keep their form.
+    private static final Set<String> UNVERSIONED_KEYS = Set.of(
+            "members.profile.changed",
+            "members.profile.anonymized",
+            "members.contacts.erased",
+            "members.account.deactivated",
+            "members.account.reactivated");
+
+    private static final Pattern VERSIONED_KEY = Pattern.compile(
+            "(auth|church|members|chat|communication)\\.[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*\\.v[1-9][0-9]*");
 
     @Test
     @DisplayName("Packages, RPCs, field numbers and types match what the deployed services exchange")
     void contractsMatchTheWire() {
         assertThat(snapshot()).isEqualTo(WIRE);
+    }
+
+    @Test
+    @DisplayName("Every .proto file of the library is pinned here")
+    void everyContractFileIsPinned() throws IOException {
+        try (Stream<Path> files = Files.walk(PROTO_ROOT)) {
+            assertThat(files.filter(path -> path.toString().endsWith(".proto"))
+                    .map(path -> PROTO_ROOT.relativize(path).toString().replace('\\', '/')))
+                    .containsExactlyInAnyOrderElementsOf(
+                            CONTRACTS.stream().map(FileDescriptor::getName).toList());
+        }
+    }
+
+    @Test
+    @DisplayName("Every event message opens with event_id = 1 and occurred_at_epoch_ms = 2, one exception frozen")
+    void everyEventCarriesTheEnvelope() {
+        assertThat(events().stream().filter(event -> !hasEnvelope(event)).map(Descriptor::getFullName))
+                .containsExactlyElementsOf(ENVELOPE_EXCEPTIONS);
+    }
+
+    @Test
+    @DisplayName("Every event message declares its routing keys, one per publishing module")
+    void everyEventDeclaresItsRoutingKeys() {
+        assertThat(events()).allSatisfy(event -> {
+            List<String> keys = routingKeys(event);
+            assertThat(keys).as(event.getFullName()).isNotEmpty().doesNotHaveDuplicates();
+            assertThat(keys.stream().map(key -> key.substring(0, key.indexOf('.'))))
+                    .as("publishing modules of " + event.getFullName()).doesNotHaveDuplicates();
+        });
+    }
+
+    @Test
+    @DisplayName("A routing key belongs to one message and never changes")
+    void routingKeysAreOwnedOnceAndFrozen() {
+        Map<String, List<String>> owners = new LinkedHashMap<>();
+        events().forEach(event -> routingKeys(event).forEach(key ->
+                owners.computeIfAbsent(key, k -> new ArrayList<>()).add(event.getFullName())));
+
+        assertThat(owners).allSatisfy((key, messages) -> assertThat(messages).as(key).hasSize(1));
+        assertThat(routes()).isEqualTo(ROUTES);
+    }
+
+    @Test
+    @DisplayName("A new routing key reads <module>.<aggregate>.<fact>.v<n>; the unversioned ones are frozen")
+    void routingKeysFollowTheNamingRule() {
+        assertThat(allRoutingKeys().stream().filter(key -> !VERSIONED_KEY.matcher(key).matches()))
+                .containsExactlyInAnyOrderElementsOf(UNVERSIONED_KEYS);
+    }
+
+    @Test
+    @DisplayName("EventRoutes holds one constant per declared routing key, named after it")
+    void eventRoutesMirrorsTheDeclaredKeys() throws IllegalAccessException {
+        Map<String, String> constants = new TreeMap<>();
+        for (Field field : EventRoutes.class.getDeclaredFields()) {
+            int modifiers = field.getModifiers();
+            if (!field.isSynthetic()) {
+                assertThat(Modifier.isPublic(modifiers) && Modifier.isStatic(modifiers)
+                        && Modifier.isFinal(modifiers) && field.getType() == String.class)
+                        .as(field.getName()).isTrue();
+                constants.put(field.getName(), (String) field.get(null));
+            }
+        }
+
+        assertThat(constants).isEqualTo(allRoutingKeys().stream()
+                .collect(Collectors.toMap(ContractWireCompatibilityTest::constantName, key -> key,
+                        (first, second) -> {
+                            throw new IllegalStateException("two keys share the constant of " + first);
+                        },
+                        TreeMap::new)));
     }
 
     @Test
@@ -68,7 +184,10 @@ class ContractWireCompatibilityTest {
                 MemberAdmittedToChurchEvent.class, MemberAddedToGroupEvent.class,
                 MemberRemovedFromGroupEvent.class, MemberProfileChangedEvent.class,
                 MemberAnonymizedEvent.class, MemberContactsErasedEvent.class,
-                MemberDeactivatedEvent.class, MemberReactivatedEvent.class, EmailQueueMessage.class))
+                MemberDeactivatedEvent.class, MemberReactivatedEvent.class, EmailQueueMessage.class,
+                AccountSessionsRevokedEvent.class, MemberSuspendedEvent.class, MemberSuspensionLiftedEvent.class,
+                NotificationCreatedEvent.class, ChatMessagePostedEvent.class, ContentReportedEvent.class,
+                ModerationActionTakenEvent.class))
                 .extracting(Class::getName)
                 .containsExactly(
                         "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent",
@@ -84,7 +203,51 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.events.members.MemberContactsErasedEvent",
                         "com.ecclesiaflow.grpc.events.members.MemberDeactivatedEvent",
                         "com.ecclesiaflow.grpc.events.members.MemberReactivatedEvent",
-                        "com.ecclesiaflow.grpc.email.EmailQueueMessage");
+                        "com.ecclesiaflow.grpc.email.EmailQueueMessage",
+                        "com.ecclesiaflow.grpc.events.auth.AccountSessionsRevokedEvent",
+                        "com.ecclesiaflow.grpc.events.members.MemberSuspendedEvent",
+                        "com.ecclesiaflow.grpc.events.members.MemberSuspensionLiftedEvent",
+                        "com.ecclesiaflow.grpc.events.church.NotificationCreatedEvent",
+                        "com.ecclesiaflow.grpc.events.chat.ChatMessagePostedEvent",
+                        "com.ecclesiaflow.grpc.events.moderation.ContentReportedEvent",
+                        "com.ecclesiaflow.grpc.events.moderation.ModerationActionTakenEvent");
+    }
+
+    private static List<Descriptor> events() {
+        return CONTRACTS.stream()
+                .filter(file -> file.getName().startsWith(EVENTS_DIRECTORY))
+                .flatMap(file -> file.getMessageTypes().stream())
+                .toList();
+    }
+
+    private static boolean hasEnvelope(Descriptor event) {
+        FieldDescriptor id = event.findFieldByNumber(1);
+        FieldDescriptor occurredAt = event.findFieldByNumber(2);
+        return id != null && "event_id".equals(id.getName())
+                && id.getType() == FieldDescriptor.Type.STRING && !id.isRepeated()
+                && occurredAt != null && "occurred_at_epoch_ms".equals(occurredAt.getName())
+                && occurredAt.getType() == FieldDescriptor.Type.INT64 && !occurredAt.isRepeated();
+    }
+
+    private static List<String> routingKeys(Descriptor event) {
+        return event.getOptions().getExtension(EventOptionsProto.routingKeys);
+    }
+
+    private static Set<String> allRoutingKeys() {
+        Set<String> keys = new HashSet<>();
+        events().forEach(event -> keys.addAll(routingKeys(event)));
+        return keys;
+    }
+
+    private static String routes() {
+        StringBuilder out = new StringBuilder();
+        events().forEach(event -> routingKeys(event).forEach(key ->
+                out.append(key).append(' ').append(event.getFullName()).append('\n')));
+        return out.toString();
+    }
+
+    private static String constantName(String key) {
+        return key.toUpperCase(Locale.ROOT).replace('.', '_').replace('-', '_');
     }
 
     private static String snapshot() {
@@ -93,6 +256,11 @@ class ContractWireCompatibilityTest {
             out.append("file ").append(file.getName())
                     .append(" package ").append(file.getPackage())
                     .append(" java_package ").append(file.getOptions().getJavaPackage()).append('\n');
+            file.getExtensions().forEach(extension -> out.append("extend ")
+                    .append(extension.getContainingType().getFullName())
+                    .append(' ').append(extension.getNumber())
+                    .append(' ').append(typeOf(extension))
+                    .append(' ').append(extension.getName()).append('\n'));
             file.getServices().forEach(service -> render(service, out));
             file.getMessageTypes().forEach(message -> render(message, out));
             file.getEnumTypes().forEach(enumType -> render(enumType, out));
@@ -176,6 +344,7 @@ class ContractWireCompatibilityTest {
               SetChurchClaims ecclesiaflow.auth.SetChurchClaimsRequest -> ecclesiaflow.auth.SetChurchClaimsResponse
               SendExistingAccountNotice ecclesiaflow.auth.SendExistingAccountNoticeRequest -> ecclesiaflow.auth.SendExistingAccountNoticeResponse
               NoticeSignupOnAddress ecclesiaflow.auth.NoticeSignupOnAddressRequest -> ecclesiaflow.auth.NoticeSignupOnAddressResponse
+              GetSignInMethods ecclesiaflow.auth.GetSignInMethodsRequest -> ecclesiaflow.auth.GetSignInMethodsResponse
             message ecclesiaflow.auth.TemporaryTokenRequest
               1 string email
               2 string member_id
@@ -254,11 +423,17 @@ class ContractWireCompatibilityTest {
               1 string email
             message ecclesiaflow.auth.NoticeSignupOnAddressResponse
               1 bool account_exists
+            message ecclesiaflow.auth.GetSignInMethodsRequest
+              1 string keycloak_user_id
+            message ecclesiaflow.auth.GetSignInMethodsResponse
+              1 bool has_password
+              2 repeated string linked_providers
             file ecclesiaflow/church/church_service.proto package ecclesiaflow.church java_package com.ecclesiaflow.grpc.church
             service ecclesiaflow.church.ChurchService
               OnSignupCompleted ecclesiaflow.church.OnSignupCompletedRequest -> ecclesiaflow.church.OnSignupCompletedResponse
               RepublishActiveMemberships ecclesiaflow.church.RepublishActiveMembershipsRequest -> ecclesiaflow.church.RepublishActiveMembershipsResponse
               CheckAccountClosure ecclesiaflow.church.CheckAccountClosureRequest -> ecclesiaflow.church.CheckAccountClosureResponse
+              CanModerateGroupContent ecclesiaflow.church.CanModerateGroupContentRequest -> ecclesiaflow.church.CanModerateGroupContentResponse
             message ecclesiaflow.church.OnSignupCompletedRequest
               1 string user_id
               2 string church_id
@@ -275,6 +450,12 @@ class ContractWireCompatibilityTest {
             message ecclesiaflow.church.CheckAccountClosureResponse
               1 repeated string owned_church_ids
               2 repeated string last_admin_church_ids
+            message ecclesiaflow.church.CanModerateGroupContentRequest
+              1 string keycloak_user_id
+              2 string church_id
+              3 string church_group_id
+            message ecclesiaflow.church.CanModerateGroupContentResponse
+              1 bool allowed
             enum ecclesiaflow.church.ActivationStatus
               0 ACTIVATION_STATUS_UNSPECIFIED
               1 ACTIVATED
@@ -397,6 +578,10 @@ class ContractWireCompatibilityTest {
               6 EMAIL_TEMPLATE_EMAIL_CHANGE_VERIFICATION
               7 EMAIL_TEMPLATE_CHURCH_SIGNUP_SETUP
               8 EMAIL_TEMPLATE_CHURCH_INVITATION
+              9 EMAIL_TEMPLATE_SUSPENSION_NOTICE
+              10 EMAIL_TEMPLATE_SENSITIVE_ACTION_CONFIRMATION
+              11 EMAIL_TEMPLATE_ACCOUNT_DELETION_REQUESTED
+              12 EMAIL_TEMPLATE_ACCOUNT_DELETED
               reserved 1
               reserved 2
             enum ecclesiaflow.email.Priority
@@ -411,6 +596,8 @@ class ContractWireCompatibilityTest {
               3 STATUS_DELIVERED
               4 STATUS_FAILED
               5 STATUS_BOUNCED
+            file ecclesiaflow/events/event_options.proto package ecclesiaflow.events java_package com.ecclesiaflow.grpc.events
+            extend google.protobuf.MessageOptions 50001 repeated string routing_keys
             file ecclesiaflow/events/auth/v1/domain_events.proto package ecclesiaflow.events.auth.v1 java_package com.ecclesiaflow.grpc.events.auth
             message ecclesiaflow.events.auth.v1.SetupTokenIssuedEvent
               1 string event_id
@@ -437,6 +624,12 @@ class ContractWireCompatibilityTest {
               0 REMOVAL_UNSPECIFIED
               1 REMOVAL_ALL
               2 REMOVAL_DEVICE
+            message ecclesiaflow.events.auth.v1.AccountSessionsRevokedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string keycloak_user_id
+              4 string reason
+              5 int64 revoked_at_epoch_ms
             file ecclesiaflow/events/church/v1/church_events.proto package ecclesiaflow.events.church.v1 java_package com.ecclesiaflow.grpc.events.church
             message ecclesiaflow.events.church.v1.ChurchInvitationCreatedEvent
               1 string event_id
@@ -473,6 +666,19 @@ class ContractWireCompatibilityTest {
               4 string group_id
               5 string member_user_id
               6 string member_display_name
+            message ecclesiaflow.events.church.v1.NotificationCreatedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string church_id
+              4 string type
+              5 ecclesiaflow.events.church.v1.NotificationCreatedEvent.Target target
+              6 repeated ecclesiaflow.events.church.v1.NotificationCreatedEvent.Recipient recipients
+            message ecclesiaflow.events.church.v1.NotificationCreatedEvent.Target
+              1 string kind
+              2 string id
+            message ecclesiaflow.events.church.v1.NotificationCreatedEvent.Recipient
+              1 string keycloak_user_id
+              2 string notification_id
             file ecclesiaflow/events/members/v1/members_events.proto package ecclesiaflow.events.members.v1 java_package com.ecclesiaflow.grpc.events.members
             message ecclesiaflow.events.members.v1.MemberProfileChangedEvent
               1 string event_id
@@ -505,9 +711,75 @@ class ContractWireCompatibilityTest {
               2 int64 occurred_at_epoch_ms
               3 string keycloak_user_id
               4 repeated string recipient_digests
+            message ecclesiaflow.events.members.v1.MemberSuspendedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string keycloak_user_id
+              4 string reason_code
+            message ecclesiaflow.events.members.v1.MemberSuspensionLiftedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string keycloak_user_id
+              4 string reason_code
             enum ecclesiaflow.events.members.v1.BaptismDeclaration
               0 BAPTISM_DECLARATION_UNSPECIFIED
               1 BAPTISM_DECLARATION_NOT_BAPTISED
               2 BAPTISM_DECLARATION_BAPTISED
+            file ecclesiaflow/events/chat/v1/chat_events.proto package ecclesiaflow.events.chat.v1 java_package com.ecclesiaflow.grpc.events.chat
+            message ecclesiaflow.events.chat.v1.ChatMessagePostedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string church_id
+              4 string conversation_id
+              5 string message_id
+              6 string sender_user_id
+              7 string conversation_kind
+              8 bool is_request
+              9 repeated string recipient_user_ids
+            file ecclesiaflow/events/moderation/v1/moderation_events.proto package ecclesiaflow.events.moderation.v1 java_package com.ecclesiaflow.grpc.events.moderation
+            message ecclesiaflow.events.moderation.v1.ContentReportedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string report_id
+              4 string content_kind
+              5 string content_id
+              6 string container_kind
+              7 string container_id
+              8 string church_id
+              9 string reporter_user_id
+              10 string author_user_id
+              11 string reason
+            message ecclesiaflow.events.moderation.v1.ModerationActionTakenEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string report_id
+              4 string action
+              5 string actor_user_id
+            """;
+
+    private static final String ROUTES = """
+            auth.setup-token.issued.v1 ecclesiaflow.events.auth.v1.SetupTokenIssuedEvent
+            auth.existing-account.notice.v1 ecclesiaflow.events.auth.v1.ExistingAccountNoticeEvent
+            auth.two-factor.removed.v1 ecclesiaflow.events.auth.v1.TwoFactorRemovedEvent
+            auth.account.sessions-revoked.v1 ecclesiaflow.events.auth.v1.AccountSessionsRevokedEvent
+            church.invitation.created.v1 ecclesiaflow.events.church.v1.ChurchInvitationCreatedEvent
+            church.member.removed-from-church.v1 ecclesiaflow.events.church.v1.MemberRemovedFromChurchEvent
+            church.member.admitted-to-church.v1 ecclesiaflow.events.church.v1.MemberAdmittedToChurchEvent
+            church.member.added-to-group.v1 ecclesiaflow.events.church.v1.MemberAddedToGroupEvent
+            church.member.removed-from-group.v1 ecclesiaflow.events.church.v1.MemberRemovedFromGroupEvent
+            church.notification.created.v1 ecclesiaflow.events.church.v1.NotificationCreatedEvent
+            members.profile.changed ecclesiaflow.events.members.v1.MemberProfileChangedEvent
+            members.profile.anonymized ecclesiaflow.events.members.v1.MemberAnonymizedEvent
+            members.contacts.erased ecclesiaflow.events.members.v1.MemberContactsErasedEvent
+            members.account.deactivated ecclesiaflow.events.members.v1.MemberDeactivatedEvent
+            members.account.reactivated ecclesiaflow.events.members.v1.MemberReactivatedEvent
+            members.account.suspended.v1 ecclesiaflow.events.members.v1.MemberSuspendedEvent
+            members.account.suspension-lifted.v1 ecclesiaflow.events.members.v1.MemberSuspensionLiftedEvent
+            chat.message.posted.v1 ecclesiaflow.events.chat.v1.ChatMessagePostedEvent
+            chat.content.reported.v1 ecclesiaflow.events.moderation.v1.ContentReportedEvent
+            church.content.reported.v1 ecclesiaflow.events.moderation.v1.ContentReportedEvent
+            chat.moderation.action-taken.v1 ecclesiaflow.events.moderation.v1.ModerationActionTakenEvent
+            church.moderation.action-taken.v1 ecclesiaflow.events.moderation.v1.ModerationActionTakenEvent
+            members.moderation.action-taken.v1 ecclesiaflow.events.moderation.v1.ModerationActionTakenEvent
             """;
 }

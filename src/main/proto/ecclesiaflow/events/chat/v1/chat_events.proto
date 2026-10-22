@@ -1,0 +1,53 @@
+// Published by the chat module. Consumers load the class named by the __TypeId__
+// header, so java_package and message names are on the wire like field numbers.
+
+syntax = "proto3";
+
+import "ecclesiaflow/events/event_options.proto";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.events.chat";
+option java_outer_classname = "ChatDomainEventsProto";
+
+package ecclesiaflow.events.chat.v1;
+
+// Emitted when a message is posted, so communication pushes it. It targets
+// every admitted recipient whether or not they are connected: an open web tab
+// must not silence the phone. One event per batch of at most 500 recipients.
+// Carries no text, name nor title: whatever the push says crosses Expo, APNs
+// and FCM in clear, and the app reads the message itself when touched.
+message ChatMessagePostedEvent {
+  option (ecclesiaflow.events.routing_keys) = "chat.message.posted.v1";
+
+  // Deterministic, "chat-msg:<message_id>:<batch>": a batch staged twice keeps
+  // its id, and consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the message was posted.
+  int64 occurred_at_epoch_ms = 2;
+
+  // The church the conversation belongs to.
+  string church_id = 3;
+
+  // The conversation, which groups the pushes of its messages on the device.
+  string conversation_id = 4;
+
+  // The posted message.
+  string message_id = 5;
+
+  // The sender's Keycloak sub; never among recipient_user_ids.
+  string sender_user_id = 6;
+
+  // The conversation's type, as chat names it: DIRECT or GROUP today. Open,
+  // never an enum: an unknown kind is pushed as a message.
+  string conversation_kind = 7;
+
+  // True while the conversation is a pending request, whose pushes
+  // communication limits per sender and recipient.
+  bool is_request = 8;
+
+  // Keycloak subs of this batch's recipients: active participants other than
+  // the sender, except those who blocked the sender and those severed, gone or
+  // deactivated. At most 500: a larger conversation is split into batches.
+  repeated string recipient_user_ids = 9;
+}

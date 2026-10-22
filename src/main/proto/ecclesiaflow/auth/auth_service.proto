@@ -30,6 +30,10 @@ service AuthService {
   // The same notice for a member signup whose address has no member record:
   // only auth can see that Keycloak already holds the address.
   rpc NoticeSignupOnAddress(NoticeSignupOnAddressRequest) returns (NoticeSignupOnAddressResponse);
+  // How an account signs in, read from Keycloak. Re-authentication is decided
+  // on a linked provider, a fact of the account, never on how the last session
+  // was opened. Scope ef:auth:sign-in-methods:read, granted to members only.
+  rpc GetSignInMethods(GetSignInMethodsRequest) returns (GetSignInMethodsResponse);
 }
 
 // ============================================================================
@@ -262,4 +266,22 @@ message NoticeSignupOnAddressRequest {
 // account lookup, so it must never reach the signup client.
 message NoticeSignupOnAddressResponse {
   bool account_exists = 1;
+}
+
+// ============================================================================
+// Get Sign In Methods
+// ============================================================================
+
+message GetSignInMethodsRequest {
+  string keycloak_user_id = 1;
+}
+
+// Failures are reported through the gRPC status, never in the response: a
+// caller that gets no answer refuses the sensitive gesture, never lets it pass.
+message GetSignInMethodsResponse {
+  // Whether the account holds a password credential.
+  bool has_password = 1;
+  // Aliases of the identity providers linked to the account, such as "google".
+  // Open: any value is a linked provider, even one the caller does not know.
+  repeated string linked_providers = 2;
 }

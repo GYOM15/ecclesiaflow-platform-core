@@ -3,6 +3,8 @@
 
 syntax = "proto3";
 
+import "ecclesiaflow/events/event_options.proto";
+
 option java_multiple_files = true;
 option java_package = "com.ecclesiaflow.grpc.events.auth";
 option java_outer_classname = "AuthDomainEventsProto";
@@ -17,8 +19,9 @@ package ecclesiaflow.events.auth.v1;
 // Emitted right after a setup_token row is persisted, by either:
 //   - GenerateTemporaryToken (legacy member flow)
 //   - ProvisionUserAndIssueSetupToken (church signup flow)
-// Routing key: "auth.setup-token.issued.v1".
 message SetupTokenIssuedEvent {
+  option (ecclesiaflow.events.routing_keys) = "auth.setup-token.issued.v1";
+
   // UUIDv4. Consumers may dedupe on this to make their handler idempotent.
   string event_id = 1;
 
@@ -69,8 +72,9 @@ message SetupTokenIssuedEvent {
 // an account, with a log-in / reset-password call to action. It carries no
 // attacker-supplied data — only the account's own email and the existing
 // user's locale.
-// Routing key: "auth.existing-account.notice.v1".
 message ExistingAccountNoticeEvent {
+  option (ecclesiaflow.events.routing_keys) = "auth.existing-account.notice.v1";
+
   // Recipient email — the existing account's address (its login username).
   string email = 1;
 
@@ -93,8 +97,9 @@ message ExistingAccountNoticeEvent {
 // made through its admin API, so communication-module tells the account's inbox,
 // which a stolen recent session cannot silence. Carries no device label: that
 // is text the member typed.
-// Routing key: "auth.two-factor.removed.v1".
 message TwoFactorRemovedEvent {
+  option (ecclesiaflow.events.routing_keys) = "auth.two-factor.removed.v1";
+
   // UUIDv4. The outbox delivers at least once: consumers dedupe on it.
   string event_id = 1;
 
@@ -116,4 +121,32 @@ message TwoFactorRemovedEvent {
     REMOVAL_DEVICE = 2;
   }
   Removal removal = 5;
+}
+
+// Emitted once auth has revoked every session of an account: the mobile
+// clients' offline sessions purged and the user's notBefore set. Chat closes
+// the account's sockets and communication deletes its push devices, each
+// keeping revoked_at_epoch_ms as a mark that never moves back, so an older
+// event redelivered late changes nothing.
+message AccountSessionsRevokedEvent {
+  option (ecclesiaflow.events.routing_keys) = "auth.account.sessions-revoked.v1";
+
+  // Unique per revocation. The outbox delivers at least once: consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC).
+  int64 occurred_at_epoch_ms = 2;
+
+  // The account's Keycloak sub.
+  string keycloak_user_id = 3;
+
+  // Why the sessions were revoked. Open, never an enum: USER_REQUEST,
+  // ACCOUNT_DEACTIVATED, ACCOUNT_SUSPENDED and PLATFORM_ADMIN today; a value a
+  // consumer does not know is still a revocation.
+  string reason = 4;
+
+  // The user's notBefore as Keycloak set it, in milliseconds. A token is
+  // revoked when iat < revoked_at_epoch_ms / 1000, in whole seconds and strict,
+  // like Keycloak's NotBeforeCheck: a sign-in within that second stays valid.
+  int64 revoked_at_epoch_ms = 5;
 }

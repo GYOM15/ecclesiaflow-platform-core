@@ -1,0 +1,83 @@
+// Published by every module that holds reportable content or acts on it, each
+// under its own routing key. Consumers load the class named by the __TypeId__
+// header, so java_package and message names are on the wire like field numbers.
+
+syntax = "proto3";
+
+import "ecclesiaflow/events/event_options.proto";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.events.moderation";
+option java_outer_classname = "ModerationDomainEventsProto";
+
+package ecclesiaflow.events.moderation.v1;
+
+// Emitted when a member reports content, by the module that holds it: church
+// opens its moderation record, whose dates prove the moderation deadline, and
+// communication lists the report in the hourly summary. Carries no content:
+// the snapshot stays in the source module, under its retention rule.
+message ContentReportedEvent {
+  option (ecclesiaflow.events.routing_keys) = "chat.content.reported.v1";
+  option (ecclesiaflow.events.routing_keys) = "church.content.reported.v1";
+
+  // Unique per report and producer. Consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the report was opened: the
+  // moderation deadline runs from it.
+  int64 occurred_at_epoch_ms = 2;
+
+  // The report in the source module, named again by ModerationActionTakenEvent.
+  string report_id = 3;
+
+  // What was reported. Open, never an enum: CHAT_MESSAGE, CHAT_IMAGE,
+  // CHAT_USER, EVENT_COMMENT, ANNOUNCEMENT and EVENT today.
+  string content_kind = 4;
+
+  string content_id = 5;
+
+  // What holds the content, such as the conversation of a message or the event
+  // of a comment. Open, never an enum; empty with container_id when the content
+  // stands alone.
+  string container_kind = 6;
+
+  string container_id = 7;
+
+  string church_id = 8;
+
+  // Keycloak sub of the member who reported. Never shown to a church admin: in
+  // a small congregation it would expose them.
+  string reporter_user_id = 9;
+
+  // Keycloak sub of the content's author.
+  string author_user_id = 10;
+
+  // Why it was reported. Open, never an enum: SPAM, HARASSMENT, HATE, SEXUAL,
+  // VIOLENCE, CHILD_SAFETY and OTHER today.
+  string reason = 11;
+}
+
+// Emitted when a moderator acts, by the module that acts: church dates the
+// action in its moderation record, since the deadline runs until the first
+// action, whoever takes it.
+message ModerationActionTakenEvent {
+  option (ecclesiaflow.events.routing_keys) = "chat.moderation.action-taken.v1";
+  option (ecclesiaflow.events.routing_keys) = "church.moderation.action-taken.v1";
+  option (ecclesiaflow.events.routing_keys) = "members.moderation.action-taken.v1";
+
+  // Unique per action and producer. Consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the action was taken.
+  int64 occurred_at_epoch_ms = 2;
+
+  // The report the action answers; empty for an action taken without one.
+  string report_id = 3;
+
+  // What was done. Open, never an enum: CONTENT_REMOVED, CONTENT_MASKED,
+  // ACCOUNT_SUSPENDED, SUSPENSION_LIFTED and NO_ACTION today.
+  string action = 4;
+
+  // Keycloak sub of the moderator, from the platform or a church.
+  string actor_user_id = 5;
+}

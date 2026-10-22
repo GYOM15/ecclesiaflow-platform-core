@@ -32,6 +32,11 @@ enum EmailTemplateType {
   EMAIL_TEMPLATE_EMAIL_CHANGE_VERIFICATION = 6;  // Verify new email after account email change
   EMAIL_TEMPLATE_CHURCH_SIGNUP_SETUP = 7;        // Pastor finishes church creation (set password)
   EMAIL_TEMPLATE_CHURCH_INVITATION = 8;          // Member invited to join a church (deliver join link)
+  // communication refuses a value it has no template for: it ships these before any sender uses them.
+  EMAIL_TEMPLATE_SUSPENSION_NOTICE = 9;              // Account suspended by the platform, with its motive
+  EMAIL_TEMPLATE_SENSITIVE_ACTION_CONFIRMATION = 10; // Confirm a sensitive gesture out of band (linked account)
+  EMAIL_TEMPLATE_ACCOUNT_DELETION_REQUESTED = 11;    // Account deletion requested, grace period open
+  EMAIL_TEMPLATE_ACCOUNT_DELETED = 12;               // Account erased at the end of the grace period
 }
 
 // Request to send an email

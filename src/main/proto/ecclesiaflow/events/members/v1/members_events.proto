@@ -3,6 +3,8 @@
 
 syntax = "proto3";
 
+import "ecclesiaflow/events/event_options.proto";
+
 option java_multiple_files = true;
 option java_package = "com.ecclesiaflow.grpc.events.members";
 option java_outer_classname = "MembersDomainEventsProto";
@@ -44,8 +46,9 @@ enum BaptismDeclaration {
 // change to the declared baptism, or a change to the phone-sharing consent.
 // The snapshot carries the FULL post-change profile so a consumer can refresh
 // its denormalized copy without a round-trip. Idempotent on event_id.
-// Routing key: "members.profile.changed".
 message MemberProfileChangedEvent {
+  option (ecclesiaflow.events.routing_keys) = "members.profile.changed";
+
   // UUIDv4. Consumers dedupe on this to make their handler idempotent.
   string event_id = 1;
 
@@ -109,8 +112,9 @@ message MemberProfileChangedEvent {
 // than random: the members module re-emits the event until a publish has been
 // acknowledged (outbox-lite), so a consumer may see the same event more than
 // once and must collapse duplicates on event_id.
-// Routing key: "members.profile.anonymized".
 message MemberAnonymizedEvent {
+  option (ecclesiaflow.events.routing_keys) = "members.profile.anonymized";
+
   // Deterministic: "anon:" + the members-module member_id (UUID). Re-emits of
   // the same anonymization carry the same id so idempotent consumers collapse
   // them.
@@ -141,8 +145,9 @@ message MemberAnonymizedEvent {
 // Idempotent on event_id, which is DETERMINISTIC ("contacts:<member_id>") for
 // the same reason as MemberAnonymizedEvent's: an anonymization announced again
 // carries the same id, and its consumer collapses it.
-// Routing key: "members.contacts.erased".
 message MemberContactsErasedEvent {
+  option (ecclesiaflow.events.routing_keys) = "members.contacts.erased";
+
   // Deterministic: "contacts:" + the members-module member_id (UUID).
   string event_id = 1;
 
@@ -168,8 +173,9 @@ message MemberContactsErasedEvent {
 // address only. A redelivered event can arrive after a later reactivation, so
 // a consumer keeps the latest occurred_at_epoch_ms per user and ignores an
 // older event. Idempotent on event_id.
-// Routing key: "members.account.deactivated".
 message MemberDeactivatedEvent {
+  option (ecclesiaflow.events.routing_keys) = "members.account.deactivated";
+
   // UUIDv4. Consumers dedupe on this to make their handler idempotent.
   string event_id = 1;
 
@@ -187,8 +193,9 @@ message MemberDeactivatedEvent {
 // Emitted when a member reactivates their account within the grace period:
 // what MemberDeactivatedEvent hid is shown again. Same fields and ordering
 // rule as MemberDeactivatedEvent. Idempotent on event_id.
-// Routing key: "members.account.reactivated".
 message MemberReactivatedEvent {
+  option (ecclesiaflow.events.routing_keys) = "members.account.reactivated";
+
   // UUIDv4. Consumers dedupe on this to make their handler idempotent.
   string event_id = 1;
 
@@ -201,4 +208,46 @@ message MemberReactivatedEvent {
   // One RecipientDigest per address the member holds: the email, then the
   // phone number when there is one.
   repeated string recipient_digests = 4;
+}
+
+// Emitted when the platform suspends a member's account. Auth disables the
+// Keycloak user for the cause SUSPENSION and revokes its sessions; the modules
+// that show the person to others hide them as for a deactivated account, on
+// their own column, so lifting a suspension never cancels a pending deletion.
+// The status family is ordered on occurred_at_epoch_ms: a consumer keeps the
+// latest per user and ignores an older event redelivered late.
+message MemberSuspendedEvent {
+  option (ecclesiaflow.events.routing_keys) = "members.account.suspended.v1";
+
+  // Unique per status change. Consumers dedupe on this to make their handler idempotent.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the account was suspended.
+  int64 occurred_at_epoch_ms = 2;
+
+  // The member's Keycloak sub, the cross-module key.
+  string keycloak_user_id = 3;
+
+  // Why the platform suspended the account. Open, never an enum: a value a
+  // consumer does not know is still a suspension.
+  string reason_code = 4;
+}
+
+// Emitted when the platform lifts a suspension. Auth enables again only what
+// it disabled for the cause SUSPENSION. Same fields and ordering rule as
+// MemberSuspendedEvent.
+message MemberSuspensionLiftedEvent {
+  option (ecclesiaflow.events.routing_keys) = "members.account.suspension-lifted.v1";
+
+  // Unique per status change. Consumers dedupe on this to make their handler idempotent.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the suspension was lifted.
+  int64 occurred_at_epoch_ms = 2;
+
+  // The member's Keycloak sub, the cross-module key.
+  string keycloak_user_id = 3;
+
+  // Why the platform lifted the suspension. Open, never an enum.
+  string reason_code = 4;
 }

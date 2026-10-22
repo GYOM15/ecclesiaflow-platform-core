@@ -468,7 +468,7 @@
                 <version>0.8.12</version>
                 <configuration>
                     <excludes>
-                        <!-- protoc output; ContractWireCompatibilityTest pins what it generates -->
+                        <!-- the contracts: protoc output and EventRoutes, both pinned by ContractWireCompatibilityTest -->
                         <exclude>com/ecclesiaflow/grpc/**</exclude>
                     </excludes>
                 </configuration>
