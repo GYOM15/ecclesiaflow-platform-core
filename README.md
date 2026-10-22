@@ -122,6 +122,10 @@ Spring Boot's `spring.security.oauth2.resourceserver.jwt.audiences`.
 |---|---|---|
 | `ecclesiaflow.rest.jwt.enabled` | `true` | `false` leaves the decoder to the module or to Spring Boot |
 | `ecclesiaflow.rest.jwt.audience` | `ecclesiaflow-internal` | `aud` entry every REST token must carry; blank skips the check, the issuer stays pinned |
+| `ecclesiaflow.rest.jwt.jwks.refresh-interval` | `5m` | Age at which the key set is reloaded; a key withdrawn from the realm is trusted until then |
+| `ecclesiaflow.rest.jwt.jwks.min-reload-interval` | `30s` | Shortest gap between two reloads, for an unknown `kid` or after a failure |
+| `ecclesiaflow.rest.jwt.jwks.outage-tolerance` | `24h` | How long the last loaded set serves while every reload fails, from the first failure |
+| `ecclesiaflow.rest.jwt.jwks.connect-timeout`, `read-timeout` | `2s` | Bound on one reload; zero is refused, since it would mean no timeout |
 
 The default audience is the one the modules enforce today. The end state is `ecclesiaflow-app`,
 set through the environment once the realm stamps it on end-user tokens. `REST_JWT_AUDIENCE` binds
@@ -133,6 +137,23 @@ ecclesiaflow.rest.jwt.audience=${REST_JWT_AUDIENCE:ecclesiaflow-internal}
 
 A test slice that builds the security chain without the full auto-configuration imports
 `PlatformRestJwtDecoderAutoConfiguration` or supplies its own `JwtDecoder`.
+
+**Keys during a Keycloak outage.** Spring's default key cache drops the keys when a reload fails past
+their five minutes, which refuses every valid token while Keycloak restarts. The decoder reads them
+through `FaultTolerantJwkSource` instead:
+
+- a failed reload keeps the last loaded set in service, up to `outage-tolerance` counted from the
+  first failure, and is retried at most every `min-reload-interval`;
+- a token whose `kid` is unknown reloads the set without waiting for the refresh, at most once per
+  `min-reload-interval`, so a key rotation is picked up within seconds;
+- an unknown `kid` that cannot be reloaded, or no key set at all, fails as an infrastructure error
+  (a `JwtException` that is not a `BadJwtException`), never as an invalid token: a valid user is
+  not signed out by an outage;
+- a response without keys, or one that is not a key set, counts as a failed reload and never
+  replaces good keys.
+
+`JwksEventListener` logs the first load, rotations and the end of an outage at INFO, a reload that
+fails at WARN while the last set serves, and at ERROR once tokens are refused.
 
 ## Surface authorization (OpenAPI `x-ef-surface`)
 
@@ -257,6 +278,40 @@ carry no extension. Adopting it on an operation:
 The 422 and the 400 come from `PlatformRestExceptionHandler`; a module that turns it off maps
 `IdempotencyKeyConflictException` and `InvalidIdempotencyKeyException` itself. Log lines
 (`IDEMPOTENCY:`): a replay at DEBUG, a race settled by the index at INFO, a reused key at WARN.
+
+## Recent sign-in before sensitive gestures (`@RecentAuthRequired`)
+
+A stolen session must not be able to close an account, move it to another address or reactivate it.
+`PlatformRecentAuthAutoConfiguration` guards a method annotated `@RecentAuthRequired(action = ...)`,
+for every token, web and mobile alike; `RecentAuthPolicy.require(maxAge)` makes the same decision
+where a gesture is conditional. The account decides, not the session:
+
+| Account (from the module's `SignInMethodsClient`) | Answer |
+|---|---|
+| linked to an identity provider | 202 with the body the module's `PendingConfirmationIssuer` returns (`PendingConfirmation`: `status`, `sentTo`, `expiresAt`); `auth_time` is not looked at and the method does not run |
+| not linked | the method runs if `auth_time` is at most `maxAgeSeconds` old (300 by default, 600 for a reactivation) and the token carries no `identity_provider`; else 403 `REAUTH_REQUIRED` |
+| sign-in methods unreadable (any failure, an empty answer) | 503 `SERVICE_UNAVAILABLE`, never a pass |
+
+A request with no authenticated token naming a subject is refused 403 `REAUTH_REQUIRED`. A linked
+account goes out of band because the provider signs the user back in silently (Google ignores
+`prompt=login`), so neither a fresh `auth_time` nor a missing `identity_provider` proves anything.
+
+The module provides two beans: a `SignInMethodsClient`, its adapter to auth's `GetSignInMethods`
+(with a deadline; a failure throws), and a `PendingConfirmationIssuer`, which holds the gesture
+(`SensitiveAction`: the action's name, the subject, the method's arguments), sends the link to the
+current address and returns the 202 body. The two refusals are answered in `ApiErrorResponse` by
+`RecentAuthExceptionHandler`, ahead of a module catch-all and apart from the platform fallback, so
+modules that guard nothing do not see these codes in their error registry.
+
+The aspect runs at the lowest precedence, after the module's own aspects of the same order: a scope
+check refuses a caller before auth is asked or a link is sent. The module does not start when an
+annotated method would run unchecked or could not answer: no `SignInMethodsClient` or
+`PendingConfirmationIssuer`, a private, static or final method, an annotation on an interface method
+only, a bean that is not proxied (AOP off), a return type other than `ResponseEntity`, a blank
+`action` or a non-positive `maxAgeSeconds`. A call from inside the same bean bypasses the aspect.
+
+`RecentAuthEventListener` logs refusals and confirmations sent at INFO, unreadable sign-in methods
+at WARN, with the subject masked.
 
 ## Actuator endpoints on the management port
 
