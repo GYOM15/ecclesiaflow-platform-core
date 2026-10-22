@@ -22,6 +22,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Locale;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -322,6 +323,53 @@ class VerifyingListenerAdviceTest {
                 assertThat(logs.getErrorLogs()).singleElement().asString()
                         .contains("signed_at=1\\r\\n" + FORGED);
             }
+        }
+    }
+
+    @Nested
+    @DisplayName("With a redelivery verifier")
+    class WithRedeliveryVerifier {
+
+        private final Message staleOnFirstDelivery = message("", "auth.subscriber.member-account-status",
+                signature(), Long.toString(NOW.minus(Duration.ofHours(2)).toEpochMilli()));
+
+        private VerifyingListenerAdvice advice(RedeliveryVerifier redeliveries) {
+            return new VerifyingListenerAdvice(
+                    new DomainEventVerifier(signer, true, Duration.ofMinutes(5), clock), meters, redeliveries);
+        }
+
+        @Test
+        @DisplayName("lets its decision stand for a redelivery the first-delivery rules would refuse")
+        void redeliveryDecisionStands() throws Throwable {
+            MethodInvocation inv = invocationWith(staleOnFirstDelivery);
+
+            Object result = advice(message -> Optional.of(DomainEventVerifier.Decision.ACCEPT)).invoke(inv);
+
+            assertThat(result).isEqualTo("listener-result");
+            assertThat(counted("accept")).isEqualTo(1d);
+        }
+
+        @Test
+        @DisplayName("rejects without requeue when it refuses the redelivery")
+        void redeliveryRefusalRejects() throws Throwable {
+            MethodInvocation inv = invocationWith(signedMessage());
+
+            assertThatThrownBy(() -> advice(message -> Optional.of(DomainEventVerifier.Decision.REJECT_STALE))
+                    .invoke(inv))
+                    .isInstanceOf(AmqpRejectAndDontRequeueException.class);
+            verify(inv, never()).proceed();
+            assertThat(counted("reject_stale")).isEqualTo(1d);
+        }
+
+        @Test
+        @DisplayName("falls back to the first-delivery rules for any other message")
+        void otherMessagesAreFirstDeliveries() throws Throwable {
+            RedeliveryVerifier none = message -> Optional.empty();
+
+            assertThat(advice(none).invoke(invocationWith(signedMessage()))).isEqualTo("listener-result");
+            assertThatThrownBy(() -> advice(none).invoke(invocationWith(staleOnFirstDelivery)))
+                    .isInstanceOf(AmqpRejectAndDontRequeueException.class);
+            assertThat(counted("reject_invalid")).isEqualTo(1d);
         }
     }
 }

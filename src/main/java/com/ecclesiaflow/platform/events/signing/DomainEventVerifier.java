@@ -58,6 +58,15 @@ public class DomainEventVerifier {
         this.clock = clock;
     }
 
+    /** {@code false} in lenient mode, where a failed check still delivers the message. */
+    public boolean isVerifySignatures() {
+        return verifySignatures;
+    }
+
+    public Duration getFreshnessWindow() {
+        return freshnessWindow;
+    }
+
     public Decision verify(String exchange, String routingKey, byte[] body,
                            String signatureHeader, String signedAtHeader) {
         return verify(exchange, routingKey, body, signatureHeader, signedAtHeader, null);
@@ -75,7 +84,7 @@ public class DomainEventVerifier {
             return verifySignatures ? Decision.REJECT_MISSING : Decision.ACCEPT_UNVERIFIED;
         }
 
-        if (!isSupportedVersion(versionHeader)) {
+        if (!supportsVersion(versionHeader)) {
             return verifySignatures ? Decision.REJECT_UNSUPPORTED_VERSION : Decision.ACCEPT_UNVERIFIED;
         }
 
@@ -90,7 +99,8 @@ public class DomainEventVerifier {
         return Decision.ACCEPT;
     }
 
-    private static boolean isSupportedVersion(String versionHeader) {
+    /** Whether this consumer reads the canonical form a {@code x-ef-signature-version} header names. */
+    public static boolean supportsVersion(String versionHeader) {
         return versionHeader == null || versionHeader.isBlank()
                 || DomainEventSigner.SIGNATURE_VERSION.equals(versionHeader.trim());
     }
