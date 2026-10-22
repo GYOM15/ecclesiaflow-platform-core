@@ -170,9 +170,12 @@ generated classes and the `.proto` files.
 | `church/church_service.proto` | church (`ChurchService`) | `com.ecclesiaflow.grpc.church` |
 | `members/members_service.proto` | members (`MembersService`) | `com.ecclesiaflow.grpc.members` |
 | `email/email_service.proto` | communication (`EmailService`, `EmailQueueMessage`) | `com.ecclesiaflow.grpc.email` |
-| `events/auth/v1/domain_events.proto` | auth (`SetupTokenIssuedEvent`, `ExistingAccountNoticeEvent`) | `com.ecclesiaflow.grpc.events.auth` |
-| `events/church/v1/church_events.proto` | church (invitation, admission, removal, group events) | `com.ecclesiaflow.grpc.events.church` |
-| `events/members/v1/members_events.proto` | members (`MemberProfileChangedEvent`, `MemberAnonymizedEvent`, `MemberContactsErasedEvent`, `MemberDeactivatedEvent`, `MemberReactivatedEvent`) | `com.ecclesiaflow.grpc.events.members` |
+| `events/event_options.proto` | the `(ecclesiaflow.events.routing_keys)` option | `com.ecclesiaflow.grpc.events` |
+| `events/auth/v1/domain_events.proto` | auth (`SetupTokenIssuedEvent`, `ExistingAccountNoticeEvent`, `TwoFactorRemovedEvent`, `AccountSessionsRevokedEvent`) | `com.ecclesiaflow.grpc.events.auth` |
+| `events/church/v1/church_events.proto` | church (invitation, admission, removal, group events, `NotificationCreatedEvent`) | `com.ecclesiaflow.grpc.events.church` |
+| `events/members/v1/members_events.proto` | members (`MemberProfileChangedEvent`, `MemberAnonymizedEvent`, `MemberContactsErasedEvent`, `MemberDeactivatedEvent`, `MemberReactivatedEvent`, `MemberSuspendedEvent`, `MemberSuspensionLiftedEvent`) | `com.ecclesiaflow.grpc.events.members` |
+| `events/chat/v1/chat_events.proto` | chat (`ChatMessagePostedEvent`) | `com.ecclesiaflow.grpc.events.chat` |
+| `events/moderation/v1/moderation_events.proto` | chat, church and members, each under its own key (`ContentReportedEvent`, `ModerationActionTakenEvent`) | `com.ecclesiaflow.grpc.events.moderation` |
 
 A module that calls or serves an RPC, or publishes or consumes an event, uses these classes. It
 keeps no `.proto` of its own and needs no protobuf plugin. Consumers bring `grpc-protobuf`
@@ -188,9 +191,29 @@ the new one sends:
   RabbitMQ: `ProtobufMessageConverter` stamps the Java class name on the `__TypeId__` header and
   the consumer loads that class.
 
-`ContractWireCompatibilityTest` pins all of the above. When it fails, the change is on the wire:
-append the new field or RPC to its snapshot, never edit a line already there. Release order: this
-library first, then the owner of the contract, then its clients.
+Every top-level message under `events/` is a domain event:
+
+- it opens with `string event_id = 1` (unique per producer, the consumers' dedup key) and
+  `int64 occurred_at_epoch_ms = 2` (the instant of the fact); `ExistingAccountNoticeEvent`, whose
+  `event_id` came later at number 3, is the one exception;
+- it declares its exact routing keys with the repeated option `(ecclesiaflow.events.routing_keys)`,
+  one per publishing module. A key belongs to one message and never changes; a new key reads
+  `<module>.<aggregate>.<fact>.v1`, and the keys published before that rule keep their form;
+- a vocabulary that grows (`reason`, `action`, a kind, a type) is an open string, never a proto enum;
+- a helper type is nested in its event.
+
+`com.ecclesiaflow.grpc.events.EventRoutes` holds one constant per key. Publishers and bindings use
+it, never a literal, and a binding names one exact key, never a wildcard: the consumer of a message
+with several producers binds each key.
+
+```java
+BindingBuilder.bind(queue).to(exchange).with(EventRoutes.MEMBERS_ACCOUNT_SUSPENDED_V1);
+```
+
+`ContractWireCompatibilityTest` pins all of the above, and fails on a `.proto` file it does not load.
+When it fails, the change is on the wire: append the new field, RPC or key to its snapshot, never
+edit a line already there. Release order: this library first, then the owner of the contract, then
+its clients.
 
 ## Erased addresses
 
