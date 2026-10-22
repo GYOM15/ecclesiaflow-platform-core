@@ -114,6 +114,13 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
+        <!-- Reads the module's OpenAPI contract at startup. Every module already carries it through
+             spring-boot-starter; version managed by the Spring Boot BOM. -->
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+        </dependency>
+
         <!-- S3-compatible object storage (Cloudflare R2) adapter. Optional: only
              modules that actually store images (church, members) pull the AWS SDK;
              the S3 adapter auto-configures via @ConditionalOnClass(S3Client). A sync

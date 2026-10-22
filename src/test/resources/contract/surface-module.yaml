@@ -1,0 +1,36 @@
+openapi: 3.1.1
+info:
+  title: Module ruled by its surface
+  version: 1.0.0
+security:
+  - BearerAuth: []
+paths:
+  /module/me:
+    get:
+      operationId: Me.Get
+      x-ef-surface: member
+      responses:
+        "200": {description: The caller's profile}
+  /module/console/members:
+    get:
+      operationId: ConsoleMembers.List
+      responses:
+        "200": {description: Every member, for the console}
+  /module/moderation/reports:
+    get:
+      operationId: Reports.List
+      x-ef-surface: platform
+      responses:
+        "200": {description: Reports awaiting a moderator}
+  /module/public/signup:
+    post:
+      operationId: Signup.Create
+      security: []
+      responses:
+        "200": {description: Signed up}
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

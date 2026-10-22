@@ -41,7 +41,8 @@ class PlatformRpcAutoConfigurationImportTest {
                     return context;
                 })
                 .properties(properties)
-                .properties("spring.main.banner-mode=off")
+                .properties("spring.main.banner-mode=off",
+                        "ecclesiaflow.contract.locations=classpath:contract/minimal-module.yaml")
                 .run();
     }
 

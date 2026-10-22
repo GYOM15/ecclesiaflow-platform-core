@@ -38,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "management.health.defaults.enabled=false",
                 // A Spring Boot test turns metric export off unless told otherwise.
                 "management.prometheus.metrics.export.enabled=true",
+                "ecclesiaflow.contract.locations=classpath:contract/minimal-module.yaml",
                 "spring.main.banner-mode=off"})
 class PlatformManagementSecurityServerTest {
 
