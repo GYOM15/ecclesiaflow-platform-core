@@ -5,6 +5,7 @@ import com.ecclesiaflow.platform.contract.autoconfigure.PlatformApiContractAutoC
 import com.ecclesiaflow.platform.idempotency.IdempotentCreator;
 import com.ecclesiaflow.platform.idempotency.events.IdempotencyEventListener;
 import com.ecclesiaflow.platform.idempotency.web.IdempotencyIndex;
+import com.ecclesiaflow.platform.idempotency.web.IdempotencyKeyResolver;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -19,7 +20,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.transaction.PlatformTransactionManager;
 
 /**
- * The idempotency primitive: the contract check of a servlet module, and the creator wherever
+ * The idempotency primitive: the contract check and key resolver of a servlet module, and the creator wherever
  * one transaction manager exists. Nothing runs until a module marks an operation {@code x-ef-idempotency} and
  * calls the creator from it.
  *
@@ -59,6 +60,12 @@ public class PlatformIdempotencyAutoConfiguration {
         @Bean
         public IdempotencyIndex idempotencyIndex(ApiContract contract) {
             return new IdempotencyIndex(contract);
+        }
+
+        @Bean
+        @ConditionalOnMissingBean
+        public IdempotencyKeyResolver idempotencyKeyResolver(IdempotencyIndex idempotencyIndex) {
+            return new IdempotencyKeyResolver(idempotencyIndex);
         }
     }
 }

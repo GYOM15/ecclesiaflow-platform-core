@@ -2,6 +2,9 @@ package com.ecclesiaflow.platform.web.error;
 
 import com.ecclesiaflow.platform.error.ErrorCategory;
 import com.ecclesiaflow.platform.error.ErrorCategoryResolver;
+import com.ecclesiaflow.platform.idempotency.IdempotencyKeyConflictException;
+import com.ecclesiaflow.platform.idempotency.web.IdempotencyHeaders;
+import com.ecclesiaflow.platform.idempotency.web.InvalidIdempotencyKeyException;
 import com.ecclesiaflow.platform.logging.SecurityMaskingUtils;
 import com.ecclesiaflow.platform.ratelimit.RateLimitExceededException;
 import com.ecclesiaflow.platform.upload.ImageDecodeCapacityExceededException;
@@ -53,6 +56,7 @@ public abstract class PlatformRestExceptionHandler {
     static final String MALFORMED_REQUEST = "MALFORMED_REQUEST";
     static final String RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED";
     static final String INTERNAL_ERROR = "INTERNAL_ERROR";
+    static final String IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT";
 
     private static final Set<String> SECURITY_EXCEPTIONS = Set.of(
             "org.springframework.security.access.AccessDeniedException",
@@ -129,6 +133,23 @@ public abstract class PlatformRestExceptionHandler {
         headers.set(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()));
         return answer(ex, HttpStatus.TOO_MANY_REQUESTS, RATE_LIMIT_EXCEEDED,
                 "Too many requests. Try again in " + ex.getRetryAfterSeconds() + " seconds.", headers, request);
+    }
+
+    // 422, not 409: the draft Idempotency-Key standard keeps 409 for a request still in flight, a state this
+    // primitive never has.
+    @ExceptionHandler(IdempotencyKeyConflictException.class)
+    public ResponseEntity<ApiErrorResponse> handleIdempotencyConflict(IdempotencyKeyConflictException ex,
+                                                                      HttpServletRequest request) {
+        return answer(ex, HttpStatus.UNPROCESSABLE_ENTITY, IDEMPOTENCY_CONFLICT,
+                "The Idempotency-Key was already used for a different request.", new HttpHeaders(), request);
+    }
+
+    // The answer Spring gives when it cannot bind the same header to a UUID argument.
+    @ExceptionHandler(InvalidIdempotencyKeyException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidIdempotencyKey(InvalidIdempotencyKeyException ex,
+                                                                        HttpServletRequest request) {
+        return answer(ex, HttpStatus.BAD_REQUEST, codeFor(HttpStatus.BAD_REQUEST),
+                "Parameter '" + IdempotencyHeaders.KEY + "' has an invalid value.", new HttpHeaders(), request);
     }
 
     @ExceptionHandler(ImageDecodeCapacityExceededException.class)
