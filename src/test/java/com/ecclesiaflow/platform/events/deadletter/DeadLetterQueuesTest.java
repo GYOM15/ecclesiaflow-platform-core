@@ -1,5 +1,6 @@
 package com.ecclesiaflow.platform.events.deadletter;
 
+import com.ecclesiaflow.platform.events.retry.DelayedRetryTopology;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -93,6 +94,16 @@ class DeadLetterQueuesTest {
         Queue undeclared = QueueBuilder.durable("r").deadLetterExchange("").deadLetterRoutingKey("r.dlq").build();
 
         assertThat(DeadLetterQueues.in(List.of(main, dlq, undeclared))).containsExactly("q.dlq");
+    }
+
+    @Test
+    @DisplayName("Never takes a consumer queue for a dead-letter queue because its retry stages expire into it")
+    void ignoresDelayedRetryStages() {
+        List<Declarable> topology = new ArrayList<>(subscription("auth.subscriber.member-account-status",
+                "members.account.deactivated", "auth.members.account.status-dead"));
+        topology.addAll(new DelayedRetryTopology("auth.subscriber.member-account-status").getDeclarables());
+
+        assertThat(DeadLetterQueues.in(topology)).containsExactly("auth.subscriber.member-account-status.dlq");
     }
 
     @Test

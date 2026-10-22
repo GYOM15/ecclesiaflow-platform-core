@@ -20,3 +20,4 @@ com.ecclesiaflow.platform.idempotency.autoconfigure.PlatformIdempotencyAutoConfi
 com.ecclesiaflow.platform.security.autoconfigure.PlatformRecentAuthAutoConfiguration
 com.ecclesiaflow.platform.moderation.autoconfigure.PlatformTermFilterAutoConfiguration
 com.ecclesiaflow.platform.web.trace.autoconfigure.PlatformTraceparentAutoConfiguration
+com.ecclesiaflow.platform.events.retry.autoconfigure.PlatformDelayedRetryAutoConfiguration

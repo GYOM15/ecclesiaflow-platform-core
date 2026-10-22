@@ -259,4 +259,19 @@ class DomainEventVerifierTest {
             assertThat(Decision.REJECT_UNSUPPORTED_VERSION.isAccepted()).isFalse();
         }
     }
+
+    @Test
+    @DisplayName("Tells its strictness, its window and the signature versions it reads")
+    void exposesItsPolicy() {
+        DomainEventVerifier strict = new DomainEventVerifier(signer, true, Duration.ofMinutes(3), clock);
+
+        assertThat(strict.isVerifySignatures()).isTrue();
+        assertThat(strict.getFreshnessWindow()).isEqualTo(Duration.ofMinutes(3));
+        assertThat(new DomainEventVerifier(signer, false).getFreshnessWindow())
+                .isEqualTo(DomainEventVerifier.DEFAULT_FRESHNESS_WINDOW);
+        assertThat(DomainEventVerifier.supportsVersion(null)).isTrue();
+        assertThat(DomainEventVerifier.supportsVersion(" ")).isTrue();
+        assertThat(DomainEventVerifier.supportsVersion(" 1 ")).isTrue();
+        assertThat(DomainEventVerifier.supportsVersion("2")).isFalse();
+    }
 }

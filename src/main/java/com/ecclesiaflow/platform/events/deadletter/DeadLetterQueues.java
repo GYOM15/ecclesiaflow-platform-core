@@ -1,5 +1,6 @@
 package com.ecclesiaflow.platform.events.deadletter;
 
+import com.ecclesiaflow.platform.events.retry.DelayedRetryQueue;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.Declarable;
 import org.springframework.amqp.core.Queue;
@@ -46,6 +47,10 @@ public final class DeadLetterQueues {
         SortedSet<String> deadLetterQueues = new TreeSet<>();
         routes.forEach(route -> deadLetterQueues.add(route.deadLetterQueue()));
         for (Queue queue : queues) {
+            // A retry stage dead-letters back to the consumer's own queue, which is no dead-letter queue.
+            if (queue instanceof DelayedRetryQueue) {
+                continue;
+            }
             Object exchange = queue.getArguments().get(DEAD_LETTER_EXCHANGE);
             Object routingKey = queue.getArguments().get(DEAD_LETTER_ROUTING_KEY);
             if (exchange == null || routingKey == null) {

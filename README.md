@@ -19,7 +19,7 @@ Shared platform library for EcclesiaFlow backend modules. Main concerns:
    compiled once here into messages and gRPC stubs (see
    [Contracts](#grpc-and-domain-event-contracts)).
 5. **Domain events on RabbitMQ** — transactional outbox, HMAC signing, sealed fields,
-   the protobuf wire format and dead-letter queue depth.
+   the protobuf wire format, dead-letter queue depth and delayed retries.
 6. **Shared service plumbing** — object storage, upload sanitizing, rate limiting,
    error responses, the clock and the architecture rules (see
    [Other building blocks](#other-building-blocks)), and idempotent creations (see
@@ -608,6 +608,51 @@ A signature more than 5 minutes away from the consumer's clock is stale. Turn on
 `verify-signatures` once `ecclesiaflow_domain_events_signature_total{decision="accept_unverified"}`
 stays at zero on every consumer. The counter cannot reveal an unsigned fleet: with a blank secret
 every message counts as `accept`.
+
+## Delayed retries for consumers with an external effect (opt-in)
+
+A consumer that calls Keycloak, sends a message or pushes to chat must outlast an outage of hours,
+where the container's in-memory retry gives up in seconds. A `DelayedRetryTopology` bean opts one
+queue in; the queue keeps its dead-letter route.
+
+```java
+@Bean
+DelayedRetryTopology memberAccountStatusRetries() {
+    return new DelayedRetryTopology("auth.subscriber.member-account-status"); // 1 min, 5 min, 30 min, 2 h
+}
+
+// In the listener container factory of those consumers:
+factory.setAdviceChain(verifyingListenerAdvice, RetryInterceptorBuilder.stateless()
+        .retryPolicy(policy)
+        .backOffOptions(1000, 2.0, 10000)
+        .recoverer(delayedRetryMessageRecoverer) // instead of new RejectAndDontRequeueRecoverer()
+        .build());
+```
+
+`RabbitAdmin` declares one durable stage per delay (`<queue>.retry.1m` … `.retry.2h`); a stage's
+messages expire back to the queue through the default exchange. Once the in-memory retries are spent,
+`DelayedRetryMessageRecoverer` copies the delivery into its next stage, confirmed and mandatory,
+before the original is acknowledged. The last stage's failure, an unreadable message, an explicit
+`AmqpRejectAndDontRequeueException` and a copy the broker refuses go to the dead-letter queue. A queue
+without a topology is dead-lettered at once, as with `RejectAndDontRequeueRecoverer`.
+
+Each copy carries a hop (`x-ef-retry-*`, `x-ef-original-*`) and an HMAC stamp under a key derived from
+`ecclesiaflow.events.hmac-secret`. With a topology declared, the auto-configured
+`VerifyingListenerAdvice` checks a redelivery's signature against its original route and dates it by
+the stamp: within its stage's delay plus 10 minutes. The broker's `x-death` header is never trusted:
+RabbitMQ 3.13 takes it from any publisher. A redelivery arrives under the queue name, so a listener
+never dispatches on the received routing key.
+
+The startup fails when an opted-in queue has no dead-letter route, when the connection factory lacks
+`spring.rabbitmq.publisher-confirm-type=correlated` or `spring.rabbitmq.publisher-returns=true`, or
+when events are signed without a secret to stamp retries. `ecclesiaflow.events.delayed-retry.confirm-timeout`
+(`PT5S`) bounds the wait for the broker's confirm.
+
+Record `ProcessedDomainEvent` only after the effect succeeded: `ExternalEffectDeduplicator.applyOnce(type,
+eventId, effect)` does it over the module's `ProcessedDomainEventStore`. Watch
+`ecclesiaflow_domain_events_retry_depth{queue}` and
+`ecclesiaflow_domain_events_retry_total{queue,outcome}` beside the dead-letter depth. The design, the
+`x-death` findings and the `make dlq-replay` design are in [docs/delayed-retries.md](docs/delayed-retries.md).
 
 ## Sealed event fields
 

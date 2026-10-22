@@ -12,6 +12,7 @@ import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.Message;
 
 import java.util.Locale;
+import java.util.Optional;
 
 import static com.ecclesiaflow.platform.logging.SecurityMaskingUtils.escapeControlChars;
 
@@ -34,6 +35,7 @@ public class VerifyingListenerAdvice implements MethodInterceptor {
 
     private final DomainEventVerifier verifier;
     private final MeterRegistry meterRegistry;
+    private final RedeliveryVerifier redeliveryVerifier;
 
     public VerifyingListenerAdvice(DomainEventVerifier verifier) {
         this(verifier, null);
@@ -41,8 +43,15 @@ public class VerifyingListenerAdvice implements MethodInterceptor {
 
     /** A {@code null} registry counts nothing. */
     public VerifyingListenerAdvice(DomainEventVerifier verifier, MeterRegistry meterRegistry) {
+        this(verifier, meterRegistry, null);
+    }
+
+    /** A {@code null} redelivery verifier verifies every message as a first delivery. */
+    public VerifyingListenerAdvice(DomainEventVerifier verifier, MeterRegistry meterRegistry,
+                                   RedeliveryVerifier redeliveryVerifier) {
         this.verifier = verifier;
         this.meterRegistry = meterRegistry;
+        this.redeliveryVerifier = redeliveryVerifier;
         // Published at zero so increase() sees a process's first rejection.
         if (meterRegistry != null) {
             for (DomainEventVerifier.Decision decision : DomainEventVerifier.Decision.values()) {
@@ -68,8 +77,8 @@ public class VerifyingListenerAdvice implements MethodInterceptor {
                 message.getMessageProperties().getHeader(DomainEventSigner.SIGNATURE_VERSION_HEADER));
         byte[] body = message.getBody();
 
-        DomainEventVerifier.Decision decision =
-                verifier.verify(exchange, routingKey, body, signature, signedAt, version);
+        DomainEventVerifier.Decision decision = redelivery(message)
+                .orElseGet(() -> verifier.verify(exchange, routingKey, body, signature, signedAt, version));
         count(decision);
 
         switch (decision) {
@@ -110,6 +119,10 @@ public class VerifyingListenerAdvice implements MethodInterceptor {
         }
 
         return invocation.proceed();
+    }
+
+    private Optional<DomainEventVerifier.Decision> redelivery(Message message) {
+        return redeliveryVerifier == null ? Optional.empty() : redeliveryVerifier.verifyRedelivery(message);
     }
 
     private void count(DomainEventVerifier.Decision decision) {
