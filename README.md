@@ -323,9 +323,12 @@ does not bind to the property on its own; the module bridges it:
 ecclesiaflow.moderation.terms-file=${MODERATION_TERMS_FILE:}
 ```
 
+Once bridged, the property is present even when the variable is unset, and its blank value stops the
+startup: a deployment that forgot the list fails loudly instead of running unmoderated.
+
 | Property | Default | Effect |
 |---|---|---|
-| `ecclesiaflow.moderation.terms-file` | unset | UTF-8 file, one term per line; blank lines are skipped and a line starting with `#` is a comment. Unset creates no filter, so a module that injects one without configuring it fails on the missing bean |
+| `ecclesiaflow.moderation.terms-file` | absent | UTF-8 file, one term per line; blank lines are skipped and a line starting with `#` is a comment. Absent from the configuration, it creates no filter, so a module that injects one without declaring it fails on the missing bean |
 
 The startup fails, naming the file and the property, when the path is blank, the file does not exist or
 is a directory, it is not valid UTF-8, or a line holds no letter or digit and could never match. An
