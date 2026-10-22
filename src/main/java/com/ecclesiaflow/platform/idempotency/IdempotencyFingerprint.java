@@ -16,9 +16,10 @@ import java.util.SequencedCollection;
 /**
  * Fingerprints a creation request as the hex SHA-256 of its parts. Each part is written with its length, so
  * {@code ("ab", "c")} and {@code ("a", "bc")} differ, and {@code null} differs from the text {@code "null"}.
- * A part is read through {@code String.valueOf}; a part whose text could differ between two identical
- * requests (an unordered collection, a map, a primitive array or an object without its own {@code toString})
- * is refused, since it would turn a retry into a conflict.
+ * A part is read through {@code String.valueOf}, so pass plain values (text, ids, numbers, enums, instants)
+ * and ordered lists of them: a record holding a set prints it in no fixed order. An unordered collection, a
+ * map, a primitive array or an object without its own {@code toString} is refused, since its text could
+ * differ between two identical requests and turn a retry into a conflict.
  */
 public final class IdempotencyFingerprint {
 
