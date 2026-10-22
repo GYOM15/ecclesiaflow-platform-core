@@ -21,15 +21,26 @@ import org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.O
 import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import com.ecclesiaflow.platform.security.RestJwtProperties;
+import com.ecclesiaflow.platform.security.jwks.events.JwksEventListener;
+import okhttp3.mockwebserver.Dispatcher;
+import okhttp3.mockwebserver.RecordedRequest;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.JwtValidationException;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 
 import java.io.IOException;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -251,6 +262,177 @@ class PlatformRestJwtDecoderAutoConfigurationTest {
                     .build();
             SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID("rest-key").build(), claims);
             jwt.sign(new RSASSASigner(signingKey));
+            return jwt.serialize();
+        }
+    }
+
+    @Nested
+    @DisplayName("the key set behind the decoder")
+    class KeySet {
+
+        private static RSAKey keyA;
+        private static RSAKey keyB;
+
+        private final AtomicReference<MockResponse> answer = new AtomicReference<>();
+        private MockWebServer keycloak;
+
+        @BeforeAll
+        static void generateKeys() throws JOSEException {
+            keyA = new RSAKeyGenerator(2048).keyID("key-a").generate();
+            keyB = new RSAKeyGenerator(2048).keyID("key-b").generate();
+        }
+
+        @BeforeEach
+        void startKeycloak() throws IOException {
+            keycloak = new MockWebServer();
+            keycloak.setDispatcher(new Dispatcher() {
+                @Override
+                public MockResponse dispatch(RecordedRequest request) {
+                    return answer.get();
+                }
+            });
+            keycloak.start();
+        }
+
+        @AfterEach
+        void stopKeycloak() throws IOException {
+            keycloak.shutdown();
+        }
+
+        // Intervals of a millisecond stand in for the five minutes of production: past them, a reload is due.
+        private WebApplicationContextRunner runner() {
+            return new WebApplicationContextRunner()
+                    .withConfiguration(AutoConfigurations.of(PlatformRestJwtDecoderAutoConfiguration.class))
+                    .withPropertyValues(
+                            "spring.security.oauth2.resourceserver.jwt.issuer-uri=" + ISSUER,
+                            "spring.security.oauth2.resourceserver.jwt.jwk-set-uri=" + keycloak.url("/certs"),
+                            "ecclesiaflow.rest.jwt.jwks.refresh-interval=1ms",
+                            "ecclesiaflow.rest.jwt.jwks.min-reload-interval=1ms");
+        }
+
+        private void serve(RSAKey... keys) {
+            List<com.nimbusds.jose.jwk.JWK> published = List.of(keys);
+            answer.set(new MockResponse().setHeader("Content-Type", "application/json")
+                    .setBody(new JWKSet(published).toPublicJWKSet().toString()));
+        }
+
+        @Test
+        @DisplayName("keeps decoding a known kid when the endpoint fails after a first load")
+        void endpointFailing() {
+            serve(keyA);
+            runner().run(context -> {
+                JwtDecoder decoder = context.getBean(JwtDecoder.class);
+                String token = signed(keyA);
+                assertThat(decoder.decode(token).getSubject()).isEqualTo("member-sub");
+
+                answer.set(new MockResponse().setResponseCode(503));
+                Thread.sleep(20);
+
+                assertThat(decoder.decode(token).getSubject()).isEqualTo("member-sub");
+                assertThat(keycloak.getRequestCount()).isEqualTo(2);
+            });
+        }
+
+        @Test
+        @DisplayName("keeps decoding a known kid when Keycloak cannot be reached at all")
+        void keycloakUnreachable() {
+            serve(keyA);
+            runner().run(context -> {
+                JwtDecoder decoder = context.getBean(JwtDecoder.class);
+                String token = signed(keyA);
+                decoder.decode(token);
+
+                keycloak.shutdown();
+                Thread.sleep(20);
+
+                assertThat(decoder.decode(token).getSubject()).isEqualTo("member-sub");
+            });
+        }
+
+        @Test
+        @DisplayName("picks up a rotated key without waiting for the refresh")
+        void rotation() {
+            serve(keyA);
+            runner().withPropertyValues("ecclesiaflow.rest.jwt.jwks.refresh-interval=1h").run(context -> {
+                JwtDecoder decoder = context.getBean(JwtDecoder.class);
+                decoder.decode(signed(keyA));
+
+                serve(keyA, keyB);
+                Thread.sleep(20);
+
+                assertThat(decoder.decode(signed(keyB)).getSubject()).isEqualTo("member-sub");
+            });
+        }
+
+        @Test
+        @DisplayName("refuses a token whose key the realm does not publish as invalid, which is a 401")
+        void unknownKey() {
+            serve(keyA);
+            runner().run(context -> assertThatThrownBy(() -> context.getBean(JwtDecoder.class).decode(signed(keyB)))
+                    .isInstanceOf(BadJwtException.class));
+        }
+
+        @Test
+        @DisplayName("without any key set loaded, fails as an infrastructure error, never as an invalid token")
+        void neverLoaded() {
+            answer.set(new MockResponse().setResponseCode(503));
+            runner().run(context -> assertThatThrownBy(() -> context.getBean(JwtDecoder.class).decode(signed(keyA)))
+                    .isInstanceOf(JwtException.class)
+                    .isNotInstanceOf(BadJwtException.class));
+        }
+
+        @Test
+        @DisplayName("announces what happens to the keys through its listener")
+        void listener() {
+            runner().run(context -> assertThat(context).hasSingleBean(JwksEventListener.class));
+        }
+
+        @Test
+        @DisplayName("refuses to start on a timeout of zero, which HttpURLConnection reads as none")
+        void zeroTimeout() {
+            runner().withPropertyValues("ecclesiaflow.rest.jwt.jwks.read-timeout=0s")
+                    .run(context -> assertThat(context).getFailure().rootCause()
+                            .hasMessageContaining("ecclesiaflow.rest.jwt.jwks.read-timeout"));
+            runner().withPropertyValues("ecclesiaflow.rest.jwt.jwks.connect-timeout=-1s")
+                    .run(context -> assertThat(context).getFailure().rootCause()
+                            .hasMessageContaining("ecclesiaflow.rest.jwt.jwks.connect-timeout"));
+        }
+
+        @Test
+        @DisplayName("refuses a missing timeout, or one HttpURLConnection cannot hold")
+        void unusableTimeout() {
+            RestJwtProperties.Jwks missing = new RestJwtProperties.Jwks();
+            missing.setConnectTimeout(null);
+            RestJwtProperties.Jwks tooLong = new RestJwtProperties.Jwks();
+            tooLong.setReadTimeout(Duration.ofDays(30));
+
+            assertThatThrownBy(() -> PlatformRestJwtDecoderAutoConfiguration.jwkSource(
+                    "https://kc.example/certs", missing, Clock.systemUTC(), event -> { }))
+                    .hasMessageContaining("connect-timeout");
+            assertThatThrownBy(() -> PlatformRestJwtDecoderAutoConfiguration.jwkSource(
+                    "https://kc.example/certs", tooLong, Clock.systemUTC(), event -> { }))
+                    .hasMessageContaining("read-timeout");
+        }
+
+        @Test
+        @DisplayName("refuses to start on a key set address that is not a URL")
+        void notAUrl() {
+            runner().withPropertyValues("spring.security.oauth2.resourceserver.jwt.jwk-set-uri=certs")
+                    .run(context -> assertThat(context).getFailure()
+                            .hasStackTraceContaining("spring.security.oauth2.resourceserver.jwt.jwk-set-uri is not a URL"));
+        }
+
+        private static String signed(RSAKey key) throws JOSEException {
+            JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                    .issuer(ISSUER)
+                    .audience(List.of("ecclesiaflow-internal"))
+                    .subject("member-sub")
+                    .issueTime(new Date())
+                    .expirationTime(Date.from(Instant.now().plusSeconds(300)))
+                    .build();
+            SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(key.getKeyID()).build(),
+                    claims);
+            jwt.sign(new RSASSASigner(key));
             return jwt.serialize();
         }
     }

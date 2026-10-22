@@ -122,6 +122,10 @@ Spring Boot's `spring.security.oauth2.resourceserver.jwt.audiences`.
 |---|---|---|
 | `ecclesiaflow.rest.jwt.enabled` | `true` | `false` leaves the decoder to the module or to Spring Boot |
 | `ecclesiaflow.rest.jwt.audience` | `ecclesiaflow-internal` | `aud` entry every REST token must carry; blank skips the check, the issuer stays pinned |
+| `ecclesiaflow.rest.jwt.jwks.refresh-interval` | `5m` | Age at which the key set is reloaded; a key withdrawn from the realm is trusted until then |
+| `ecclesiaflow.rest.jwt.jwks.min-reload-interval` | `30s` | Shortest gap between two reloads, for an unknown `kid` or after a failure |
+| `ecclesiaflow.rest.jwt.jwks.outage-tolerance` | `24h` | How long the last loaded set serves while every reload fails, from the first failure |
+| `ecclesiaflow.rest.jwt.jwks.connect-timeout`, `read-timeout` | `2s` | Bound on one reload; zero is refused, since it would mean no timeout |
 
 The default audience is the one the modules enforce today. The end state is `ecclesiaflow-app`,
 set through the environment once the realm stamps it on end-user tokens. `REST_JWT_AUDIENCE` binds
@@ -133,6 +137,23 @@ ecclesiaflow.rest.jwt.audience=${REST_JWT_AUDIENCE:ecclesiaflow-internal}
 
 A test slice that builds the security chain without the full auto-configuration imports
 `PlatformRestJwtDecoderAutoConfiguration` or supplies its own `JwtDecoder`.
+
+**Keys during a Keycloak outage.** Spring's default key cache drops the keys when a reload fails past
+their five minutes, which refuses every valid token while Keycloak restarts. The decoder reads them
+through `FaultTolerantJwkSource` instead:
+
+- a failed reload keeps the last loaded set in service, up to `outage-tolerance` counted from the
+  first failure, and is retried at most every `min-reload-interval`;
+- a token whose `kid` is unknown reloads the set without waiting for the refresh, at most once per
+  `min-reload-interval`, so a key rotation is picked up within seconds;
+- an unknown `kid` that cannot be reloaded, or no key set at all, fails as an infrastructure error
+  (a `JwtException` that is not a `BadJwtException`), never as an invalid token: a valid user is
+  not signed out by an outage;
+- a response without keys, or one that is not a key set, counts as a failed reload and never
+  replaces good keys.
+
+`JwksEventListener` logs the first load, rotations and the end of an outage at INFO, a reload that
+fails at WARN while the last set serves, and at ERROR once tokens are refused.
 
 ## Surface authorization (OpenAPI `x-ef-surface`)
 
