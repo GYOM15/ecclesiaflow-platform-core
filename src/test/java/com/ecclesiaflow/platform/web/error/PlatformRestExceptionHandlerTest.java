@@ -8,6 +8,8 @@ import com.ecclesiaflow.platform.error.DataIntegrityTestData;
 import com.ecclesiaflow.platform.error.ErrorCategory;
 import com.ecclesiaflow.platform.error.ErrorCategoryResolver;
 import com.ecclesiaflow.platform.error.ExceptionClassifier;
+import com.ecclesiaflow.platform.idempotency.IdempotencyKeyConflictException;
+import com.ecclesiaflow.platform.idempotency.web.InvalidIdempotencyKeyException;
 import com.ecclesiaflow.platform.ratelimit.RateLimitExceededException;
 import com.ecclesiaflow.platform.upload.ImageDecodeCapacityExceededException;
 import jakarta.servlet.http.HttpServletResponse;
@@ -496,6 +498,36 @@ class PlatformRestExceptionHandlerTest {
                     .andExpect(header().string(HttpHeaders.RETRY_AFTER, "42"))
                     .andExpect(jsonPath("$.errorCode").value("RATE_LIMIT_EXCEEDED"))
                     .andExpect(jsonPath("$.message").value("Too many requests. Try again in 42 seconds."));
+        }
+    }
+
+    @Nested
+    @DisplayName("the idempotency primitive's refusals")
+    class Idempotency {
+
+        @Test
+        @DisplayName("a key reused for a different request is 422 IDEMPOTENCY_CONFLICT, logged no higher than DEBUG")
+        void conflict() throws Exception {
+            failNextWith(new IdempotencyKeyConflictException("EventComment.Create"));
+
+            mvc.perform(get("/members/" + UUID.randomUUID()))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.status").value(422))
+                    .andExpect(jsonPath("$.errorCode").value("IDEMPOTENCY_CONFLICT"))
+                    .andExpect(jsonPath("$.message")
+                            .value("The Idempotency-Key was already used for a different request."));
+            assertThat(logs.list).allSatisfy(line -> assertThat(line.getLevel()).isEqualTo(Level.DEBUG));
+        }
+
+        @Test
+        @DisplayName("a malformed key is the 400 Spring gives a header it cannot bind to a UUID")
+        void malformedKey() throws Exception {
+            failNextWith(new InvalidIdempotencyKeyException());
+
+            mvc.perform(get("/members/" + UUID.randomUUID()))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"))
+                    .andExpect(jsonPath("$.message").value("Parameter 'Idempotency-Key' has an invalid value."));
         }
     }
 

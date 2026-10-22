@@ -22,7 +22,8 @@ Shared platform library for EcclesiaFlow backend modules. Main concerns:
    the protobuf wire format and dead-letter queue depth.
 6. **Shared service plumbing** — object storage, upload sanitizing, rate limiting,
    error responses, the clock and the architecture rules (see
-   [Other building blocks](#other-building-blocks)).
+   [Other building blocks](#other-building-blocks)), and idempotent creations (see
+   [Idempotent creations](#idempotent-creations-openapi-x-ef-idempotency)).
 
 - **Artifact**: `com.ecclesiaflow:ecclesiaflow-platform-core` — the current version is declared in [`pom.xml`](pom.xml) (development head as `X.Y.Z-SNAPSHOT`, releases pinned as `X.Y.Z`)
 - **Java**: 21
@@ -167,6 +168,95 @@ closes a `security: []` operation; an `x-ef-surface` other than `member` or `pla
 Metrics: `surface_mode{mode}` (1 for the mode in force) and
 `ef_surface_refused_total{surface,caller,mode}`. No property turns the rule off; a module that must
 not run it excludes the auto-configuration in its own code.
+
+## Idempotent creations (OpenAPI `x-ef-idempotency`)
+
+A creation an app may send twice (a message, a comment) runs at most once per author and
+`Idempotency-Key`. The key is stored on the created row under a unique index on (author, key): a
+retry with the same request answers 200 with `Idempotent-Replayed: true` and the stored resource,
+the same key with another request answers 422 `IDEMPOTENCY_CONFLICT`, and when two requests race
+the index refuses the second insert, which then answers 200 with the first one's row. There is no
+in-flight state and no 409. Without the header the creation runs as before, once per call.
+
+Only `x-ef-idempotency: required` on the operation switches it on, never the header alone: church's
+signup (`IdempotencyService`, Redis) and finance keys keep their own semantics, and their operations
+carry no extension. Adopting it on an operation:
+
+1. **Contract.** Mark the operation and declare the header optional, as is:
+
+   ```yaml
+   post:
+     operationId: EventComment.Create
+     x-ef-idempotency: required
+     parameters:
+       - name: Idempotency-Key
+         in: header
+         required: false
+         schema: {type: string, format: uuid}
+   ```
+
+   Declare the 200 replay response with its `Idempotent-Replayed` header, the 422, and register
+   `IDEMPOTENCY_CONFLICT` (422) and `BAD_REQUEST` (400) in `x-error-codes`. The module refuses to
+   start when the extension holds anything but `required`, sits on anything but a POST or on a
+   `security: []` operation, or comes without that optional header.
+2. **Table.** Two nullable columns, then the index in a migration of its own, built
+   `CONCURRENTLY`, with `spring.flyway.postgresql.transactional-lock=false` and its test:
+
+   ```sql
+   ALTER TABLE event_comment ADD COLUMN idempotency_key UUID, ADD COLUMN idempotency_fingerprint TEXT;
+   ```
+
+   ```sql
+   CREATE UNIQUE INDEX CONCURRENTLY ux_event_comment_author_idempotency_key
+       ON event_comment (author_user_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+   ```
+3. **Service.** Implement `IdempotentCreation` over the module's port and run it through the
+   `IdempotentCreator` bean, outside any transaction (`IllegalTransactionStateException`
+   otherwise): the creator opens its own, and a lost race aborts the one it inserted in. In a
+   service annotated `@Transactional`, `NOT_SUPPORTED` on the method suspends it:
+
+   ```java
+   @Transactional(propagation = Propagation.NOT_SUPPORTED)
+   public CreationOutcome<EventComment> create(UUID author, NewEventComment command,
+                                               Optional<IdempotencyKey> key) {
+       return idempotentCreator.create(author, command, key, new IdempotentCreation<>() {
+           public Optional<IdempotentRecord<EventComment>> find(UUID author, UUID key) {
+               return comments.findByAuthorAndIdempotencyKey(author, key);
+           }
+           public String fingerprint(NewEventComment command) {
+               return IdempotencyFingerprint.of(command.eventId(), command.parentId(), command.body());
+           }
+           public EventComment insert(UUID author, NewEventComment command, IdempotencyStamp stamp) {
+               // the existing checks, then the row with stamp.key() and stamp.fingerprint()
+           }
+       });
+   }
+   ```
+
+   - Access checks run before the creator, so a replay is authorized like a creation; checks of
+     the resource's state stay in `insert`, since a creation made before the state changed still
+     replays.
+   - `find` returns the row as stored, even edited or hidden since, and never another author's.
+   - `fingerprint` covers every field of the request, path parameters included.
+     `IdempotencyFingerprint.of` refuses a part whose text could change between two identical
+     requests (an unordered collection, a map, an object without its own `toString`).
+   - `insert` writes both values as given, `null` without a key. What leaves the database goes
+     through the outbox or after the commit: a lost race rolls the insert back.
+4. **Delegate.** Take the key from `IdempotencyKeyResolver`, never from the generated
+   `idempotencyKey` argument: the resolver hands one over only on a marked operation, and answers
+   a value that is not one canonical UUID with 400.
+
+   ```java
+   CreationOutcome<EventComment> outcome = comments.create(author, command, idempotencyKeys.current());
+   return IdempotentResponses.created(outcome, mapper::toResponse);
+   ```
+
+   `IdempotentResponses.status(outcome, createdStatus)` returns the builder for an operation that
+   creates with another status or sets a `Location`.
+
+The 422 and the 400 come from `PlatformRestExceptionHandler`; a module that turns it off maps
+`IdempotencyKeyConflictException` and `InvalidIdempotencyKeyException` itself. Log lines
+(`IDEMPOTENCY:`): a replay at DEBUG, a race settled by the index at INFO, a reused key at WARN.
 
 ## Actuator endpoints on the management port
 
