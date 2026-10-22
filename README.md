@@ -279,6 +279,40 @@ The 422 and the 400 come from `PlatformRestExceptionHandler`; a module that turn
 `IdempotencyKeyConflictException` and `InvalidIdempotencyKeyException` itself. Log lines
 (`IDEMPOTENCY:`): a replay at DEBUG, a race settled by the index at INFO, a reused key at WARN.
 
+## Recent sign-in before sensitive gestures (`@RecentAuthRequired`)
+
+A stolen session must not be able to close an account, move it to another address or reactivate it.
+`PlatformRecentAuthAutoConfiguration` guards a method annotated `@RecentAuthRequired(action = ...)`,
+for every token, web and mobile alike; `RecentAuthPolicy.require(maxAge)` makes the same decision
+where a gesture is conditional. The account decides, not the session:
+
+| Account (from the module's `SignInMethodsClient`) | Answer |
+|---|---|
+| linked to an identity provider | 202 with the body the module's `PendingConfirmationIssuer` returns (`PendingConfirmation`: `status`, `sentTo`, `expiresAt`); `auth_time` is not looked at and the method does not run |
+| not linked | the method runs if `auth_time` is at most `maxAgeSeconds` old (300 by default, 600 for a reactivation) and the token carries no `identity_provider`; else 403 `REAUTH_REQUIRED` |
+| sign-in methods unreadable (any failure, an empty answer) | 503 `SERVICE_UNAVAILABLE`, never a pass |
+
+A request with no authenticated token naming a subject is refused 403 `REAUTH_REQUIRED`. A linked
+account goes out of band because the provider signs the user back in silently (Google ignores
+`prompt=login`), so neither a fresh `auth_time` nor a missing `identity_provider` proves anything.
+
+The module provides two beans: a `SignInMethodsClient`, its adapter to auth's `GetSignInMethods`
+(with a deadline; a failure throws), and a `PendingConfirmationIssuer`, which holds the gesture
+(`SensitiveAction`: the action's name, the subject, the method's arguments), sends the link to the
+current address and returns the 202 body. The two refusals are answered in `ApiErrorResponse` by
+`RecentAuthExceptionHandler`, ahead of a module catch-all and apart from the platform fallback, so
+modules that guard nothing do not see these codes in their error registry.
+
+The aspect runs at the lowest precedence, after the module's own aspects of the same order: a scope
+check refuses a caller before auth is asked or a link is sent. The module does not start when an
+annotated method would run unchecked or could not answer: no `SignInMethodsClient` or
+`PendingConfirmationIssuer`, a private, static or final method, an annotation on an interface method
+only, a bean that is not proxied (AOP off), a return type other than `ResponseEntity`, a blank
+`action` or a non-positive `maxAgeSeconds`. A call from inside the same bean bypasses the aspect.
+
+`RecentAuthEventListener` logs refusals and confirmations sent at INFO, unreadable sign-in methods
+at WARN, with the subject masked.
+
 ## Actuator endpoints on the management port
 
 `PlatformManagementSecurityAutoConfiguration` adds the filter chain `managementSecurityFilterChain`,
