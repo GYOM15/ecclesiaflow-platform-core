@@ -701,6 +701,69 @@ module decides whether that stops its startup. To rotate, deploy the old key und
 | Clock | A UTC `Clock` bean, unless the module declares one | — |
 | Architecture | `HexagonalArchitectureRules.check("<base package>")`, run from a module test with ArchUnit in test scope | — |
 
+## Upgrading to 0.6.0
+
+Read this before a module's pom moves to `0.6.0` from 0.5.x (0.5.1 added only the two-factor
+contracts). The wire contracts only grew, so an upgraded module and one that has not moved still
+talk to each other; what changes is inside the module that upgrades.
+
+### What a bump alone changes
+
+**It can stop the build, the tests or the startup.** Fix these in the same upgrade:
+
+| Change in 0.6.0 | Effect on a module that adopts nothing | Fix |
+|---|---|---|
+| `AuthService.GetSignInMethods` and `ChurchService.CanModerateGroupContent` are new RPCs, and `S2sScopeRegistry` lists every RPC of a bound service, implemented or not | The module that serves the service does not start: `s2s scope registry is incomplete` | Override the RPC with `@S2sScopeRequired("ef:auth:sign-in-methods:read")` (auth) or `@S2sScopeRequired("ef:church:group-moderation:read")` (church), implemented or as a stub that answers `UNIMPLEMENTED` |
+| `EmailTemplateType` gains values 9 to 12 | A `switch` expression over the enum with no `default` no longer compiles | Add the four cases, or a `default` that refuses a template the module has no mail for |
+| `PlatformRestExceptionHandler`, always on, answers two more exceptions: `ContentRejectedException` with 400 `CONTENT_REJECTED`, `IdempotencyKeyConflictException` with 422 `IDEMPOTENCY_CONFLICT` | A test that raises every exception the handler handles and holds each answer to the contract's `x-error-codes` fails on the pairs the contract lacks | Register `CONTENT_REJECTED` (400) and `IDEMPOTENCY_CONFLICT` (422) in `x-error-codes`. `RecentAuthExceptionHandler`, which answers `REAUTH_REQUIRED`, is a separate advice: add it to the sweep when the module adopts `@RecentAuthRequired` |
+| The startup check of [surface authorization](#surface-authorization-openapi-x-ef-surface), below | A module whose security chain opens a route its contract does not declare `security: []`, or closes one it does, does not start, in `log-only` too | Make the chain and the contract agree; the exception lists every route |
+
+Known cases when 0.6.0 was cut, from each module's unit tests (`mvn test`, no Docker; the tests that
+boot a context were not run, so the startup checks in this section are not measured):
+communication does not compile (`TemplateResolver`, its two `switch` expressions on
+`EmailTemplateType`); auth fails `GrpcServerConfigTest.configuredServerEnforcesS2s` and church
+`ChurchServiceGrpcControllerTest.theScopeRegistryAcceptsTheService`, on the RPC without an
+annotation; church and chat fail `ErrorCodeRegistryTest.everyAnswerIsRegistered`, church on
+`CONTENT_REJECTED` and chat on `CONTENT_REJECTED` and `IDEMPOTENCY_CONFLICT`; members compiles and
+its unit tests pass.
+
+**It starts by itself on a module that has the classes it needs:**
+
+| Component | Active when | After a bare bump |
+|---|---|---|
+| API contract index (`PlatformApiContractAutoConfiguration`) | a servlet application | **On.** Reads `classpath*:api/*.yaml` at startup. The module does not start when a location matches no file, a file cannot be parsed, a `$ref` is not local, a key is repeated or two operations share a method and path. `ecclesiaflow.contract.locations` points at a contract kept elsewhere |
+| Surface authorization (`SurfaceScopeAuthorizationAutoConfiguration`) | a servlet application with `JwtAuthenticationToken`, `WebInvocationPrivilegeEvaluator` and `DispatcherServlet` on the classpath | **On, in `enforce` mode** (see below) |
+| Idempotency (`PlatformIdempotencyAutoConfiguration`) | always; `IdempotentCreator` needs one `PlatformTransactionManager`, the key resolver a servlet application | On, inert. It acts on an operation marked `x-ef-idempotency` only, and refuses to start on a mark that is misdeclared. A contract without the mark is untouched |
+| Recent sign-in (`PlatformRecentAuthAutoConfiguration`) | a servlet application with `JwtAuthenticationToken`, `DispatcherServlet` and AspectJ on the classpath | On, inert. Nothing is guarded until a method carries `@RecentAuthRequired`; the module then declares a `SignInMethodsClient` and a `PendingConfirmationIssuer`, or does not start |
+| JWKS cache (`FaultTolerantJwkSource`, in the REST decoder) | `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` set, `ecclesiaflow.rest.jwt.enabled` not `false`, no module `JwtDecoder` bean | On for a module that uses the shared decoder; a module with its own `JwtDecoder` is unchanged. Keys are still reloaded every 5 minutes, but a failed reload now keeps the last set for up to 24 hours instead of refusing every token, an unknown `kid` reloads at once (at most every 30 seconds), and a reload waits at most 2 seconds to connect and 2 to read. No property is required; a zero or negative duration refuses the startup |
+| Term filter (`PlatformTermFilterAutoConfiguration`) | `ecclesiaflow.moderation.terms-file` is present | Off until the property is set. Present but blank, or naming a missing file, refuses the startup: bridge `${MODERATION_TERMS_FILE:}` only where the deploy always sets the variable |
+| Traceparent filter (`PlatformTraceparentAutoConfiguration`) | a servlet application, `ecclesiaflow.platform.web.traceparent.enabled` not `false` | On. A valid `traceparent` header puts its trace id in the MDC as `traceId`; nothing shows until the log pattern prints it, and nothing else changes |
+| Delayed retries (`PlatformDelayedRetryAutoConfiguration`) | the module declares a `DelayedRetryTopology` bean | Off; the signing advice is unchanged |
+
+**Surface authorization refuses requests from the first start.** An operation without
+`x-ef-surface` is console-only: a request whose token does not carry `ef:surface:full` gets the
+module's 403, and so does one for a path outside the contract that is not technical (`/ws/**`,
+`/error`, `/actuator/**`, `/v3/api-docs/**`, `/swagger-ui.html`, `/swagger-ui/**`). Requests without
+a token and `security: []` operations are never ruled. A contract gains `x-ef-surface` only when the
+module adopts it, so after a bare bump every operation is console-only: a token carries
+`ef:surface:full` once the realm grants it to the web client, and every other token is refused on
+every operation. To move without that risk, set `ecclesiaflow.security.surface.mode=log-only` in the
+same release: refusals are then logged and counted, and let through, and the contract is still read
+and checked at startup. No property turns the rule off.
+
+### What a module opts into, and how
+
+| To use | Do | Documented in |
+|---|---|---|
+| A surface per operation | `x-ef-surface: member` or `platform` on the operation | [Surface authorization](#surface-authorization-openapi-x-ef-surface) |
+| An idempotent creation | `x-ef-idempotency: required` on a POST, the optional `Idempotency-Key` header, `IdempotentCreator` in the service | [Idempotent creations](#idempotent-creations-openapi-x-ef-idempotency) |
+| A recent sign-in before a gesture | `@RecentAuthRequired` on the method, a `SignInMethodsClient` and a `PendingConfirmationIssuer` | [Recent sign-in](#recent-sign-in-before-sensitive-gestures-recentauthrequired) |
+| The term filter | `ecclesiaflow.moderation.terms-file`, bridged from `MODERATION_TERMS_FILE` | [Moderation term filter](#moderation-term-filter) |
+| Delayed retries of an external effect | a `DelayedRetryTopology` bean per queue and `DelayedRetryMessageRecoverer` in the listener's retry interceptor | [Delayed retries](#delayed-retries-for-consumers-with-an-external-effect-opt-in) |
+| Exact bindings | the `EventRoutes` constant of each key, never a wildcard | [Contracts](#grpc-and-domain-event-contracts) |
+| The trace id in the logs | `%X{traceId}` in the log pattern | [Trace id](#trace-id-in-the-logs) |
+| Other key reload timings | `ecclesiaflow.rest.jwt.jwks.*` | [REST decoder](#rest-resource-server-decoder) |
+
 ## Consuming the library (downstream modules)
 
 The artifact is published on **GitHub Packages**, in two flavours:
