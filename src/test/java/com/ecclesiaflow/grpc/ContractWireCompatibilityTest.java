@@ -11,6 +11,8 @@ import com.ecclesiaflow.grpc.events.auth.AuthDomainEventsProto;
 import com.ecclesiaflow.grpc.events.auth.ExistingAccountNoticeEvent;
 import com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent;
 import com.ecclesiaflow.grpc.events.auth.TwoFactorRemovedEvent;
+import com.ecclesiaflow.grpc.events.chat.ChatDomainEventsProto;
+import com.ecclesiaflow.grpc.events.chat.ChatMessagePostedEvent;
 import com.ecclesiaflow.grpc.events.church.ChurchDomainEventsProto;
 import com.ecclesiaflow.grpc.events.church.ChurchInvitationCreatedEvent;
 import com.ecclesiaflow.grpc.events.church.MemberAddedToGroupEvent;
@@ -73,7 +75,8 @@ class ContractWireCompatibilityTest {
             EventOptionsProto.getDescriptor(),
             AuthDomainEventsProto.getDescriptor(),
             ChurchDomainEventsProto.getDescriptor(),
-            MembersDomainEventsProto.getDescriptor());
+            MembersDomainEventsProto.getDescriptor(),
+            ChatDomainEventsProto.getDescriptor());
 
     private static final Path PROTO_ROOT = Path.of("src/main/proto");
 
@@ -179,7 +182,7 @@ class ContractWireCompatibilityTest {
                 MemberAnonymizedEvent.class, MemberContactsErasedEvent.class,
                 MemberDeactivatedEvent.class, MemberReactivatedEvent.class, EmailQueueMessage.class,
                 AccountSessionsRevokedEvent.class, MemberSuspendedEvent.class, MemberSuspensionLiftedEvent.class,
-                NotificationCreatedEvent.class))
+                NotificationCreatedEvent.class, ChatMessagePostedEvent.class))
                 .extracting(Class::getName)
                 .containsExactly(
                         "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent",
@@ -199,7 +202,8 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.events.auth.AccountSessionsRevokedEvent",
                         "com.ecclesiaflow.grpc.events.members.MemberSuspendedEvent",
                         "com.ecclesiaflow.grpc.events.members.MemberSuspensionLiftedEvent",
-                        "com.ecclesiaflow.grpc.events.church.NotificationCreatedEvent");
+                        "com.ecclesiaflow.grpc.events.church.NotificationCreatedEvent",
+                        "com.ecclesiaflow.grpc.events.chat.ChatMessagePostedEvent");
     }
 
     private static List<Descriptor> events() {
@@ -697,6 +701,17 @@ class ContractWireCompatibilityTest {
               0 BAPTISM_DECLARATION_UNSPECIFIED
               1 BAPTISM_DECLARATION_NOT_BAPTISED
               2 BAPTISM_DECLARATION_BAPTISED
+            file ecclesiaflow/events/chat/v1/chat_events.proto package ecclesiaflow.events.chat.v1 java_package com.ecclesiaflow.grpc.events.chat
+            message ecclesiaflow.events.chat.v1.ChatMessagePostedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string church_id
+              4 string conversation_id
+              5 string message_id
+              6 string sender_user_id
+              7 string conversation_kind
+              8 bool is_request
+              9 repeated string recipient_user_ids
             """;
 
     private static final String ROUTES = """
@@ -717,5 +732,6 @@ class ContractWireCompatibilityTest {
             members.account.reactivated ecclesiaflow.events.members.v1.MemberReactivatedEvent
             members.account.suspended.v1 ecclesiaflow.events.members.v1.MemberSuspendedEvent
             members.account.suspension-lifted.v1 ecclesiaflow.events.members.v1.MemberSuspensionLiftedEvent
+            chat.message.posted.v1 ecclesiaflow.events.chat.v1.ChatMessagePostedEvent
             """;
 }

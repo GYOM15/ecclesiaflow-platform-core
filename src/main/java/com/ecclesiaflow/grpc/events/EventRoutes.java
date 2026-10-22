@@ -29,6 +29,8 @@ public final class EventRoutes {
     public static final String MEMBERS_ACCOUNT_SUSPENDED_V1 = "members.account.suspended.v1";
     public static final String MEMBERS_ACCOUNT_SUSPENSION_LIFTED_V1 = "members.account.suspension-lifted.v1";
 
+    public static final String CHAT_MESSAGE_POSTED_V1 = "chat.message.posted.v1";
+
     private EventRoutes() {
     }
 }
