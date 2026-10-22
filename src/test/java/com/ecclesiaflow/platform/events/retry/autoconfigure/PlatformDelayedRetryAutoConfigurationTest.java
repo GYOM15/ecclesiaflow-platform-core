@@ -129,6 +129,18 @@ class PlatformDelayedRetryAutoConfigurationTest {
         }
 
         @Test
+        @DisplayName("starts with a blank secret, which signs and stamps nothing")
+        void startsWithBlankSecret() {
+            runner.withUserConfiguration(OptedIn.class)
+                    .withPropertyValues("ecclesiaflow.events.hmac-secret=")
+                    .run(context -> {
+                        assertThat(context).hasSingleBean(DelayedRetryMessageRecoverer.class)
+                                .hasBean("retryAwareVerifyingListenerAdvice");
+                        assertThat(context.getBean(DelayedRetryStamp.class).isEnabled()).isFalse();
+                    });
+        }
+
+        @Test
         @DisplayName("accepts a queue that dead-letters by its own arguments")
         void acceptsDeadLetterArguments() {
             runner.withUserConfiguration(DeadLetteringByArguments.class)
@@ -164,6 +176,19 @@ class PlatformDelayedRetryAutoConfigurationTest {
             runner.withUserConfiguration(WithoutDeadLetterRoute.class).run(context ->
                     assertThat(context).hasFailed().getFailure().rootCause()
                             .hasMessageContaining("Queue '" + QUEUE + "' has delayed retries but no dead-letter route"));
+        }
+
+        @Test
+        @DisplayName("when an opted-in queue names a dead-letter exchange without a key")
+        void withDeadLetterExchangeOnly() {
+            new ApplicationContextRunner()
+                    .withConfiguration(AutoConfigurations.of(PlatformDelayedRetryAutoConfiguration.class))
+                    .withBean(ConnectionFactory.class, () -> reliableFactory(true))
+                    .withBean("memberAccountStatusQueue", Queue.class, () -> QueueBuilder.durable(QUEUE)
+                            .deadLetterExchange("ecclesiaflow.domain-events").build())
+                    .withBean(DelayedRetryTopology.class, () -> new DelayedRetryTopology(QUEUE))
+                    .run(context -> assertThat(context).hasFailed().getFailure().rootCause()
+                            .hasMessageContaining("no dead-letter route"));
         }
 
         @Test

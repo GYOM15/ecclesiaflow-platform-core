@@ -154,6 +154,24 @@ class DelayedRetryPublisherTest {
         }
 
         @Test
+        @DisplayName("stamps an unsigned event too, its absent signature headers included")
+        void stampsAnUnsignedEvent() {
+            brokerAnswers(DelayedRetryPublisherTest::ack);
+            Message unsigned = failed();
+            unsigned.getMessageProperties().getHeaders().remove(DomainEventSigner.SIGNATURE_HEADER);
+            unsigned.getMessageProperties().getHeaders().remove(DomainEventSigner.SIGNED_AT_HEADER);
+
+            publisher.publish(unsigned, stage, "ecclesiaflow.domain-events", "members.account.deactivated");
+
+            ArgumentCaptor<Message> copy = ArgumentCaptor.forClass(Message.class);
+            verify(template).send(anyString(), anyString(), copy.capture(), any(CorrelationData.class));
+            MessageProperties properties = copy.getValue().getMessageProperties();
+            RetryHop hop = RetryHop.fromHeaders(properties.getHeaders()).orElseThrow();
+            assertThat(stamp.matches(hop, null, null, BODY, (String) properties.getHeader(RetryHop.STAMP_HEADER)))
+                    .isTrue();
+        }
+
+        @Test
         @DisplayName("writes no stamp when signing is off")
         void noStampWithoutSecret() {
             DelayedRetryPublisher unsigned = new DelayedRetryPublisher(template, new DelayedRetryStamp(""),

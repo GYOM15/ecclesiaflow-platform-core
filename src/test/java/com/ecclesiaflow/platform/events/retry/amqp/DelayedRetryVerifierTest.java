@@ -191,7 +191,11 @@ class DelayedRetryVerifierTest {
             Message future = redelivery(Duration.ofMinutes(2), hop(1, Duration.ofMinutes(1)));
             future.getMessageProperties().setHeader(DomainEventSigner.SIGNATURE_VERSION_HEADER, "2");
 
+            Message blank = redelivery(Duration.ofMinutes(2), hop(1, Duration.ofMinutes(1)));
+            blank.getMessageProperties().setHeader(DomainEventSigner.SIGNATURE_HEADER, " ");
+
             assertThat(verify(unsigned)).isEqualTo(Decision.REJECT_MISSING);
+            assertThat(verify(blank)).isEqualTo(Decision.REJECT_MISSING);
             assertThat(verify(future)).isEqualTo(Decision.REJECT_UNSUPPORTED_VERSION);
         }
     }
