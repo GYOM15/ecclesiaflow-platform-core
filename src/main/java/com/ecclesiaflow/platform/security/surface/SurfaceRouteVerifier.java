@@ -149,7 +149,6 @@ public class SurfaceRouteVerifier implements SmartInitializingSingleton {
         return path.startsWith("/") ? path : "/" + path;
     }
 
-    // ** and * become one sample segment; ? one sample character.
     private static void appendLiteral(StringBuilder sample, String pattern, int index, char c) {
         if (c == '*') {
             if (index == 0 || pattern.charAt(index - 1) != '*') {

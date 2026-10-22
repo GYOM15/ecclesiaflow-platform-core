@@ -39,7 +39,7 @@ public final class ApiContractLoader {
     // A reference to a reference is legal; a cycle is not, and this bounds it.
     private static final int MAX_REF_HOPS = 16;
 
-    // SnakeYAML refuses documents above 3 MB by default; the largest contract is a tenth of that today.
+    // SnakeYAML refuses documents above 3 MB by default; church's contract is already a sixth of that.
     private static final int CODE_POINT_LIMIT = 32 * 1024 * 1024;
 
     private ApiContractLoader() {
