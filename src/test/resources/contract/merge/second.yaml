@@ -1,0 +1,8 @@
+openapi: 3.1.1
+info: {title: Second half, version: 1.0.0}
+paths:
+  /second:
+    get:
+      operationId: Second.Get
+      responses:
+        "200": {description: ok}

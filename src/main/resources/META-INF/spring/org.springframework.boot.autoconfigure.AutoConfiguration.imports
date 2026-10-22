@@ -14,3 +14,4 @@ com.ecclesiaflow.platform.error.autoconfigure.PlatformErrorAutoConfiguration
 com.ecclesiaflow.platform.rpc.error.autoconfigure.PlatformRpcErrorAutoConfiguration
 com.ecclesiaflow.platform.web.error.autoconfigure.PlatformWebErrorAutoConfiguration
 com.ecclesiaflow.platform.events.deadletter.autoconfigure.PlatformDeadLetterMetricsAutoConfiguration
+com.ecclesiaflow.platform.contract.autoconfigure.PlatformApiContractAutoConfiguration
