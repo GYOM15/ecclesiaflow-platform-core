@@ -40,6 +40,11 @@ service ChurchService {
   // Asked before an account is closed: a church left without its owner or its
   // last administrator could no longer be managed by anyone.
   rpc CheckAccountClosure(CheckAccountClosureRequest) returns (CheckAccountClosureResponse);
+  // Asked by chat before an admin removes a group message: chat knows no role,
+  // capability or group delegation, and the web token carries no delegation
+  // and may lag behind a revoked one. Chat refuses the removal on any failure.
+  // Scope ef:church:group-moderation:read, granted to chat only.
+  rpc CanModerateGroupContent(CanModerateGroupContentRequest) returns (CanModerateGroupContentResponse);
 }
 
 // ============================================================================
@@ -99,4 +104,20 @@ message CheckAccountClosureResponse {
   repeated string owned_church_ids = 1;
   // Churches where this user is the only active CHURCH_ADMIN.
   repeated string last_admin_church_ids = 2;
+}
+
+// ============================================================================
+// Can Moderate Group Content
+// ============================================================================
+
+message CanModerateGroupContentRequest {
+  string keycloak_user_id = 1;
+  string church_id = 2;
+  // A group delegation widens a right to this one group only.
+  string church_group_id = 3;
+}
+
+// Failures are reported through the gRPC status, never in the response.
+message CanModerateGroupContentResponse {
+  bool allowed = 1;
 }
