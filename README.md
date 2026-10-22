@@ -312,6 +312,63 @@ only, a bean that is not proxied (AOP off), a return type other than `ResponseEn
 
 `RecentAuthEventListener` logs refusals and confirmations sent at INFO, unreadable sign-in methods
 at WARN, with the subject masked.
+## Moderation term filter
+
+`TermFilter` refuses a text that holds a listed term. `PlatformTermFilterAutoConfiguration` publishes it
+once `ecclesiaflow.moderation.terms-file` is present, so a module that has not adopted the filter is
+untouched. The deploy mounts the list read-only and passes its path as `MODERATION_TERMS_FILE`, which
+does not bind to the property on its own; the module bridges it:
+
+```properties
+ecclesiaflow.moderation.terms-file=${MODERATION_TERMS_FILE:}
+```
+
+| Property | Default | Effect |
+|---|---|---|
+| `ecclesiaflow.moderation.terms-file` | unset | UTF-8 file, one term per line; blank lines are skipped and a line starting with `#` is a comment. Unset creates no filter, so a module that injects one without configuring it fails on the missing bean |
+
+The startup fails, naming the file and the property, when the path is blank, the file does not exist or
+is a directory, it is not valid UTF-8, or a line holds no letter or digit and could never match. An
+empty list is valid and logs a warning, since nothing is then rejected. The log line gives the number of
+terms, never the terms.
+
+```java
+termFilter.requireClean("caption", request.getCaption());   // field names the property in the answer
+termFilter.requireClean(message.getText());                 // or no field
+boolean rejected = termFilter.rejects(text);                // when the caller decides what to do
+```
+
+- Case, accents (NFKD, plus `œ` and `æ`), full-width and ligature forms and invisible characters
+  such as a zero-width space do not matter, on the text or on the term.
+- A term matches only as whole words: a word is a run of letters and digits, so `heck` is found in
+  `"oh, heck!"` and `"l'heck"` but not in `"check"` or `"heck2"`. A plural or a conjugation is a term
+  of its own. A term of several words matches whatever punctuation or spacing separates them.
+- A script written without spaces is matched only as one whole run of characters.
+
+A rejection is `ContentRejectedException`, answered by `PlatformRestExceptionHandler` as 400
+`CONTENT_REJECTED` in the usual `ApiErrorResponse`: a sober message, and `errors[0].path` when the
+caller named a field. It is `INVALID_ARGUMENT` for the gRPC mapping. The exception carries neither the
+text nor the matched term. A module registers `CONTENT_REJECTED` with status 400 in its contract's
+`x-error-codes`, and keeps it out of any catch-all handler of its own.
+
+## Trace id in the logs
+
+`PlatformTraceparentAutoConfiguration` registers `TraceparentFilter` on a servlet module, ahead of Spring
+Security's chain so the filters behind it log with the id too. It copies the trace id of a valid W3C
+`traceparent` request header into the MDC under `traceId` and removes it when the request ends,
+whether it succeeds or throws. A module's log pattern prints it with `%X{traceId}`.
+
+A header is valid when it is the only `traceparent` of the request and reads
+`00-<32 lowercase hex>-<16 lowercase hex>-<2 lowercase hex>`, with neither id all zeros. Anything
+else is ignored and the request goes through: the id is a correlation aid, not a gate. The filter only
+reads. It generates no id, forwards none to outgoing calls and keeps neither the parent id nor the
+flags.
+
+| Property | Default | Effect |
+|---|---|---|
+| `ecclesiaflow.platform.web.traceparent.enabled` | `true` | `false` removes the filter |
+
+A `FilterRegistrationBean<TraceparentFilter>` the module declares replaces the one registered here.
 
 ## Actuator endpoints on the management port
 

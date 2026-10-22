@@ -1,5 +1,6 @@
 package com.ecclesiaflow.platform.error;
 
+import com.ecclesiaflow.platform.moderation.ContentRejectedException;
 import com.ecclesiaflow.platform.ratelimit.RateLimitExceededException;
 import com.ecclesiaflow.platform.rpc.s2s.token.S2sTokenException;
 import com.ecclesiaflow.platform.upload.ImageDecodeCapacityExceededException;
@@ -126,6 +127,13 @@ class ErrorCategoryResolverTest {
         @DisplayName("IllegalStateException is not assumed to be a caller error")
         void illegalStateIsInternal() {
             assertThat(defaults.resolve(new IllegalStateException("not initialised"))).isEqualTo(ErrorCategory.INTERNAL);
+        }
+
+        @Test
+        @DisplayName("rejected content is a caller error")
+        void contentRejected() {
+            assertThat(defaults.resolve(ContentRejectedException.rejected())).isEqualTo(ErrorCategory.INVALID_ARGUMENT);
+            assertThat(defaults.resolve(ContentRejectedException.rejected("title"))).isEqualTo(ErrorCategory.INVALID_ARGUMENT);
         }
 
         @Test

@@ -6,6 +6,7 @@ import com.ecclesiaflow.platform.idempotency.IdempotencyKeyConflictException;
 import com.ecclesiaflow.platform.idempotency.web.IdempotencyHeaders;
 import com.ecclesiaflow.platform.idempotency.web.InvalidIdempotencyKeyException;
 import com.ecclesiaflow.platform.logging.SecurityMaskingUtils;
+import com.ecclesiaflow.platform.moderation.ContentRejectedException;
 import com.ecclesiaflow.platform.ratelimit.RateLimitExceededException;
 import com.ecclesiaflow.platform.upload.ImageDecodeCapacityExceededException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -55,6 +56,7 @@ public abstract class PlatformRestExceptionHandler {
     static final String VALIDATION_ERROR = "VALIDATION_ERROR";
     static final String MALFORMED_REQUEST = "MALFORMED_REQUEST";
     static final String RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED";
+    static final String CONTENT_REJECTED = "CONTENT_REJECTED";
     static final String INTERNAL_ERROR = "INTERNAL_ERROR";
     static final String IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT";
 
@@ -150,6 +152,18 @@ public abstract class PlatformRestExceptionHandler {
                                                                         HttpServletRequest request) {
         return answer(ex, HttpStatus.BAD_REQUEST, codeFor(HttpStatus.BAD_REQUEST),
                 "Parameter '" + IdempotencyHeaders.KEY + "' has an invalid value.", new HttpHeaders(), request);
+    }
+
+    @ExceptionHandler(ContentRejectedException.class)
+    public ResponseEntity<ApiErrorResponse> handleContentRejected(ContentRejectedException ex,
+                                                                  HttpServletRequest request) {
+        log.debug("HTTP-ERROR: {} {} rejected — content refused", request.getMethod(), route(request));
+        ApiErrorResponse body = ApiErrorResponse.of(clock.instant(), HttpStatus.BAD_REQUEST, CONTENT_REJECTED,
+                "The content is not allowed.", request.getRequestURI());
+        if (ex.getField() != null) {
+            body = body.withErrors(List.of(new ApiValidationError(ex.getField(), body.message(), CONTENT_REJECTED)));
+        }
+        return ResponseEntity.badRequest().body(body);
     }
 
     @ExceptionHandler(ImageDecodeCapacityExceededException.class)

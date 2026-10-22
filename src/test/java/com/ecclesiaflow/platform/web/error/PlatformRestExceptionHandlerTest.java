@@ -10,6 +10,8 @@ import com.ecclesiaflow.platform.error.ErrorCategoryResolver;
 import com.ecclesiaflow.platform.error.ExceptionClassifier;
 import com.ecclesiaflow.platform.idempotency.IdempotencyKeyConflictException;
 import com.ecclesiaflow.platform.idempotency.web.InvalidIdempotencyKeyException;
+import com.ecclesiaflow.platform.moderation.ContentRejectedException;
+import com.ecclesiaflow.platform.moderation.TermFilter;
 import com.ecclesiaflow.platform.ratelimit.RateLimitExceededException;
 import com.ecclesiaflow.platform.upload.ImageDecodeCapacityExceededException;
 import jakarta.servlet.http.HttpServletResponse;
@@ -100,11 +102,15 @@ class PlatformRestExceptionHandlerTest {
     record NewMember(String email) {
     }
 
+    record NewPost(String caption) {
+    }
+
     @RestController
     static class MembersController {
 
         private RuntimeException next;
         private Exception checked;
+        private TermFilter filter;
 
         @GetMapping("/members/{id}")
         String get(@PathVariable UUID id) throws Exception {
@@ -120,6 +126,12 @@ class PlatformRestExceptionHandlerTest {
         @PostMapping(path = "/members", consumes = MediaType.APPLICATION_JSON_VALUE)
         String create(@RequestBody NewMember member) {
             return "created";
+        }
+
+        @PostMapping(path = "/posts", consumes = MediaType.APPLICATION_JSON_VALUE)
+        String post(@RequestBody NewPost post) {
+            filter.requireClean("caption", post.caption());
+            return "posted";
         }
 
         @PutMapping("/members/{id}/photo")
@@ -528,6 +540,74 @@ class PlatformRestExceptionHandlerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"))
                     .andExpect(jsonPath("$.message").value("Parameter 'Idempotency-Key' has an invalid value."));
+        }
+    }
+
+    @Nested
+    @DisplayName("rejected content")
+    class RejectedContent {
+
+        @Test
+        @DisplayName("is 400 CONTENT_REJECTED with a sober message and no field errors")
+        void rejected() throws Exception {
+            failNextWith(ContentRejectedException.rejected());
+
+            mvc.perform(get("/members/" + UUID.randomUUID()))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.status").value(400))
+                    .andExpect(jsonPath("$.error").value("Bad Request"))
+                    .andExpect(jsonPath("$.errorCode").value("CONTENT_REJECTED"))
+                    .andExpect(jsonPath("$.message").value("The content is not allowed."))
+                    .andExpect(jsonPath("$.timestamp").value("2026-10-02T10:00:00Z"))
+                    .andExpect(jsonPath("$.errors").doesNotExist());
+        }
+
+        @Test
+        @DisplayName("points at the field the filter was given")
+        void rejectedField() throws Exception {
+            failNextWith(ContentRejectedException.rejected("caption"));
+
+            mvc.perform(get("/members/" + UUID.randomUUID()))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errorCode").value("CONTENT_REJECTED"))
+                    .andExpect(jsonPath("$.errors.length()").value(1))
+                    .andExpect(jsonPath("$.errors[0].path").value("caption"))
+                    .andExpect(jsonPath("$.errors[0].code").value("CONTENT_REJECTED"))
+                    .andExpect(jsonPath("$.errors[0].message").value("The content is not allowed."));
+        }
+
+        @Test
+        @DisplayName("is a refusal of the request, logged at debug and never as a failure")
+        void notAFailure() throws Exception {
+            failNextWith(ContentRejectedException.rejected("caption"));
+            Level before = logger.getLevel();
+            logger.setLevel(Level.DEBUG);
+            try {
+                mvc.perform(get("/members/" + UUID.randomUUID())).andExpect(status().isBadRequest());
+            } finally {
+                logger.setLevel(before);
+            }
+
+            assertThat(logs.list).singleElement().satisfies(line -> {
+                assertThat(line.getLevel()).isEqualTo(Level.DEBUG);
+                assertThat(line.getFormattedMessage()).contains("/members/{id}").doesNotContain("caption");
+            });
+        }
+
+        @Test
+        @DisplayName("is raised by the filter itself through the same answer")
+        void raisedByTheFilter() throws Exception {
+            controller.filter = new TermFilter(List.of("heck"));
+
+            mvc.perform(post("/posts").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"caption\":\"what the HECK\"}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errorCode").value("CONTENT_REJECTED"))
+                    .andExpect(jsonPath("$.errors[0].path").value("caption"));
+
+            mvc.perform(post("/posts").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"caption\":\"a fine day\"}"))
+                    .andExpect(status().isOk());
         }
     }
 
