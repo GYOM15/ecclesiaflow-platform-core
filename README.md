@@ -187,8 +187,8 @@ closes a `security: []` operation; an `x-ef-surface` other than `member` or `pla
 | `ecclesiaflow.security.surface.mode` | `enforce` | `log-only` logs and counts refusals and lets them through |
 
 Metrics: `surface_mode{mode}` (1 for the mode in force) and
-`ef_surface_refused_total{surface,caller,mode}`. No property turns the rule off; a module that must
-not run it excludes the auto-configuration in its own code.
+`ef_surface_refused_total{surface,caller,mode}`. No `ecclesiaflow.*` property turns the rule off; a
+module that must not run it excludes the auto-configuration.
 
 ## Idempotent creations (OpenAPI `x-ef-idempotency`)
 
@@ -323,9 +323,12 @@ does not bind to the property on its own; the module bridges it:
 ecclesiaflow.moderation.terms-file=${MODERATION_TERMS_FILE:}
 ```
 
+Once bridged, the property is present even when the variable is unset, and its blank value stops the
+startup: a deployment that forgot the list fails loudly instead of running unmoderated.
+
 | Property | Default | Effect |
 |---|---|---|
-| `ecclesiaflow.moderation.terms-file` | unset | UTF-8 file, one term per line; blank lines are skipped and a line starting with `#` is a comment. Unset creates no filter, so a module that injects one without configuring it fails on the missing bean |
+| `ecclesiaflow.moderation.terms-file` | absent | UTF-8 file, one term per line; blank lines are skipped and a line starting with `#` is a comment. Absent from the configuration, it creates no filter, so a module that injects one without declaring it fails on the missing bean |
 
 The startup fails, naming the file and the property, when the path is blank, the file does not exist or
 is a directory, it is not valid UTF-8, or a line holds no letter or digit and could never match. An
@@ -551,7 +554,7 @@ ecclesiaflow.events.outbox.enabled=true
 @Transactional
 public void removeFromGroup(...) {
     // business change ...
-    outbox.append(domainEventsExchange, "church.member.removed-from-group.v1", event);
+    outbox.append(domainEventsExchange, EventRoutes.CHURCH_MEMBER_REMOVED_FROM_GROUP_V1, event);
 }
 ```
 
@@ -701,6 +704,81 @@ module decides whether that stops its startup. To rotate, deploy the old key und
 | Clock | A UTC `Clock` bean, unless the module declares one | — |
 | Architecture | `HexagonalArchitectureRules.check("<base package>")`, run from a module test with ArchUnit in test scope | — |
 
+## Upgrading to 0.6.0
+
+Read this before a module's pom moves to `0.6.0` from 0.5.x (0.5.1 added only the two-factor
+contracts). The wire contracts only grew, so an upgraded module and one that has not moved still
+talk to each other; what changes is inside the module that upgrades. 0.6.0 is a minor release that
+is not drop-in: before 1.0.0, a breaking change bumps the minor and comes with a section like this one.
+
+### What a bump alone changes
+
+**It can stop the build, the tests or the startup.** Fix these in the same upgrade:
+
+| Change in 0.6.0 | Effect on a module that adopts nothing | Fix |
+|---|---|---|
+| `AuthService.GetSignInMethods` and `ChurchService.CanModerateGroupContent` are new RPCs, and `S2sScopeRegistry` lists every RPC of a bound service, implemented or not | The module that serves the service does not start: `s2s scope registry is incomplete` | Override the RPC with `@S2sScopeRequired("ef:auth:sign-in-methods:read")` (auth) or `@S2sScopeRequired("ef:church:group-moderation:read")` (church), implemented or as a stub that answers `UNIMPLEMENTED` |
+| `EmailTemplateType` gains values 9 to 12 | A `switch` expression over the enum with no `default` no longer compiles | Add the four cases, or a `default` that refuses a template the module has no mail for |
+| `PlatformRestExceptionHandler`, on unless `ecclesiaflow.platform.web.errors.enabled=false`, answers three more exceptions: `ContentRejectedException` with 400 `CONTENT_REJECTED`, `IdempotencyKeyConflictException` with 422 `IDEMPOTENCY_CONFLICT`, `InvalidIdempotencyKeyException` with 400 `BAD_REQUEST` | A test that raises every exception the handler handles and holds each answer to the contract's `x-error-codes` fails on the pairs the contract lacks | Register `CONTENT_REJECTED` (400) and `IDEMPOTENCY_CONFLICT` (422) in `x-error-codes`; every registry already holds `BAD_REQUEST` (400). `RecentAuthExceptionHandler`, which answers `REAUTH_REQUIRED`, is a separate advice: add it to the sweep when the module adopts `@RecentAuthRequired` |
+| The startup check of [surface authorization](#surface-authorization-openapi-x-ef-surface), below | A module whose security chain opens, to a caller without a token, a route that is neither a `security: []` operation nor a technical path (`/ws/**`, `/error`, `/actuator/**`, `/v3/api-docs/**`, `/swagger-ui.html`, `/swagger-ui/**`), or closes a `security: []` operation, does not start, in `log-only` too | Make the chain and the contract agree; the exception lists every route |
+| Surface authorization, in `enforce` | A test that boots the context and calls an operation without `x-ef-surface` with a token lacking `SCOPE_ef:surface:full` gets 403: a MockMvc `jwt()` (default scope `read`), or a real token from a realm that does not grant the scope | Give the test token `SCOPE_ef:surface:full`, or mark the operation `x-ef-surface: member` when it is meant for the app |
+
+**It refuses every token until the realm grants `ef:surface:full`.** Set
+`ecclesiaflow.security.surface.mode=log-only` in the same release as the bump (see the surface
+paragraph below).
+
+Known cases when 0.6.0 was cut, from each module's unit tests (`mvn test`, no Docker; the tests that
+boot a context were not run, so the startup checks in this section are not measured):
+communication does not compile (`TemplateResolver`, its two `switch` expressions on
+`EmailTemplateType`); auth fails `GrpcServerConfigTest.configuredServerEnforcesS2s` and church
+`ChurchServiceGrpcControllerTest.theScopeRegistryAcceptsTheService`, on the RPC without an
+annotation; church and chat fail `ErrorCodeRegistryTest.everyAnswerIsRegistered`, church on
+`CONTENT_REJECTED` and chat on `CONTENT_REJECTED` and `IDEMPOTENCY_CONFLICT`; members compiles and
+its unit tests pass. Read in the code, not run: once it compiles, communication still does not start,
+because `provider-callbacks.yaml` declares no `security` while its `SecurityConfig` opens
+`/internal/providers/ses/notifications` (give that operation `security: []` in the same upgrade); in
+`enforce`, auth's `SecurityConfigurationIntegrationTest` and its two-factor realm tests would get 403.
+
+**It starts by itself on a module that has the classes it needs:**
+
+| Component | Active when | After a bare bump |
+|---|---|---|
+| API contract index (`PlatformApiContractAutoConfiguration`) | a servlet application | **On.** Reads `classpath*:api/*.yaml` at startup. The module does not start when a location matches no file, a file cannot be parsed, a path item, a parameter or a parameter schema uses a `$ref` that is not local (`#/…`), a key is repeated or two operations share a method and path. `ecclesiaflow.contract.locations` points at a contract kept elsewhere |
+| Surface authorization (`SurfaceScopeAuthorizationAutoConfiguration`) | a servlet application with `JwtAuthenticationToken`, `WebInvocationPrivilegeEvaluator` and `DispatcherServlet` on the classpath | **On, in `enforce` mode** (see below) |
+| Idempotency (`PlatformIdempotencyAutoConfiguration`) | always; `IdempotentCreator` needs one `PlatformTransactionManager`, the key resolver a servlet application | On, inert. It acts on an operation marked `x-ef-idempotency` only, and refuses to start on a mark that is misdeclared. A contract without the mark is untouched |
+| Recent sign-in (`PlatformRecentAuthAutoConfiguration`) | a servlet application with `JwtAuthenticationToken`, `DispatcherServlet` and AspectJ on the classpath | On, inert. Nothing is guarded until a method carries `@RecentAuthRequired`; the module then declares a `SignInMethodsClient` and a `PendingConfirmationIssuer`, or does not start |
+| JWKS cache (`FaultTolerantJwkSource`, in the REST decoder) | `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` set, `ecclesiaflow.rest.jwt.enabled` not `false`, no module `JwtDecoder` bean | On for a module that uses the shared decoder; a module with its own `JwtDecoder` is unchanged. Keys are still reloaded every 5 minutes, but a failed reload now keeps the last set for up to 24 hours instead of refusing every token, an unknown `kid` reloads at once (at most every 30 seconds), and a reload waits at most 2 seconds to connect and 2 to read. No property is required; a zero or negative duration refuses the startup |
+| Term filter (`PlatformTermFilterAutoConfiguration`) | `ecclesiaflow.moderation.terms-file` is present | Off until the property is set. Present but blank, or naming a missing file, refuses the startup: bridge `${MODERATION_TERMS_FILE:}` only where the deploy always sets the variable |
+| Traceparent filter (`PlatformTraceparentAutoConfiguration`) | a servlet application, `ecclesiaflow.platform.web.traceparent.enabled` not `false` | On. A valid `traceparent` header puts its trace id in the MDC as `traceId`; nothing shows until the log pattern prints it, and nothing else changes |
+| Delayed retries (`PlatformDelayedRetryAutoConfiguration`) | the module declares a `DelayedRetryTopology` bean | Off; the signing advice is unchanged |
+
+**Surface authorization refuses requests from the first start.** An operation without
+`x-ef-surface` is console-only: a request whose token does not carry `ef:surface:full` gets the
+module's 403, and so does one for a path outside the contract that is not technical (`/ws/**`,
+`/error`, `/actuator/**`, `/v3/api-docs/**`, `/swagger-ui.html`, `/swagger-ui/**`). Requests without
+a token and `security: []` operations are never ruled. A contract gains `x-ef-surface` only when the
+module adopts it, so after a bare bump every operation that is not `security: []` is console-only,
+and only a token carrying `ef:surface:full` passes. When 0.6.0 was cut no client of the realm was
+granted that scope, so in `enforce` every token is refused, the web console's included. Set
+`ecclesiaflow.security.surface.mode=log-only` in the same release as the bump, and keep it until the
+realm grants `ef:surface:full` to the web client and the refusal log shows no web token: refusals
+are then logged (`SURFACE: ⚠ Would refuse`), counted (`ef_surface_refused_total`) and let through,
+and the contract is still read and checked at startup. No `ecclesiaflow.*` property turns the rule
+off; only excluding `SurfaceScopeAuthorizationAutoConfiguration` does.
+
+### What a module opts into, and how
+
+| To use | Do | Documented in |
+|---|---|---|
+| A surface per operation | `x-ef-surface: member` or `platform` on the operation | [Surface authorization](#surface-authorization-openapi-x-ef-surface) |
+| An idempotent creation | `x-ef-idempotency: required` on a POST, the optional `Idempotency-Key` header, `IdempotentCreator` in the service | [Idempotent creations](#idempotent-creations-openapi-x-ef-idempotency) |
+| A recent sign-in before a gesture | `@RecentAuthRequired` on the method, a `SignInMethodsClient` and a `PendingConfirmationIssuer` | [Recent sign-in](#recent-sign-in-before-sensitive-gestures-recentauthrequired) |
+| The term filter | `ecclesiaflow.moderation.terms-file`, bridged from `MODERATION_TERMS_FILE` | [Moderation term filter](#moderation-term-filter) |
+| Delayed retries of an external effect | a `DelayedRetryTopology` bean per queue and `DelayedRetryMessageRecoverer` in the listener's retry interceptor | [Delayed retries](#delayed-retries-for-consumers-with-an-external-effect-opt-in) |
+| Exact bindings | the `EventRoutes` constant of each key, never a wildcard | [Contracts](#grpc-and-domain-event-contracts) |
+| The trace id in the logs | `%X{traceId}` in the log pattern | [Trace id](#trace-id-in-the-logs) |
+| Other key reload timings | `ecclesiaflow.rest.jwt.jwks.*` | [REST decoder](#rest-resource-server-decoder) |
+
 ## Consuming the library (downstream modules)
 
 The artifact is published on **GitHub Packages**, in two flavours:
@@ -710,8 +788,10 @@ The artifact is published on **GitHub Packages**, in two flavours:
 | **Release** | `com.ecclesiaflow:ecclesiaflow-platform-core:X.Y.Z` | From a `vX.Y.Z` tag. Immutable. |
 | **Snapshot** | `com.ecclesiaflow:ecclesiaflow-platform-core:X.Y.Z-SNAPSHOT` | On every push to `main`, replacing the previous build. |
 
-The modules' poms declare `0.4.0-SNAPSHOT`. Publish this library before a module that needs a
-change in it: the module's CI resolves the version from GitHub Packages.
+A module pins a released `X.Y.Z`; a `-SNAPSHOT` is for iterating locally (see
+[Local development against an unreleased lib](#local-development-against-an-unreleased-lib)).
+Publish this library before a module that needs a change in it: the module's build resolves the
+pinned version from GitHub Packages.
 
 ### Maven settings (consumer side)
 
@@ -732,7 +812,7 @@ In the consumer's `pom.xml`:
   <dependency>
     <groupId>com.ecclesiaflow</groupId>
     <artifactId>ecclesiaflow-platform-core</artifactId>
-    <version>0.4.0-SNAPSHOT</version>  <!-- development head; see pom.xml / GitHub Packages for the current version, or pin a released X.Y.Z -->
+    <version>X.Y.Z</version>  <!-- a released version (a vX.Y.Z tag); a -SNAPSHOT only while iterating locally -->
   </dependency>
 </dependencies>
 ```
@@ -805,7 +885,8 @@ version itself.
 |---|---|
 | Bug fix, doc, internal refactor | patch (`0.3.0 → 0.3.1`) |
 | New backward-compatible feature | minor (`0.3.0 → 0.4.0`) |
-| Breaking change in any public API | major (`0.3.0 → 1.0.0`) |
+| Breaking change in any public API, before `1.0.0` | minor (`0.5.2 → 0.6.0`), with an Upgrading section in this README |
+| Breaking change in any public API, from `1.0.0` | major (`1.2.0 → 2.0.0`) |
 
 Public API = anything under `com.ecclesiaflow.platform.*` that consumers
 import (interceptors, properties, beans declared by auto-configurations,
