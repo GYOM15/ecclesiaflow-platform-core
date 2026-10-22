@@ -22,7 +22,6 @@ public class ContentRejectedException extends RuntimeException {
         return new ContentRejectedException(field);
     }
 
-    /** The request property that held the text, or {@code null} when the caller named none. */
     public String getField() {
         return field;
     }

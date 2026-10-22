@@ -64,14 +64,12 @@ public final class TermFilter {
         return false;
     }
 
-    /** Throws {@link ContentRejectedException} when {@link #rejects} would answer {@code true}. */
     public void requireClean(String text) {
         if (rejects(text)) {
             throw ContentRejectedException.rejected();
         }
     }
 
-    /** As {@link #requireClean(String)}, the exception naming {@code field} as the request property at fault. */
     public void requireClean(String field, String text) {
         if (rejects(text)) {
             throw ContentRejectedException.rejected(field);
