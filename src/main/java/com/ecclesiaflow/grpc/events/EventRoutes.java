@@ -31,6 +31,13 @@ public final class EventRoutes {
 
     public static final String CHAT_MESSAGE_POSTED_V1 = "chat.message.posted.v1";
 
+    // One key per publishing module: a consumer of the message binds each of them by name.
+    public static final String CHAT_CONTENT_REPORTED_V1 = "chat.content.reported.v1";
+    public static final String CHURCH_CONTENT_REPORTED_V1 = "church.content.reported.v1";
+    public static final String CHAT_MODERATION_ACTION_TAKEN_V1 = "chat.moderation.action-taken.v1";
+    public static final String CHURCH_MODERATION_ACTION_TAKEN_V1 = "church.moderation.action-taken.v1";
+    public static final String MEMBERS_MODERATION_ACTION_TAKEN_V1 = "members.moderation.action-taken.v1";
+
     private EventRoutes() {
     }
 }

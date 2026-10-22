@@ -28,6 +28,9 @@ import com.ecclesiaflow.grpc.events.members.MemberReactivatedEvent;
 import com.ecclesiaflow.grpc.events.members.MemberSuspendedEvent;
 import com.ecclesiaflow.grpc.events.members.MemberSuspensionLiftedEvent;
 import com.ecclesiaflow.grpc.events.members.MembersDomainEventsProto;
+import com.ecclesiaflow.grpc.events.moderation.ContentReportedEvent;
+import com.ecclesiaflow.grpc.events.moderation.ModerationActionTakenEvent;
+import com.ecclesiaflow.grpc.events.moderation.ModerationDomainEventsProto;
 import com.ecclesiaflow.grpc.members.MembersServiceProto;
 import com.google.protobuf.DescriptorProtos.DescriptorProto;
 import com.google.protobuf.DescriptorProtos.EnumDescriptorProto;
@@ -76,7 +79,8 @@ class ContractWireCompatibilityTest {
             AuthDomainEventsProto.getDescriptor(),
             ChurchDomainEventsProto.getDescriptor(),
             MembersDomainEventsProto.getDescriptor(),
-            ChatDomainEventsProto.getDescriptor());
+            ChatDomainEventsProto.getDescriptor(),
+            ModerationDomainEventsProto.getDescriptor());
 
     private static final Path PROTO_ROOT = Path.of("src/main/proto");
 
@@ -182,7 +186,8 @@ class ContractWireCompatibilityTest {
                 MemberAnonymizedEvent.class, MemberContactsErasedEvent.class,
                 MemberDeactivatedEvent.class, MemberReactivatedEvent.class, EmailQueueMessage.class,
                 AccountSessionsRevokedEvent.class, MemberSuspendedEvent.class, MemberSuspensionLiftedEvent.class,
-                NotificationCreatedEvent.class, ChatMessagePostedEvent.class))
+                NotificationCreatedEvent.class, ChatMessagePostedEvent.class, ContentReportedEvent.class,
+                ModerationActionTakenEvent.class))
                 .extracting(Class::getName)
                 .containsExactly(
                         "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent",
@@ -203,7 +208,9 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.events.members.MemberSuspendedEvent",
                         "com.ecclesiaflow.grpc.events.members.MemberSuspensionLiftedEvent",
                         "com.ecclesiaflow.grpc.events.church.NotificationCreatedEvent",
-                        "com.ecclesiaflow.grpc.events.chat.ChatMessagePostedEvent");
+                        "com.ecclesiaflow.grpc.events.chat.ChatMessagePostedEvent",
+                        "com.ecclesiaflow.grpc.events.moderation.ContentReportedEvent",
+                        "com.ecclesiaflow.grpc.events.moderation.ModerationActionTakenEvent");
     }
 
     private static List<Descriptor> events() {
@@ -712,6 +719,25 @@ class ContractWireCompatibilityTest {
               7 string conversation_kind
               8 bool is_request
               9 repeated string recipient_user_ids
+            file ecclesiaflow/events/moderation/v1/moderation_events.proto package ecclesiaflow.events.moderation.v1 java_package com.ecclesiaflow.grpc.events.moderation
+            message ecclesiaflow.events.moderation.v1.ContentReportedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string report_id
+              4 string content_kind
+              5 string content_id
+              6 string container_kind
+              7 string container_id
+              8 string church_id
+              9 string reporter_user_id
+              10 string author_user_id
+              11 string reason
+            message ecclesiaflow.events.moderation.v1.ModerationActionTakenEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string report_id
+              4 string action
+              5 string actor_user_id
             """;
 
     private static final String ROUTES = """
@@ -733,5 +759,10 @@ class ContractWireCompatibilityTest {
             members.account.suspended.v1 ecclesiaflow.events.members.v1.MemberSuspendedEvent
             members.account.suspension-lifted.v1 ecclesiaflow.events.members.v1.MemberSuspensionLiftedEvent
             chat.message.posted.v1 ecclesiaflow.events.chat.v1.ChatMessagePostedEvent
+            chat.content.reported.v1 ecclesiaflow.events.moderation.v1.ContentReportedEvent
+            church.content.reported.v1 ecclesiaflow.events.moderation.v1.ContentReportedEvent
+            chat.moderation.action-taken.v1 ecclesiaflow.events.moderation.v1.ModerationActionTakenEvent
+            church.moderation.action-taken.v1 ecclesiaflow.events.moderation.v1.ModerationActionTakenEvent
+            members.moderation.action-taken.v1 ecclesiaflow.events.moderation.v1.ModerationActionTakenEvent
             """;
 }
