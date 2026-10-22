@@ -131,5 +131,15 @@ class ApiContractTest {
         void label() {
             assertThat(operation("get", "/a/{b}", null).label()).isEqualTo("GET /a/{b}");
         }
+
+        @Test
+        @DisplayName("an operation built without extensions or parameters has empty ones")
+        void emptyDefaults() {
+            ContractOperation bare = new ContractOperation("get", "/a", null, false, null, null, "test");
+
+            assertThat(bare.extensions()).isEmpty();
+            assertThat(bare.parameters()).isEmpty();
+            assertThat(bare.parameter("query", "q")).isEmpty();
+        }
     }
 }
