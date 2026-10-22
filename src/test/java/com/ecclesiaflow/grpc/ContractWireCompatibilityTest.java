@@ -17,6 +17,7 @@ import com.ecclesiaflow.grpc.events.church.MemberAddedToGroupEvent;
 import com.ecclesiaflow.grpc.events.church.MemberAdmittedToChurchEvent;
 import com.ecclesiaflow.grpc.events.church.MemberRemovedFromChurchEvent;
 import com.ecclesiaflow.grpc.events.church.MemberRemovedFromGroupEvent;
+import com.ecclesiaflow.grpc.events.church.NotificationCreatedEvent;
 import com.ecclesiaflow.grpc.events.members.MemberAnonymizedEvent;
 import com.ecclesiaflow.grpc.events.members.MemberContactsErasedEvent;
 import com.ecclesiaflow.grpc.events.members.MemberDeactivatedEvent;
@@ -177,7 +178,8 @@ class ContractWireCompatibilityTest {
                 MemberRemovedFromGroupEvent.class, MemberProfileChangedEvent.class,
                 MemberAnonymizedEvent.class, MemberContactsErasedEvent.class,
                 MemberDeactivatedEvent.class, MemberReactivatedEvent.class, EmailQueueMessage.class,
-                AccountSessionsRevokedEvent.class, MemberSuspendedEvent.class, MemberSuspensionLiftedEvent.class))
+                AccountSessionsRevokedEvent.class, MemberSuspendedEvent.class, MemberSuspensionLiftedEvent.class,
+                NotificationCreatedEvent.class))
                 .extracting(Class::getName)
                 .containsExactly(
                         "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent",
@@ -196,7 +198,8 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.email.EmailQueueMessage",
                         "com.ecclesiaflow.grpc.events.auth.AccountSessionsRevokedEvent",
                         "com.ecclesiaflow.grpc.events.members.MemberSuspendedEvent",
-                        "com.ecclesiaflow.grpc.events.members.MemberSuspensionLiftedEvent");
+                        "com.ecclesiaflow.grpc.events.members.MemberSuspensionLiftedEvent",
+                        "com.ecclesiaflow.grpc.events.church.NotificationCreatedEvent");
     }
 
     private static List<Descriptor> events() {
@@ -635,6 +638,19 @@ class ContractWireCompatibilityTest {
               4 string group_id
               5 string member_user_id
               6 string member_display_name
+            message ecclesiaflow.events.church.v1.NotificationCreatedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string church_id
+              4 string type
+              5 ecclesiaflow.events.church.v1.NotificationCreatedEvent.Target target
+              6 repeated ecclesiaflow.events.church.v1.NotificationCreatedEvent.Recipient recipients
+            message ecclesiaflow.events.church.v1.NotificationCreatedEvent.Target
+              1 string kind
+              2 string id
+            message ecclesiaflow.events.church.v1.NotificationCreatedEvent.Recipient
+              1 string keycloak_user_id
+              2 string notification_id
             file ecclesiaflow/events/members/v1/members_events.proto package ecclesiaflow.events.members.v1 java_package com.ecclesiaflow.grpc.events.members
             message ecclesiaflow.events.members.v1.MemberProfileChangedEvent
               1 string event_id
@@ -693,6 +709,7 @@ class ContractWireCompatibilityTest {
             church.member.admitted-to-church.v1 ecclesiaflow.events.church.v1.MemberAdmittedToChurchEvent
             church.member.added-to-group.v1 ecclesiaflow.events.church.v1.MemberAddedToGroupEvent
             church.member.removed-from-group.v1 ecclesiaflow.events.church.v1.MemberRemovedFromGroupEvent
+            church.notification.created.v1 ecclesiaflow.events.church.v1.NotificationCreatedEvent
             members.profile.changed ecclesiaflow.events.members.v1.MemberProfileChangedEvent
             members.profile.anonymized ecclesiaflow.events.members.v1.MemberAnonymizedEvent
             members.contacts.erased ecclesiaflow.events.members.v1.MemberContactsErasedEvent

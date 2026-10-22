@@ -153,3 +153,46 @@ message MemberRemovedFromGroupEvent {
   // system notice. May be empty if unknown.
   string member_display_name = 6;
 }
+
+// Emitted when church creates in-app notifications, so communication pushes
+// them. One event per batch of at most 500 recipients, each batch with its own
+// event_id. Carries neither params nor text: the push stays neutral, since
+// what it says would cross Expo, APNs and FCM in clear, and the app reads the
+// notification itself when touched.
+message NotificationCreatedEvent {
+  option (ecclesiaflow.events.routing_keys) = "church.notification.created.v1";
+
+  // Unique per batch, never shared by two batches. Consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC).
+  int64 occurred_at_epoch_ms = 2;
+
+  // The church the notifications belong to.
+  string church_id = 3;
+
+  // The notification type, as NotificationResponse.type names it. Open, never
+  // an enum: communication ignores and counts a type absent from its catalog.
+  string type = 4;
+
+  // Where the notification leads: the target NotificationResponse carries.
+  message Target {
+    // Open, never an enum: event, announcement, conversation, requests,
+    // groups, home and inbox today; a client routes an unknown kind by type.
+    string kind = 1;
+
+    // The resource the kind names; empty for a kind that names none.
+    string id = 2;
+  }
+  Target target = 5;
+
+  message Recipient {
+    // The recipient's Keycloak sub.
+    string keycloak_user_id = 1;
+
+    // The recipient's in-app notification, so touching the push marks it read.
+    string notification_id = 2;
+  }
+  // At most 500: a larger audience is split into several events.
+  repeated Recipient recipients = 6;
+}
