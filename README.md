@@ -187,8 +187,8 @@ closes a `security: []` operation; an `x-ef-surface` other than `member` or `pla
 | `ecclesiaflow.security.surface.mode` | `enforce` | `log-only` logs and counts refusals and lets them through |
 
 Metrics: `surface_mode{mode}` (1 for the mode in force) and
-`ef_surface_refused_total{surface,caller,mode}`. No property turns the rule off; a module that must
-not run it excludes the auto-configuration in its own code.
+`ef_surface_refused_total{surface,caller,mode}`. No `ecclesiaflow.*` property turns the rule off; a
+module that must not run it excludes the auto-configuration.
 
 ## Idempotent creations (OpenAPI `x-ef-idempotency`)
 
@@ -708,7 +708,8 @@ module decides whether that stops its startup. To rotate, deploy the old key und
 
 Read this before a module's pom moves to `0.6.0` from 0.5.x (0.5.1 added only the two-factor
 contracts). The wire contracts only grew, so an upgraded module and one that has not moved still
-talk to each other; what changes is inside the module that upgrades.
+talk to each other; what changes is inside the module that upgrades. 0.6.0 is a minor release that
+is not drop-in: before 1.0.0, a breaking change bumps the minor and comes with a section like this one.
 
 ### What a bump alone changes
 
@@ -718,8 +719,13 @@ talk to each other; what changes is inside the module that upgrades.
 |---|---|---|
 | `AuthService.GetSignInMethods` and `ChurchService.CanModerateGroupContent` are new RPCs, and `S2sScopeRegistry` lists every RPC of a bound service, implemented or not | The module that serves the service does not start: `s2s scope registry is incomplete` | Override the RPC with `@S2sScopeRequired("ef:auth:sign-in-methods:read")` (auth) or `@S2sScopeRequired("ef:church:group-moderation:read")` (church), implemented or as a stub that answers `UNIMPLEMENTED` |
 | `EmailTemplateType` gains values 9 to 12 | A `switch` expression over the enum with no `default` no longer compiles | Add the four cases, or a `default` that refuses a template the module has no mail for |
-| `PlatformRestExceptionHandler`, always on, answers two more exceptions: `ContentRejectedException` with 400 `CONTENT_REJECTED`, `IdempotencyKeyConflictException` with 422 `IDEMPOTENCY_CONFLICT` | A test that raises every exception the handler handles and holds each answer to the contract's `x-error-codes` fails on the pairs the contract lacks | Register `CONTENT_REJECTED` (400) and `IDEMPOTENCY_CONFLICT` (422) in `x-error-codes`. `RecentAuthExceptionHandler`, which answers `REAUTH_REQUIRED`, is a separate advice: add it to the sweep when the module adopts `@RecentAuthRequired` |
-| The startup check of [surface authorization](#surface-authorization-openapi-x-ef-surface), below | A module whose security chain opens a route its contract does not declare `security: []`, or closes one it does, does not start, in `log-only` too | Make the chain and the contract agree; the exception lists every route |
+| `PlatformRestExceptionHandler`, on unless `ecclesiaflow.platform.web.errors.enabled=false`, answers three more exceptions: `ContentRejectedException` with 400 `CONTENT_REJECTED`, `IdempotencyKeyConflictException` with 422 `IDEMPOTENCY_CONFLICT`, `InvalidIdempotencyKeyException` with 400 `BAD_REQUEST` | A test that raises every exception the handler handles and holds each answer to the contract's `x-error-codes` fails on the pairs the contract lacks | Register `CONTENT_REJECTED` (400) and `IDEMPOTENCY_CONFLICT` (422) in `x-error-codes`; every registry already holds `BAD_REQUEST` (400). `RecentAuthExceptionHandler`, which answers `REAUTH_REQUIRED`, is a separate advice: add it to the sweep when the module adopts `@RecentAuthRequired` |
+| The startup check of [surface authorization](#surface-authorization-openapi-x-ef-surface), below | A module whose security chain opens, to a caller without a token, a route that is neither a `security: []` operation nor a technical path (`/ws/**`, `/error`, `/actuator/**`, `/v3/api-docs/**`, `/swagger-ui.html`, `/swagger-ui/**`), or closes a `security: []` operation, does not start, in `log-only` too | Make the chain and the contract agree; the exception lists every route |
+| Surface authorization, in `enforce` | A test that boots the context and calls an operation without `x-ef-surface` with a token lacking `SCOPE_ef:surface:full` gets 403: a MockMvc `jwt()` (default scope `read`), or a real token from a realm that does not grant the scope | Give the test token `SCOPE_ef:surface:full`, or mark the operation `x-ef-surface: member` when it is meant for the app |
+
+**It refuses every token until the realm grants `ef:surface:full`.** Set
+`ecclesiaflow.security.surface.mode=log-only` in the same release as the bump (see the surface
+paragraph below).
 
 Known cases when 0.6.0 was cut, from each module's unit tests (`mvn test`, no Docker; the tests that
 boot a context were not run, so the startup checks in this section are not measured):
@@ -728,13 +734,16 @@ communication does not compile (`TemplateResolver`, its two `switch` expressions
 `ChurchServiceGrpcControllerTest.theScopeRegistryAcceptsTheService`, on the RPC without an
 annotation; church and chat fail `ErrorCodeRegistryTest.everyAnswerIsRegistered`, church on
 `CONTENT_REJECTED` and chat on `CONTENT_REJECTED` and `IDEMPOTENCY_CONFLICT`; members compiles and
-its unit tests pass.
+its unit tests pass. Read in the code, not run: once it compiles, communication still does not start,
+because `provider-callbacks.yaml` declares no `security` while its `SecurityConfig` opens
+`/internal/providers/ses/notifications` (give that operation `security: []` in the same upgrade); in
+`enforce`, auth's `SecurityConfigurationIntegrationTest` and its two-factor realm tests would get 403.
 
 **It starts by itself on a module that has the classes it needs:**
 
 | Component | Active when | After a bare bump |
 |---|---|---|
-| API contract index (`PlatformApiContractAutoConfiguration`) | a servlet application | **On.** Reads `classpath*:api/*.yaml` at startup. The module does not start when a location matches no file, a file cannot be parsed, a `$ref` is not local, a key is repeated or two operations share a method and path. `ecclesiaflow.contract.locations` points at a contract kept elsewhere |
+| API contract index (`PlatformApiContractAutoConfiguration`) | a servlet application | **On.** Reads `classpath*:api/*.yaml` at startup. The module does not start when a location matches no file, a file cannot be parsed, a path item, a parameter or a parameter schema uses a `$ref` that is not local (`#/…`), a key is repeated or two operations share a method and path. `ecclesiaflow.contract.locations` points at a contract kept elsewhere |
 | Surface authorization (`SurfaceScopeAuthorizationAutoConfiguration`) | a servlet application with `JwtAuthenticationToken`, `WebInvocationPrivilegeEvaluator` and `DispatcherServlet` on the classpath | **On, in `enforce` mode** (see below) |
 | Idempotency (`PlatformIdempotencyAutoConfiguration`) | always; `IdempotentCreator` needs one `PlatformTransactionManager`, the key resolver a servlet application | On, inert. It acts on an operation marked `x-ef-idempotency` only, and refuses to start on a mark that is misdeclared. A contract without the mark is untouched |
 | Recent sign-in (`PlatformRecentAuthAutoConfiguration`) | a servlet application with `JwtAuthenticationToken`, `DispatcherServlet` and AspectJ on the classpath | On, inert. Nothing is guarded until a method carries `@RecentAuthRequired`; the module then declares a `SignInMethodsClient` and a `PendingConfirmationIssuer`, or does not start |
@@ -748,11 +757,14 @@ its unit tests pass.
 module's 403, and so does one for a path outside the contract that is not technical (`/ws/**`,
 `/error`, `/actuator/**`, `/v3/api-docs/**`, `/swagger-ui.html`, `/swagger-ui/**`). Requests without
 a token and `security: []` operations are never ruled. A contract gains `x-ef-surface` only when the
-module adopts it, so after a bare bump every operation is console-only: a token carries
-`ef:surface:full` once the realm grants it to the web client, and every other token is refused on
-every operation. To move without that risk, set `ecclesiaflow.security.surface.mode=log-only` in the
-same release: refusals are then logged and counted, and let through, and the contract is still read
-and checked at startup. No property turns the rule off.
+module adopts it, so after a bare bump every operation that is not `security: []` is console-only,
+and only a token carrying `ef:surface:full` passes. When 0.6.0 was cut no client of the realm was
+granted that scope, so in `enforce` every token is refused, the web console's included. Set
+`ecclesiaflow.security.surface.mode=log-only` in the same release as the bump, and keep it until the
+realm grants `ef:surface:full` to the web client and the refusal log shows no web token: refusals
+are then logged (`SURFACE: ⚠ Would refuse`), counted (`ef_surface_refused_total`) and let through,
+and the contract is still read and checked at startup. No `ecclesiaflow.*` property turns the rule
+off; only excluding `SurfaceScopeAuthorizationAutoConfiguration` does.
 
 ### What a module opts into, and how
 
@@ -873,7 +885,8 @@ version itself.
 |---|---|
 | Bug fix, doc, internal refactor | patch (`0.3.0 → 0.3.1`) |
 | New backward-compatible feature | minor (`0.3.0 → 0.4.0`) |
-| Breaking change in any public API | major (`0.3.0 → 1.0.0`) |
+| Breaking change in any public API, before `1.0.0` | minor (`0.5.2 → 0.6.0`), with an Upgrading section in this README |
+| Breaking change in any public API, from `1.0.0` | major (`1.2.0 → 2.0.0`) |
 
 Public API = anything under `com.ecclesiaflow.platform.*` that consumers
 import (interceptors, properties, beans declared by auto-configurations,
