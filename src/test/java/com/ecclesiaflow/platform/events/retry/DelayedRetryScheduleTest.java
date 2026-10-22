@@ -38,14 +38,6 @@ class DelayedRetryScheduleTest {
         }
 
         @Test
-        @DisplayName("bounds the time spent in the stages so far, margins included")
-        void boundsTheElapsedTime() {
-            assertThat(STANDARD.maxElapsed(0)).isEqualTo(Duration.ZERO);
-            assertThat(STANDARD.maxElapsed(1)).isEqualTo(Duration.ofMinutes(11));
-            assertThat(STANDARD.maxElapsed(4)).isEqualTo(Duration.ofMinutes(1 + 5 + 30 + 120 + 4 * 10));
-        }
-
-        @Test
         @DisplayName("has stages 1 to 4 only")
         void hasStagesOneToFour() {
             assertThat(STANDARD.hasStage(0)).isFalse();

@@ -18,8 +18,9 @@ import java.util.Optional;
  * Verifies a redelivery from a retry stage. The event's signature is still checked, against the route
  * the hop says it was first published on, and the stamp must vouch for the hop. Freshness moves from
  * the signature to the stamp: the redelivery is consumed within its stage's delay plus the schedule's
- * margin after it entered the stage (2 h 10 min at most with the standard schedule), and the signature
- * is no older than all the stages so far could account for.
+ * margin after it entered the stage, 2 h 10 min at most with the standard schedule. The signature's own
+ * age is not bounded: only a holder of the events secret can stamp, and the stamp dates the copy it
+ * made, which is also what lets an operator's replay re-admit a dead-lettered event.
  *
  * <p>Lenient mode turns every refusal into {@link Decision#ACCEPT_UNVERIFIED}, as for a first
  * delivery. Deduplication on {@code event_id} stays the consumer's, on every delivery.</p>
@@ -74,25 +75,14 @@ public class DelayedRetryVerifier implements RedeliveryVerifier {
         if (!schedule.hasStage(hop.attempt())) {
             return refuse(Decision.REJECT_INVALID);
         }
-        return isFresh(hop, signedAt, schedule) ? Decision.ACCEPT : refuse(Decision.REJECT_STALE);
+        return isFresh(hop, schedule) ? Decision.ACCEPT : refuse(Decision.REJECT_STALE);
     }
 
-    private boolean isFresh(RetryHop hop, String signedAtHeader, DelayedRetrySchedule schedule) {
+    private boolean isFresh(RetryHop hop, DelayedRetrySchedule schedule) {
         long now = clock.millis();
-        long skew = freshnessWindow.toMillis();
-        long signedAt;
-        try {
-            signedAt = Long.parseLong(signedAtHeader.trim());
-        } catch (NumberFormatException | NullPointerException e) {
-            // Unreachable once the signature matched; kept so a refactor cannot crash the consume path.
-            return false;
-        }
-        // Both instants come from clocks of the fleet: the first-delivery skew applies ahead of now.
-        boolean waitedInStage = hop.retriedAt() - now <= skew
+        // Another replica may have stamped the hop: the fleet's clock skew applies ahead of now.
+        return hop.retriedAt() - now <= freshnessWindow.toMillis()
                 && now - hop.retriedAt() <= schedule.maxWait(hop.attempt()).toMillis();
-        boolean signedWithinStages = signedAt - now <= skew
-                && now - signedAt <= skew + schedule.maxElapsed(hop.attempt()).toMillis();
-        return waitedInStage && signedWithinStages;
     }
 
     private Decision refuse(Decision rejection) {

@@ -89,7 +89,7 @@ class DelayedRetryVerifierTest {
     }
 
     @Nested
-    @DisplayName("Freshness rests on the stamp and the signature, never on x-death")
+    @DisplayName("Freshness rests on the stamp, never on x-death")
     class Freshness {
 
         @Test
@@ -113,20 +113,10 @@ class DelayedRetryVerifierTest {
         }
 
         @Test
-        @DisplayName("a signature older than the stages so far can account for is stale")
-        void signatureOlderThanTheStages() {
-            Duration bound = WINDOW.plus(Duration.ofMinutes(11));
-
-            assertThat(verify(redelivery(bound, hop(1, Duration.ofMinutes(1))))).isEqualTo(Decision.ACCEPT);
-            assertThat(verify(redelivery(bound.plusSeconds(1), hop(1, Duration.ofMinutes(1)))))
-                    .isEqualTo(Decision.REJECT_STALE);
-        }
-
-        @Test
-        @DisplayName("a signature from the future beyond the clock-skew window is stale")
-        void signatureFromTheFuture() {
-            assertThat(verify(redelivery(Duration.ofMinutes(-6), hop(1, Duration.ofMinutes(1)))))
-                    .isEqualTo(Decision.REJECT_STALE);
+        @DisplayName("a signature days old passes under a fresh stamp: a secret holder re-admitted the copy")
+        void signatureAgeIsNotBounded() {
+            assertThat(verify(redelivery(Duration.ofDays(3), hop(1, Duration.ofMinutes(1)))))
+                    .isEqualTo(Decision.ACCEPT);
         }
     }
 

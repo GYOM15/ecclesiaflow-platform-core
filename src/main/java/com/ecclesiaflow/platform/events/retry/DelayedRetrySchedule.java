@@ -63,15 +63,6 @@ public record DelayedRetrySchedule(List<Duration> delays, Duration margin) {
         return delay(attempt).plus(margin);
     }
 
-    /** The longest a delivery can have spent in stages 1 to {@code attempt}, waits and margins included. */
-    public Duration maxElapsed(int attempt) {
-        Duration elapsed = Duration.ZERO;
-        for (int stage = 1; stage <= attempt; stage++) {
-            elapsed = elapsed.plus(maxWait(stage));
-        }
-        return elapsed;
-    }
-
     /** Distinct for distinct delays: the largest unit that divides the delay names it. */
     static String label(Duration delay) {
         long millis = delay.toMillis();
