@@ -2,3 +2,5 @@
 # and a throwaway HMAC value an auto-configuration test sets.
 6fd1322e21344363f22faeaedbb9d4038011790b:src/test/java/com/ecclesiaflow/platform/logging/SecurityMaskingUtilsTest.java:jwt:360
 bee362d0c29e4657779642b59ccfda8c7a3011f8:src/test/java/com/ecclesiaflow/platform/events/signing/autoconfigure/PlatformEventSigningAutoConfigurationImportTest.java:generic-api-key:37
+0d8266a6fdca9e261c5dc6a2bef4a26ff7b21155:src/test/java/com/ecclesiaflow/platform/idempotency/web/IdempotencyKeyResolverTest.java:generic-api-key:26
+0d8266a6fdca9e261c5dc6a2bef4a26ff7b21155:src/test/java/com/ecclesiaflow/platform/idempotency/autoconfigure/PlatformIdempotencyAutoConfigurationTest.java:generic-api-key:233
