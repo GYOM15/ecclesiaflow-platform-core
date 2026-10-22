@@ -19,3 +19,4 @@ com.ecclesiaflow.platform.security.autoconfigure.SurfaceScopeAuthorizationAutoCo
 com.ecclesiaflow.platform.idempotency.autoconfigure.PlatformIdempotencyAutoConfiguration
 com.ecclesiaflow.platform.security.autoconfigure.PlatformRecentAuthAutoConfiguration
 com.ecclesiaflow.platform.moderation.autoconfigure.PlatformTermFilterAutoConfiguration
+com.ecclesiaflow.platform.web.trace.autoconfigure.PlatformTraceparentAutoConfiguration

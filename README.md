@@ -351,6 +351,25 @@ caller named a field. It is `INVALID_ARGUMENT` for the gRPC mapping. The excepti
 text nor the matched term. A module registers `CONTENT_REJECTED` with status 400 in its contract's
 `x-error-codes`, and keeps it out of any catch-all handler of its own.
 
+## Trace id in the logs
+
+`PlatformTraceparentAutoConfiguration` registers `TraceparentFilter` on a servlet module, ahead of Spring
+Security's chain so the filters behind it log with the id too. It copies the trace id of a valid W3C
+`traceparent` request header into the MDC under `traceId` and removes it when the request ends,
+whether it succeeds or throws. A module's log pattern prints it with `%X{traceId}`.
+
+A header is valid when it is the only `traceparent` of the request and reads
+`00-<32 lowercase hex>-<16 lowercase hex>-<2 lowercase hex>`, with neither id all zeros. Anything
+else is ignored and the request goes through: the id is a correlation aid, not a gate. The filter only
+reads. It generates no id, forwards none to outgoing calls and keeps neither the parent id nor the
+flags.
+
+| Property | Default | Effect |
+|---|---|---|
+| `ecclesiaflow.platform.web.traceparent.enabled` | `true` | `false` removes the filter |
+
+A `FilterRegistrationBean<TraceparentFilter>` the module declares replaces the one registered here.
+
 ## Actuator endpoints on the management port
 
 `PlatformManagementSecurityAutoConfiguration` adds the filter chain `managementSecurityFilterChain`,
