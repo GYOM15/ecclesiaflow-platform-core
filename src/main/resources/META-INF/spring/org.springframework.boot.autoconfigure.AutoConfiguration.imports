@@ -16,3 +16,4 @@ com.ecclesiaflow.platform.web.error.autoconfigure.PlatformWebErrorAutoConfigurat
 com.ecclesiaflow.platform.events.deadletter.autoconfigure.PlatformDeadLetterMetricsAutoConfiguration
 com.ecclesiaflow.platform.contract.autoconfigure.PlatformApiContractAutoConfiguration
 com.ecclesiaflow.platform.security.autoconfigure.SurfaceScopeAuthorizationAutoConfiguration
+com.ecclesiaflow.platform.idempotency.autoconfigure.PlatformIdempotencyAutoConfiguration
