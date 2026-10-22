@@ -133,6 +133,41 @@ ecclesiaflow.rest.jwt.audience=${REST_JWT_AUDIENCE:ecclesiaflow-internal}
 A test slice that builds the security chain without the full auto-configuration imports
 `PlatformRestJwtDecoderAutoConfiguration` or supplies its own `JwtDecoder`.
 
+## Surface authorization (OpenAPI `x-ef-surface`)
+
+`PlatformApiContractAutoConfiguration` reads the module's OpenAPI contract at startup into an
+`ApiContract`: its operations indexed by method and path template, with their effective `security`
+and `x-*` extensions, matched the way Spring MVC dispatches. A servlet module whose contract cannot be
+found or read does not start.
+
+| Property | Default | Effect |
+|---|---|---|
+| `ecclesiaflow.contract.locations` | `classpath*:api/*.yaml` | contract files or patterns; each must match a file |
+
+`SurfaceScopeAuthorizationAutoConfiguration` applies the `x-ef-surface` of the operation a request
+reaches to every request authenticated by a token (`JwtAuthenticationToken`):
+
+| `x-ef-surface` | The token needs |
+|---|---|
+| `member` | nothing more; decision points cap admin powers when `SurfaceCaller.isConsoleCaller()` is false |
+| absent | `SCOPE_ef:surface:full` (the web console) |
+| `platform` | `SCOPE_ef:moderation:act` and `ROLE_PLATFORM_MODERATOR`; `ef:surface:full` never suffices |
+
+A `security: []` operation is never ruled; a path outside the contract is console-only, except the
+technical list (`/ws/**`, `/error`, `/actuator/**`, `/v3/api-docs/**`, `/swagger-ui.html`,
+`/swagger-ui/**`). A refusal is the module's own 403: the filter runs right after Spring Security's
+chain and throws `AccessDeniedException`. At startup the module refuses to start when its chain opens,
+to a caller without a token, a route that is neither a `security: []` operation nor technical, or
+closes a `security: []` operation; an `x-ef-surface` other than `member` or `platform` stops it too.
+
+| Property | Default | Effect |
+|---|---|---|
+| `ecclesiaflow.security.surface.mode` | `enforce` | `log-only` logs and counts refusals and lets them through |
+
+Metrics: `surface_mode{mode}` (1 for the mode in force) and
+`ef_surface_refused_total{surface,caller,mode}`. No property turns the rule off; a module that must
+not run it excludes the auto-configuration in its own code.
+
 ## Actuator endpoints on the management port
 
 `PlatformManagementSecurityAutoConfiguration` adds the filter chain `managementSecurityFilterChain`,
