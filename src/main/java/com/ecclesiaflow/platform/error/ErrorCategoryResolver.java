@@ -1,5 +1,6 @@
 package com.ecclesiaflow.platform.error;
 
+import com.ecclesiaflow.platform.moderation.ContentRejectedException;
 import com.ecclesiaflow.platform.ratelimit.RateLimitExceededException;
 import com.ecclesiaflow.platform.rpc.s2s.token.S2sTokenException;
 import com.ecclesiaflow.platform.upload.ImageDecodeCapacityExceededException;
@@ -76,7 +77,7 @@ public final class ErrorCategoryResolver {
         if (chain.stream().anyMatch(link -> isDependencyFailure(link) || isSaturation(link))) {
             return ErrorCategory.UNAVAILABLE;
         }
-        if (error instanceof IllegalArgumentException) {
+        if (error instanceof IllegalArgumentException || error instanceof ContentRejectedException) {
             return ErrorCategory.INVALID_ARGUMENT;
         }
         if (error instanceof RateLimitExceededException) {
