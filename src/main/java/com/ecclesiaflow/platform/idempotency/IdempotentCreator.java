@@ -32,7 +32,7 @@ public class IdempotentCreator {
 
     private static final String UNIQUE_VIOLATION = "23505";
 
-    // Cause chains are short; the bound only guards against a cycle built by hand.
+    // The seen set stops a cycle; this stops a batch error chaining one next exception per row.
     private static final int MAX_LINKS = 32;
 
     private final TransactionOperations writes;
