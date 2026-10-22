@@ -88,6 +88,15 @@ class TermFilterLoaderTest {
     }
 
     @Test
+    @DisplayName("a blank first line is skipped like any other")
+    void blankFirstLine() throws IOException {
+        TermFilter filter = TermFilterLoader.load(write("\nheck\n"));
+
+        assertThat(filter.size()).isEqualTo(1);
+        assertThat(filter.rejects("heck")).isTrue();
+    }
+
+    @Test
     @DisplayName("an empty file, or one of comments, is a filter with no term")
     void emptyList() throws IOException {
         assertThat(TermFilterLoader.load(write("")).size()).isZero();
