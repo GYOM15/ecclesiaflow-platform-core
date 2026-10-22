@@ -10,6 +10,7 @@ public final class EventRoutes {
     public static final String AUTH_SETUP_TOKEN_ISSUED_V1 = "auth.setup-token.issued.v1";
     public static final String AUTH_EXISTING_ACCOUNT_NOTICE_V1 = "auth.existing-account.notice.v1";
     public static final String AUTH_TWO_FACTOR_REMOVED_V1 = "auth.two-factor.removed.v1";
+    public static final String AUTH_ACCOUNT_SESSIONS_REVOKED_V1 = "auth.account.sessions-revoked.v1";
 
     public static final String CHURCH_INVITATION_CREATED_V1 = "church.invitation.created.v1";
     public static final String CHURCH_MEMBER_REMOVED_FROM_CHURCH_V1 = "church.member.removed-from-church.v1";
@@ -23,6 +24,9 @@ public final class EventRoutes {
     public static final String MEMBERS_CONTACTS_ERASED = "members.contacts.erased";
     public static final String MEMBERS_ACCOUNT_DEACTIVATED = "members.account.deactivated";
     public static final String MEMBERS_ACCOUNT_REACTIVATED = "members.account.reactivated";
+
+    public static final String MEMBERS_ACCOUNT_SUSPENDED_V1 = "members.account.suspended.v1";
+    public static final String MEMBERS_ACCOUNT_SUSPENSION_LIFTED_V1 = "members.account.suspension-lifted.v1";
 
     private EventRoutes() {
     }

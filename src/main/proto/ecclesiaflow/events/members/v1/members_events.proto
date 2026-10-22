@@ -209,3 +209,45 @@ message MemberReactivatedEvent {
   // phone number when there is one.
   repeated string recipient_digests = 4;
 }
+
+// Emitted when the platform suspends a member's account. Auth disables the
+// Keycloak user for the cause SUSPENSION and revokes its sessions; the modules
+// that show the person to others hide them as for a deactivated account, on
+// their own column, so lifting a suspension never cancels a pending deletion.
+// The status family is ordered on occurred_at_epoch_ms: a consumer keeps the
+// latest per user and ignores an older event redelivered late.
+message MemberSuspendedEvent {
+  option (ecclesiaflow.events.routing_keys) = "members.account.suspended.v1";
+
+  // Unique per status change. Consumers dedupe on this to make their handler idempotent.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the account was suspended.
+  int64 occurred_at_epoch_ms = 2;
+
+  // The member's Keycloak sub, the cross-module key.
+  string keycloak_user_id = 3;
+
+  // Why the platform suspended the account. Open, never an enum: a value a
+  // consumer does not know is still a suspension.
+  string reason_code = 4;
+}
+
+// Emitted when the platform lifts a suspension. Auth enables again only what
+// it disabled for the cause SUSPENSION. Same fields and ordering rule as
+// MemberSuspendedEvent.
+message MemberSuspensionLiftedEvent {
+  option (ecclesiaflow.events.routing_keys) = "members.account.suspension-lifted.v1";
+
+  // Unique per status change. Consumers dedupe on this to make their handler idempotent.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the suspension was lifted.
+  int64 occurred_at_epoch_ms = 2;
+
+  // The member's Keycloak sub, the cross-module key.
+  string keycloak_user_id = 3;
+
+  // Why the platform lifted the suspension. Open, never an enum.
+  string reason_code = 4;
+}

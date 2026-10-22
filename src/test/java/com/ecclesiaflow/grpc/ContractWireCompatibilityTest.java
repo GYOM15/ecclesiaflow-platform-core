@@ -6,6 +6,7 @@ import com.ecclesiaflow.grpc.email.EmailQueueMessage;
 import com.ecclesiaflow.grpc.email.EmailServiceProto;
 import com.ecclesiaflow.grpc.events.EventOptionsProto;
 import com.ecclesiaflow.grpc.events.EventRoutes;
+import com.ecclesiaflow.grpc.events.auth.AccountSessionsRevokedEvent;
 import com.ecclesiaflow.grpc.events.auth.AuthDomainEventsProto;
 import com.ecclesiaflow.grpc.events.auth.ExistingAccountNoticeEvent;
 import com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent;
@@ -21,6 +22,8 @@ import com.ecclesiaflow.grpc.events.members.MemberContactsErasedEvent;
 import com.ecclesiaflow.grpc.events.members.MemberDeactivatedEvent;
 import com.ecclesiaflow.grpc.events.members.MemberProfileChangedEvent;
 import com.ecclesiaflow.grpc.events.members.MemberReactivatedEvent;
+import com.ecclesiaflow.grpc.events.members.MemberSuspendedEvent;
+import com.ecclesiaflow.grpc.events.members.MemberSuspensionLiftedEvent;
 import com.ecclesiaflow.grpc.events.members.MembersDomainEventsProto;
 import com.ecclesiaflow.grpc.members.MembersServiceProto;
 import com.google.protobuf.DescriptorProtos.DescriptorProto;
@@ -173,7 +176,8 @@ class ContractWireCompatibilityTest {
                 MemberAdmittedToChurchEvent.class, MemberAddedToGroupEvent.class,
                 MemberRemovedFromGroupEvent.class, MemberProfileChangedEvent.class,
                 MemberAnonymizedEvent.class, MemberContactsErasedEvent.class,
-                MemberDeactivatedEvent.class, MemberReactivatedEvent.class, EmailQueueMessage.class))
+                MemberDeactivatedEvent.class, MemberReactivatedEvent.class, EmailQueueMessage.class,
+                AccountSessionsRevokedEvent.class, MemberSuspendedEvent.class, MemberSuspensionLiftedEvent.class))
                 .extracting(Class::getName)
                 .containsExactly(
                         "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent",
@@ -189,7 +193,10 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.events.members.MemberContactsErasedEvent",
                         "com.ecclesiaflow.grpc.events.members.MemberDeactivatedEvent",
                         "com.ecclesiaflow.grpc.events.members.MemberReactivatedEvent",
-                        "com.ecclesiaflow.grpc.email.EmailQueueMessage");
+                        "com.ecclesiaflow.grpc.email.EmailQueueMessage",
+                        "com.ecclesiaflow.grpc.events.auth.AccountSessionsRevokedEvent",
+                        "com.ecclesiaflow.grpc.events.members.MemberSuspendedEvent",
+                        "com.ecclesiaflow.grpc.events.members.MemberSuspensionLiftedEvent");
     }
 
     private static List<Descriptor> events() {
@@ -586,6 +593,12 @@ class ContractWireCompatibilityTest {
               0 REMOVAL_UNSPECIFIED
               1 REMOVAL_ALL
               2 REMOVAL_DEVICE
+            message ecclesiaflow.events.auth.v1.AccountSessionsRevokedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string keycloak_user_id
+              4 string reason
+              5 int64 revoked_at_epoch_ms
             file ecclesiaflow/events/church/v1/church_events.proto package ecclesiaflow.events.church.v1 java_package com.ecclesiaflow.grpc.events.church
             message ecclesiaflow.events.church.v1.ChurchInvitationCreatedEvent
               1 string event_id
@@ -654,6 +667,16 @@ class ContractWireCompatibilityTest {
               2 int64 occurred_at_epoch_ms
               3 string keycloak_user_id
               4 repeated string recipient_digests
+            message ecclesiaflow.events.members.v1.MemberSuspendedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string keycloak_user_id
+              4 string reason_code
+            message ecclesiaflow.events.members.v1.MemberSuspensionLiftedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string keycloak_user_id
+              4 string reason_code
             enum ecclesiaflow.events.members.v1.BaptismDeclaration
               0 BAPTISM_DECLARATION_UNSPECIFIED
               1 BAPTISM_DECLARATION_NOT_BAPTISED
@@ -664,6 +687,7 @@ class ContractWireCompatibilityTest {
             auth.setup-token.issued.v1 ecclesiaflow.events.auth.v1.SetupTokenIssuedEvent
             auth.existing-account.notice.v1 ecclesiaflow.events.auth.v1.ExistingAccountNoticeEvent
             auth.two-factor.removed.v1 ecclesiaflow.events.auth.v1.TwoFactorRemovedEvent
+            auth.account.sessions-revoked.v1 ecclesiaflow.events.auth.v1.AccountSessionsRevokedEvent
             church.invitation.created.v1 ecclesiaflow.events.church.v1.ChurchInvitationCreatedEvent
             church.member.removed-from-church.v1 ecclesiaflow.events.church.v1.MemberRemovedFromChurchEvent
             church.member.admitted-to-church.v1 ecclesiaflow.events.church.v1.MemberAdmittedToChurchEvent
@@ -674,5 +698,7 @@ class ContractWireCompatibilityTest {
             members.contacts.erased ecclesiaflow.events.members.v1.MemberContactsErasedEvent
             members.account.deactivated ecclesiaflow.events.members.v1.MemberDeactivatedEvent
             members.account.reactivated ecclesiaflow.events.members.v1.MemberReactivatedEvent
+            members.account.suspended.v1 ecclesiaflow.events.members.v1.MemberSuspendedEvent
+            members.account.suspension-lifted.v1 ecclesiaflow.events.members.v1.MemberSuspensionLiftedEvent
             """;
 }

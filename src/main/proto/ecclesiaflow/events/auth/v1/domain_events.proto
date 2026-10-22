@@ -122,3 +122,31 @@ message TwoFactorRemovedEvent {
   }
   Removal removal = 5;
 }
+
+// Emitted once auth has revoked every session of an account: the mobile
+// clients' offline sessions purged and the user's notBefore set. Chat closes
+// the account's sockets and communication deletes its push devices, each
+// keeping revoked_at_epoch_ms as a mark that never moves back, so an older
+// event redelivered late changes nothing.
+message AccountSessionsRevokedEvent {
+  option (ecclesiaflow.events.routing_keys) = "auth.account.sessions-revoked.v1";
+
+  // Unique per revocation. The outbox delivers at least once: consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC).
+  int64 occurred_at_epoch_ms = 2;
+
+  // The account's Keycloak sub.
+  string keycloak_user_id = 3;
+
+  // Why the sessions were revoked. Open, never an enum: USER_REQUEST,
+  // ACCOUNT_DEACTIVATED, ACCOUNT_SUSPENDED and PLATFORM_ADMIN today; a value a
+  // consumer does not know is still a revocation.
+  string reason = 4;
+
+  // The user's notBefore as Keycloak set it, in milliseconds. A token is
+  // revoked when iat < revoked_at_epoch_ms / 1000, in whole seconds and strict,
+  // like Keycloak's NotBeforeCheck: a sign-in within that second stays valid.
+  int64 revoked_at_epoch_ms = 5;
+}
