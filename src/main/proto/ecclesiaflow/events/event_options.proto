@@ -1,0 +1,20 @@
+// Options read from the event contracts. The extension's number and name are
+// part of every compiled descriptor: never renumber or rename them.
+
+syntax = "proto3";
+
+import "google/protobuf/descriptor.proto";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.events";
+option java_outer_classname = "EventOptionsProto";
+
+package ecclesiaflow.events;
+
+extend google.protobuf.MessageOptions {
+  // The exact RabbitMQ routing keys of an event, one per module that publishes
+  // it. A key belongs to one message and never changes, and a binding names it
+  // through its EventRoutes constant, never a wildcard: a wildcard would route a
+  // future .v2 key to a consumer that only reads .v1.
+  repeated string routing_keys = 50001;
+}

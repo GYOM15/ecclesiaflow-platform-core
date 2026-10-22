@@ -3,6 +3,8 @@
 
 syntax = "proto3";
 
+import "ecclesiaflow/events/event_options.proto";
+
 option java_multiple_files = true;
 option java_package = "com.ecclesiaflow.grpc.events.church";
 option java_outer_classname = "ChurchDomainEventsProto";
@@ -17,8 +19,9 @@ package ecclesiaflow.events.church.v1;
 // Emitted right after an invitation row is persisted WITH a target email — i.e.
 // the admin asked the platform to DELIVER the join link by email. Link-only
 // invitations (no email) do not emit this event.
-// Routing key: "church.invitation.created.v1".
 message ChurchInvitationCreatedEvent {
+  option (ecclesiaflow.events.routing_keys) = "church.invitation.created.v1";
+
   // UUIDv4. Consumers may dedupe on this to make their handler idempotent.
   string event_id = 1;
 
@@ -52,8 +55,9 @@ message ChurchInvitationCreatedEvent {
 // access: it drops them from every group conversation of that church AND freezes
 // their 1:1 conversations (history visible, no send/receive). Idempotent on
 // event_id — a re-delivery must not re-post the in-thread system notices.
-// Routing key: "church.member.removed-from-church.v1".
 message MemberRemovedFromChurchEvent {
+  option (ecclesiaflow.events.routing_keys) = "church.member.removed-from-church.v1";
+
   // UUIDv4. Consumers dedupe on this to make their handler idempotent.
   string event_id = 1;
 
@@ -75,8 +79,9 @@ message MemberRemovedFromChurchEvent {
 // row is created/activated, e.g. an accepted membership request). The chat
 // module consumes this to (re)open the member's chat access to that church.
 // Idempotent on event_id.
-// Routing key: "church.member.admitted-to-church.v1".
 message MemberAdmittedToChurchEvent {
+  option (ecclesiaflow.events.routing_keys) = "church.member.admitted-to-church.v1";
+
   // UUIDv4. Consumers dedupe on this to make their handler idempotent.
   string event_id = 1;
 
@@ -97,8 +102,9 @@ message MemberAdmittedToChurchEvent {
 // Emitted right after a member is added to a single group of a church. The
 // chat module consumes this to add that member to the group's chat
 // conversation participants. Idempotent on event_id.
-// Routing key: "church.member.added-to-group.v1".
 message MemberAddedToGroupEvent {
+  option (ecclesiaflow.events.routing_keys) = "church.member.added-to-group.v1";
+
   // UUIDv4. Consumers dedupe on this to make their handler idempotent.
   string event_id = 1;
 
@@ -124,8 +130,9 @@ message MemberAddedToGroupEvent {
 // chat module consumes this to remove that member from the group's chat
 // conversation participants (they lose read of NEW messages + cannot send) and
 // posts a « {Nom} a été retiré du groupe » system notice. Idempotent on event_id.
-// Routing key: "church.member.removed-from-group.v1".
 message MemberRemovedFromGroupEvent {
+  option (ecclesiaflow.events.routing_keys) = "church.member.removed-from-group.v1";
+
   // UUIDv4. Consumers dedupe on this to make their handler idempotent.
   string event_id = 1;
 

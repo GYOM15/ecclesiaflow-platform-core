@@ -4,6 +4,8 @@ import com.ecclesiaflow.grpc.auth.AuthServiceProto;
 import com.ecclesiaflow.grpc.church.ChurchServiceProto;
 import com.ecclesiaflow.grpc.email.EmailQueueMessage;
 import com.ecclesiaflow.grpc.email.EmailServiceProto;
+import com.ecclesiaflow.grpc.events.EventOptionsProto;
+import com.ecclesiaflow.grpc.events.EventRoutes;
 import com.ecclesiaflow.grpc.events.auth.AuthDomainEventsProto;
 import com.ecclesiaflow.grpc.events.auth.ExistingAccountNoticeEvent;
 import com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent;
@@ -33,8 +35,22 @@ import com.google.protobuf.Descriptors.ServiceDescriptor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,19 +61,108 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ContractWireCompatibilityTest {
 
-    private static final List<FileDescriptor> CONTRACTS = List.of(
+    static final List<FileDescriptor> CONTRACTS = List.of(
             AuthServiceProto.getDescriptor(),
             ChurchServiceProto.getDescriptor(),
             MembersServiceProto.getDescriptor(),
             EmailServiceProto.getDescriptor(),
+            EventOptionsProto.getDescriptor(),
             AuthDomainEventsProto.getDescriptor(),
             ChurchDomainEventsProto.getDescriptor(),
             MembersDomainEventsProto.getDescriptor());
+
+    private static final Path PROTO_ROOT = Path.of("src/main/proto");
+
+    private static final String EVENTS_DIRECTORY = "ecclesiaflow/events/";
+
+    // Its event_id came later, at number 3: a notice from an older auth build cannot be deduplicated.
+    private static final List<String> ENVELOPE_EXCEPTIONS =
+            List.of("ecclesiaflow.events.auth.v1.ExistingAccountNoticeEvent");
+
+    // Published before the <module>.<aggregate>.<fact>.v<n> rule; a key never changes, so they keep their form.
+    private static final Set<String> UNVERSIONED_KEYS = Set.of(
+            "members.profile.changed",
+            "members.profile.anonymized",
+            "members.contacts.erased",
+            "members.account.deactivated",
+            "members.account.reactivated");
+
+    private static final Pattern VERSIONED_KEY = Pattern.compile(
+            "(auth|church|members|chat|communication)\\.[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*\\.v[1-9][0-9]*");
 
     @Test
     @DisplayName("Packages, RPCs, field numbers and types match what the deployed services exchange")
     void contractsMatchTheWire() {
         assertThat(snapshot()).isEqualTo(WIRE);
+    }
+
+    @Test
+    @DisplayName("Every .proto file of the library is pinned here")
+    void everyContractFileIsPinned() throws IOException {
+        try (Stream<Path> files = Files.walk(PROTO_ROOT)) {
+            assertThat(files.filter(path -> path.toString().endsWith(".proto"))
+                    .map(path -> PROTO_ROOT.relativize(path).toString().replace('\\', '/')))
+                    .containsExactlyInAnyOrderElementsOf(
+                            CONTRACTS.stream().map(FileDescriptor::getName).toList());
+        }
+    }
+
+    @Test
+    @DisplayName("Every event message opens with event_id = 1 and occurred_at_epoch_ms = 2, one exception frozen")
+    void everyEventCarriesTheEnvelope() {
+        assertThat(events().stream().filter(event -> !hasEnvelope(event)).map(Descriptor::getFullName))
+                .containsExactlyElementsOf(ENVELOPE_EXCEPTIONS);
+    }
+
+    @Test
+    @DisplayName("Every event message declares its routing keys, one per publishing module")
+    void everyEventDeclaresItsRoutingKeys() {
+        assertThat(events()).allSatisfy(event -> {
+            List<String> keys = routingKeys(event);
+            assertThat(keys).as(event.getFullName()).isNotEmpty().doesNotHaveDuplicates();
+            assertThat(keys.stream().map(key -> key.substring(0, key.indexOf('.'))))
+                    .as("publishing modules of " + event.getFullName()).doesNotHaveDuplicates();
+        });
+    }
+
+    @Test
+    @DisplayName("A routing key belongs to one message and never changes")
+    void routingKeysAreOwnedOnceAndFrozen() {
+        Map<String, List<String>> owners = new LinkedHashMap<>();
+        events().forEach(event -> routingKeys(event).forEach(key ->
+                owners.computeIfAbsent(key, k -> new ArrayList<>()).add(event.getFullName())));
+
+        assertThat(owners).allSatisfy((key, messages) -> assertThat(messages).as(key).hasSize(1));
+        assertThat(routes()).isEqualTo(ROUTES);
+    }
+
+    @Test
+    @DisplayName("A new routing key reads <module>.<aggregate>.<fact>.v<n>; the unversioned ones are frozen")
+    void routingKeysFollowTheNamingRule() {
+        assertThat(allRoutingKeys().stream().filter(key -> !VERSIONED_KEY.matcher(key).matches()))
+                .containsExactlyInAnyOrderElementsOf(UNVERSIONED_KEYS);
+    }
+
+    @Test
+    @DisplayName("EventRoutes holds one constant per declared routing key, named after it")
+    void eventRoutesMirrorsTheDeclaredKeys() throws IllegalAccessException {
+        Map<String, String> constants = new TreeMap<>();
+        for (Field field : EventRoutes.class.getDeclaredFields()) {
+            int modifiers = field.getModifiers();
+            if (!field.isSynthetic()) {
+                assertThat(Modifier.isPublic(modifiers) && Modifier.isStatic(modifiers)
+                        && Modifier.isFinal(modifiers) && field.getType() == String.class)
+                        .as(field.getName()).isTrue();
+                constants.put(field.getName(), (String) field.get(null));
+            }
+        }
+
+        assertThat(constants).isEqualTo(allRoutingKeys().stream()
+                .collect(Collectors.toMap(ContractWireCompatibilityTest::constantName, key -> key,
+                        (first, second) -> {
+                            throw new IllegalStateException("two keys share the constant of " + first);
+                        },
+                        TreeMap::new)));
     }
 
     @Test
@@ -87,12 +192,54 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.email.EmailQueueMessage");
     }
 
+    private static List<Descriptor> events() {
+        return CONTRACTS.stream()
+                .filter(file -> file.getName().startsWith(EVENTS_DIRECTORY))
+                .flatMap(file -> file.getMessageTypes().stream())
+                .toList();
+    }
+
+    private static boolean hasEnvelope(Descriptor event) {
+        FieldDescriptor id = event.findFieldByNumber(1);
+        FieldDescriptor occurredAt = event.findFieldByNumber(2);
+        return id != null && "event_id".equals(id.getName())
+                && id.getType() == FieldDescriptor.Type.STRING && !id.isRepeated()
+                && occurredAt != null && "occurred_at_epoch_ms".equals(occurredAt.getName())
+                && occurredAt.getType() == FieldDescriptor.Type.INT64 && !occurredAt.isRepeated();
+    }
+
+    private static List<String> routingKeys(Descriptor event) {
+        return event.getOptions().getExtension(EventOptionsProto.routingKeys);
+    }
+
+    private static Set<String> allRoutingKeys() {
+        Set<String> keys = new HashSet<>();
+        events().forEach(event -> keys.addAll(routingKeys(event)));
+        return keys;
+    }
+
+    private static String routes() {
+        StringBuilder out = new StringBuilder();
+        events().forEach(event -> routingKeys(event).forEach(key ->
+                out.append(key).append(' ').append(event.getFullName()).append('\n')));
+        return out.toString();
+    }
+
+    private static String constantName(String key) {
+        return key.toUpperCase(Locale.ROOT).replace('.', '_').replace('-', '_');
+    }
+
     private static String snapshot() {
         StringBuilder out = new StringBuilder();
         for (FileDescriptor file : CONTRACTS) {
             out.append("file ").append(file.getName())
                     .append(" package ").append(file.getPackage())
                     .append(" java_package ").append(file.getOptions().getJavaPackage()).append('\n');
+            file.getExtensions().forEach(extension -> out.append("extend ")
+                    .append(extension.getContainingType().getFullName())
+                    .append(' ').append(extension.getNumber())
+                    .append(' ').append(typeOf(extension))
+                    .append(' ').append(extension.getName()).append('\n'));
             file.getServices().forEach(service -> render(service, out));
             file.getMessageTypes().forEach(message -> render(message, out));
             file.getEnumTypes().forEach(enumType -> render(enumType, out));
@@ -411,6 +558,8 @@ class ContractWireCompatibilityTest {
               3 STATUS_DELIVERED
               4 STATUS_FAILED
               5 STATUS_BOUNCED
+            file ecclesiaflow/events/event_options.proto package ecclesiaflow.events java_package com.ecclesiaflow.grpc.events
+            extend google.protobuf.MessageOptions 50001 repeated string routing_keys
             file ecclesiaflow/events/auth/v1/domain_events.proto package ecclesiaflow.events.auth.v1 java_package com.ecclesiaflow.grpc.events.auth
             message ecclesiaflow.events.auth.v1.SetupTokenIssuedEvent
               1 string event_id
@@ -509,5 +658,21 @@ class ContractWireCompatibilityTest {
               0 BAPTISM_DECLARATION_UNSPECIFIED
               1 BAPTISM_DECLARATION_NOT_BAPTISED
               2 BAPTISM_DECLARATION_BAPTISED
+            """;
+
+    private static final String ROUTES = """
+            auth.setup-token.issued.v1 ecclesiaflow.events.auth.v1.SetupTokenIssuedEvent
+            auth.existing-account.notice.v1 ecclesiaflow.events.auth.v1.ExistingAccountNoticeEvent
+            auth.two-factor.removed.v1 ecclesiaflow.events.auth.v1.TwoFactorRemovedEvent
+            church.invitation.created.v1 ecclesiaflow.events.church.v1.ChurchInvitationCreatedEvent
+            church.member.removed-from-church.v1 ecclesiaflow.events.church.v1.MemberRemovedFromChurchEvent
+            church.member.admitted-to-church.v1 ecclesiaflow.events.church.v1.MemberAdmittedToChurchEvent
+            church.member.added-to-group.v1 ecclesiaflow.events.church.v1.MemberAddedToGroupEvent
+            church.member.removed-from-group.v1 ecclesiaflow.events.church.v1.MemberRemovedFromGroupEvent
+            members.profile.changed ecclesiaflow.events.members.v1.MemberProfileChangedEvent
+            members.profile.anonymized ecclesiaflow.events.members.v1.MemberAnonymizedEvent
+            members.contacts.erased ecclesiaflow.events.members.v1.MemberContactsErasedEvent
+            members.account.deactivated ecclesiaflow.events.members.v1.MemberDeactivatedEvent
+            members.account.reactivated ecclesiaflow.events.members.v1.MemberReactivatedEvent
             """;
 }

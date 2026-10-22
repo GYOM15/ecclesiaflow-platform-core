@@ -1,12 +1,5 @@
 package com.ecclesiaflow.grpc;
 
-import com.ecclesiaflow.grpc.auth.AuthServiceProto;
-import com.ecclesiaflow.grpc.church.ChurchServiceProto;
-import com.ecclesiaflow.grpc.email.EmailServiceProto;
-import com.ecclesiaflow.grpc.events.auth.AuthDomainEventsProto;
-import com.ecclesiaflow.grpc.events.church.ChurchDomainEventsProto;
-import com.ecclesiaflow.grpc.events.members.MembersDomainEventsProto;
-import com.ecclesiaflow.grpc.members.MembersServiceProto;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.EnumDescriptor;
 import com.google.protobuf.Descriptors.FileDescriptor;
@@ -24,15 +17,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ContractDeprecationTest {
 
-    private static final List<FileDescriptor> CONTRACTS = List.of(
-            AuthServiceProto.getDescriptor(),
-            ChurchServiceProto.getDescriptor(),
-            MembersServiceProto.getDescriptor(),
-            EmailServiceProto.getDescriptor(),
-            AuthDomainEventsProto.getDescriptor(),
-            ChurchDomainEventsProto.getDescriptor(),
-            MembersDomainEventsProto.getDescriptor());
-
     @Test
     @DisplayName("Exactly the retired RPCs, messages, fields and enum values carry the deprecated option")
     void deprecatedElementsAreTheRetiredOnes() {
@@ -44,7 +28,7 @@ class ContractDeprecationTest {
 
     private static List<String> deprecatedElements() {
         List<String> deprecated = new ArrayList<>();
-        for (FileDescriptor file : CONTRACTS) {
+        for (FileDescriptor file : ContractWireCompatibilityTest.CONTRACTS) {
             file.getServices().forEach(service -> service.getMethods().stream()
                     .filter(method -> method.getOptions().getDeprecated())
                     .forEach(method -> deprecated.add(method.getFullName())));
