@@ -344,6 +344,7 @@ class ContractWireCompatibilityTest {
               SetChurchClaims ecclesiaflow.auth.SetChurchClaimsRequest -> ecclesiaflow.auth.SetChurchClaimsResponse
               SendExistingAccountNotice ecclesiaflow.auth.SendExistingAccountNoticeRequest -> ecclesiaflow.auth.SendExistingAccountNoticeResponse
               NoticeSignupOnAddress ecclesiaflow.auth.NoticeSignupOnAddressRequest -> ecclesiaflow.auth.NoticeSignupOnAddressResponse
+              GetSignInMethods ecclesiaflow.auth.GetSignInMethodsRequest -> ecclesiaflow.auth.GetSignInMethodsResponse
             message ecclesiaflow.auth.TemporaryTokenRequest
               1 string email
               2 string member_id
@@ -422,6 +423,11 @@ class ContractWireCompatibilityTest {
               1 string email
             message ecclesiaflow.auth.NoticeSignupOnAddressResponse
               1 bool account_exists
+            message ecclesiaflow.auth.GetSignInMethodsRequest
+              1 string keycloak_user_id
+            message ecclesiaflow.auth.GetSignInMethodsResponse
+              1 bool has_password
+              2 repeated string linked_providers
             file ecclesiaflow/church/church_service.proto package ecclesiaflow.church java_package com.ecclesiaflow.grpc.church
             service ecclesiaflow.church.ChurchService
               OnSignupCompleted ecclesiaflow.church.OnSignupCompletedRequest -> ecclesiaflow.church.OnSignupCompletedResponse
