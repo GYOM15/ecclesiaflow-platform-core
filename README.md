@@ -551,7 +551,7 @@ ecclesiaflow.events.outbox.enabled=true
 @Transactional
 public void removeFromGroup(...) {
     // business change ...
-    outbox.append(domainEventsExchange, "church.member.removed-from-group.v1", event);
+    outbox.append(domainEventsExchange, EventRoutes.CHURCH_MEMBER_REMOVED_FROM_GROUP_V1, event);
 }
 ```
 
@@ -773,8 +773,10 @@ The artifact is published on **GitHub Packages**, in two flavours:
 | **Release** | `com.ecclesiaflow:ecclesiaflow-platform-core:X.Y.Z` | From a `vX.Y.Z` tag. Immutable. |
 | **Snapshot** | `com.ecclesiaflow:ecclesiaflow-platform-core:X.Y.Z-SNAPSHOT` | On every push to `main`, replacing the previous build. |
 
-The modules' poms declare `0.4.0-SNAPSHOT`. Publish this library before a module that needs a
-change in it: the module's CI resolves the version from GitHub Packages.
+A module pins a released `X.Y.Z`; a `-SNAPSHOT` is for iterating locally (see
+[Local development against an unreleased lib](#local-development-against-an-unreleased-lib)).
+Publish this library before a module that needs a change in it: the module's build resolves the
+pinned version from GitHub Packages.
 
 ### Maven settings (consumer side)
 
@@ -795,7 +797,7 @@ In the consumer's `pom.xml`:
   <dependency>
     <groupId>com.ecclesiaflow</groupId>
     <artifactId>ecclesiaflow-platform-core</artifactId>
-    <version>0.4.0-SNAPSHOT</version>  <!-- development head; see pom.xml / GitHub Packages for the current version, or pin a released X.Y.Z -->
+    <version>X.Y.Z</version>  <!-- a released version (a vX.Y.Z tag); a -SNAPSHOT only while iterating locally -->
   </dependency>
 </dependencies>
 ```
