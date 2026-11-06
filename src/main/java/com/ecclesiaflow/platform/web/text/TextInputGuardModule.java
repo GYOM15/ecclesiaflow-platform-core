@@ -25,12 +25,7 @@ public final class TextInputGuardModule extends SimpleModule {
 
         @Override
         public String deserialize(JsonParser parser, DeserializationContext context) throws IOException {
-            String text = StringDeserializer.instance.deserialize(parser, context);
-            try {
-                return TextInputGuard.clean(text);
-            } catch (UnsafeTextException unsafe) {
-                throw new UnsafeTextInputException(parser);
-            }
+            return TextInputGuard.clean(StringDeserializer.instance.deserialize(parser, context));
         }
 
         @Override

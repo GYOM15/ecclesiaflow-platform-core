@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TextInputGuardModuleTest {
 
@@ -35,21 +34,13 @@ class TextInputGuardModuleTest {
     }
 
     @Test
-    @DisplayName("an unsafe character names the field it sat in")
-    void namesTheField() {
-        assertThatThrownBy(() -> mapper.readValue("{\"items\":[{\"label\":\"ok\"},{\"label\":\"a\\u202eb\"}]}", Event.class))
-                .isInstanceOfSatisfying(UnsafeTextInputException.class,
-                        unsafe -> assertThat(unsafe.fieldPath()).isEqualTo("items[1].label"));
-        assertThatThrownBy(() -> mapper.readValue("{\"title\":\"a\\u0007\"}", Event.class))
-                .isInstanceOfSatisfying(UnsafeTextInputException.class,
-                        unsafe -> assertThat(unsafe.fieldPath()).isEqualTo("title"));
-    }
+    @DisplayName("an unsafe character is dropped wherever it sits, the body still read")
+    void dropsUnsafeCharacters() throws Exception {
+        Event event = mapper.readValue("{\"title\":\"a\\u0007b\",\"items\":[{\"label\":\"c\\u202ed\"}]}", Event.class);
 
-    @Test
-    @DisplayName("a bare string body has no field to name")
-    void bareString() {
-        assertThatThrownBy(() -> mapper.readValue("\"a\\u2066b\"", String.class))
-                .isInstanceOfSatisfying(UnsafeTextInputException.class, unsafe -> assertThat(unsafe.fieldPath()).isNull());
+        assertThat(event.title()).isEqualTo("ab");
+        assertThat(event.items()).containsExactly(new Item("cd"));
+        assertThat(mapper.readValue("\"e\\u2066f\"", String.class)).isEqualTo("ef");
     }
 
     @Test

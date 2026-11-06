@@ -25,7 +25,6 @@ import org.springframework.web.context.WebApplicationContext;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -71,15 +70,12 @@ class PlatformTextInputGuardAutoConfigurationTest {
     }
 
     @Test
-    @DisplayName("an unsafe character is a validation error naming the field, not a malformed body")
-    void refusesUnsafeCharacters() {
+    @DisplayName("an unsafe character is dropped too: the request goes through, a report quoting abuse included")
+    void dropsUnsafeCharacters() {
         runner.run(context -> mvc(context).perform(post("/announcements").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"ok\",\"body\":\"txt.exe\\u202egpj\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
-                .andExpect(jsonPath("$.errors[0].path").value("body"))
-                .andExpect(jsonPath("$.errors[0].code").value("UnsafeCharacters"))
-                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("gpj")))));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.body").value("txt.exegpj")));
     }
 
     @Test
