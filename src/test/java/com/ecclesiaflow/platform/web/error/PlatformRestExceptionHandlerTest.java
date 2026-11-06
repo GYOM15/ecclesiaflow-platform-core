@@ -14,6 +14,8 @@ import com.ecclesiaflow.platform.moderation.ContentRejectedException;
 import com.ecclesiaflow.platform.moderation.TermFilter;
 import com.ecclesiaflow.platform.ratelimit.RateLimitExceededException;
 import com.ecclesiaflow.platform.upload.ImageDecodeCapacityExceededException;
+import com.ecclesiaflow.platform.web.text.TextInputGuardModule;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -229,6 +231,25 @@ class PlatformRestExceptionHandlerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errorCode").value("MALFORMED_REQUEST"))
                     .andExpect(jsonPath("$.message").value("Request body is missing or malformed."));
+        }
+
+        @Test
+        @DisplayName("an unsafe character in a body is a 400 validation error naming the field, the value never echoed")
+        void unsafeCharacter() throws Exception {
+            MockMvc guarded = MockMvcBuilders.standaloneSetup(controller)
+                    .setControllerAdvice(new PlatformRestExceptionHandler(new ErrorCategoryResolver(List.of()),
+                            Clock.fixed(NOW, ZoneOffset.UTC)) {
+                    })
+                    .setMessageConverters(new MappingJackson2HttpMessageConverter(
+                            new ObjectMapper().findAndRegisterModules().registerModule(new TextInputGuardModule())))
+                    .build();
+
+            guarded.perform(post("/members").contentType(MediaType.APPLICATION_JSON).content("{\"email\":\"a\\u202eb\"}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
+                    .andExpect(jsonPath("$.errors[0].path").value("email"))
+                    .andExpect(jsonPath("$.errors[0].code").value("UnsafeCharacters"))
+                    .andExpect(jsonPath("$.errors[0].message").value("Contains a control, bidirectional or other unsafe character."));
         }
 
         @Test
