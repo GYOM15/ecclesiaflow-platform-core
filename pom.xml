@@ -59,6 +59,8 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- GitHub's runners moved to a Docker that refuses API 1.32; 1.21.4 negotiates the version, Boot 3.5.5 pins 1.21.3. -->
+        <testcontainers.version>1.21.4</testcontainers.version>
 
         <grpc.version>1.65.1</grpc.version>
         <!-- protoc and the runtime move together: generated code refuses an older runtime. -->
