@@ -354,6 +354,26 @@ caller named a field. It is `INVALID_ARGUMENT` for the gRPC mapping. The excepti
 text nor the matched term. A module registers `CONTENT_REJECTED` with status 400 in its contract's
 `x-error-codes`, and keeps it out of any catch-all handler of its own.
 
+## Text input guard
+
+Every string a JSON request body carries goes through `TextInputGuard`, whatever object holds it.
+Characters that only hide content (zero-width space, word joiner, the invisible math operators, byte order
+mark, Hangul fillers, Unicode tags outside a subdivision flag) are dropped, so a pasted text still goes
+through. Characters that change how a text is read or processed (C0 and C1 controls other than tab, CR
+and LF, bidirectional embeddings, overrides and isolates, line and paragraph separators, unpaired
+surrogates, noncharacters, interlinear annotations) refuse the request with 400 `VALIDATION_ERROR`, its
+error naming the field's path and the code `UnsafeCharacters`; the value is never echoed. Joiners, the
+directional marks and variation selectors stay: emoji sequences and right-to-left scripts need them.
+
+`PlatformTextInputGuardAutoConfiguration` puts the guard in a copy of the mapper that only the MVC
+converters use: what a module reads from Keycloak, its database or another service, older rows included,
+is never refused. A module that answers `HttpMessageNotReadableException` itself must let
+`UnsafeTextInputException` reach the platform advice, or answer it the same way.
+
+| Property | Default | Effect |
+|---|---|---|
+| `ecclesiaflow.platform.web.text-input-guard.enabled` | `true` | `false` reads request bodies as before |
+
 ## Trace id in the logs
 
 `PlatformTraceparentAutoConfiguration` registers `TraceparentFilter` on a servlet module, ahead of Spring
@@ -703,6 +723,14 @@ module decides whether that stops its startup. To rotate, deploy the old key und
 | Error responses | `PlatformRestExceptionHandler` (lowest precedence, `ApiErrorResponse` with `errorCode`), `GrpcExceptionServerInterceptor`, `ExceptionClassifier` beans for module exceptions | `ecclesiaflow.platform.web.errors.enabled` |
 | Clock | A UTC `Clock` bean, unless the module declares one | — |
 | Architecture | `HexagonalArchitectureRules.check("<base package>")`, run from a module test with ArchUnit in test scope | — |
+
+## Upgrading to 0.6.1
+
+- Request bodies are guarded (see [Text input guard](#text-input-guard)): nothing to wire. A body with an
+  unsafe character now answers 400 `VALIDATION_ERROR` (code `UnsafeCharacters`) instead of reaching the
+  delegate; invisible characters are dropped before it. A module with its own
+  `HttpMessageNotReadableException` handler answers these bodies with that handler's code until it lets
+  them through.
 
 ## Upgrading to 0.6.0
 

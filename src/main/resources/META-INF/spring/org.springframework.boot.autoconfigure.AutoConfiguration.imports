@@ -21,3 +21,4 @@ com.ecclesiaflow.platform.security.autoconfigure.PlatformRecentAuthAutoConfigura
 com.ecclesiaflow.platform.moderation.autoconfigure.PlatformTermFilterAutoConfiguration
 com.ecclesiaflow.platform.web.trace.autoconfigure.PlatformTraceparentAutoConfiguration
 com.ecclesiaflow.platform.events.retry.autoconfigure.PlatformDelayedRetryAutoConfiguration
+com.ecclesiaflow.platform.web.text.autoconfigure.PlatformTextInputGuardAutoConfiguration
