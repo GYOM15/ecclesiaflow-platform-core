@@ -9,8 +9,6 @@ import com.ecclesiaflow.platform.logging.SecurityMaskingUtils;
 import com.ecclesiaflow.platform.moderation.ContentRejectedException;
 import com.ecclesiaflow.platform.ratelimit.RateLimitExceededException;
 import com.ecclesiaflow.platform.upload.ImageDecodeCapacityExceededException;
-import com.ecclesiaflow.platform.web.text.UnsafeTextException;
-import com.ecclesiaflow.platform.web.text.UnsafeTextInputException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.ConstraintViolation;
@@ -116,11 +114,6 @@ public abstract class PlatformRestExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiErrorResponse> handleUnreadableBody(HttpMessageNotReadableException ex,
                                                                  HttpServletRequest request) {
-        // A well-formed body with an unsafe character is a field error the client can name, not a malformed body.
-        if (ex.getCause() instanceof UnsafeTextInputException unsafe) {
-            return invalid(List.of(new ApiValidationError(unsafe.fieldPath(),
-                    "Contains a control, bidirectional or other unsafe character.", UnsafeTextException.CODE)), request);
-        }
         return answer(ex, HttpStatus.BAD_REQUEST, MALFORMED_REQUEST,
                 "Request body is missing or malformed.", new HttpHeaders(), request);
     }

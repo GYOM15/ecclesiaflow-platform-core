@@ -1,11 +1,12 @@
 package com.ecclesiaflow.platform.web.text;
 
 /**
- * What a text sent to the API may hold. Invisible characters that only hide content (zero-width spaces, word joiners,
- * fillers, Unicode tags outside an emoji flag) are dropped, so a pasted text still goes through; characters that
- * change how a text is read or processed (controls, bidirectional overrides and isolates, unpaired surrogates,
- * noncharacters, line and paragraph separators) refuse the request. Joiners and directional marks stay: emoji
- * sequences and right-to-left scripts need them.
+ * What a text sent to the API keeps. Characters that hide content or change how a text is read or processed are
+ * dropped, never refused, so a pasted text, or a report quoting an abusive one, always goes through: zero-width
+ * spaces and joiners of words, fillers, Unicode tags outside an emoji flag, controls other than tab, CR and LF,
+ * bidirectional embeddings, overrides and isolates, unpaired surrogates, noncharacters and interlinear annotations.
+ * The line and paragraph separators become line feeds. Joiners and directional marks stay: emoji sequences and
+ * right-to-left scripts need them.
  */
 public final class TextInputGuard {
 
@@ -15,8 +16,8 @@ public final class TextInputGuard {
     private TextInputGuard() {
     }
 
-    /** The text without its hidden characters, or the text itself when it holds none. */
-    public static String clean(String text) throws UnsafeTextException {
+    /** The text without what it must not hold, or the text itself when it holds none of it. */
+    public static String clean(String text) {
         if (text == null) {
             return null;
         }
@@ -35,12 +36,13 @@ public final class TextInputGuard {
                     continue;
                 }
             }
-            if (isRefused(codePoint)) {
-                throw new UnsafeTextException();
-            }
-            if (isHidden(codePoint)) {
+            boolean separator = codePoint == 0x2028 || codePoint == 0x2029;
+            if (separator || isDropped(codePoint)) {
                 if (kept == null) {
                     kept = new StringBuilder(text.length()).append(text, 0, index);
+                }
+                if (separator) {
+                    kept.append('\n');
                 }
             } else if (kept != null) {
                 kept.appendCodePoint(codePoint);
@@ -71,34 +73,26 @@ public final class TextInputGuard {
         return codePoint >= 0xE0000 && codePoint <= 0xE007F;
     }
 
-    private static boolean isHidden(int codePoint) {
-        return switch (codePoint) {
-            // Zero-width space, word joiner and the invisible math operators, byte order mark, Mongolian vowel
-            // separator, Hangul fillers.
-            case 0x200B, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0xFEFF, 0x180E, 0x115F, 0x1160, 0x3164, 0xFFA0 -> true;
-            default -> isTag(codePoint);
-        };
-    }
-
-    private static boolean isRefused(int codePoint) {
+    private static boolean isDropped(int codePoint) {
         if (codePoint < 0x20) {
             return codePoint != '\t' && codePoint != '\n' && codePoint != '\r';
         }
         if (codePoint >= 0x7F && codePoint <= 0x9F) {
             return true;
         }
-        if (Character.isSurrogate((char) codePoint) && codePoint <= 0xFFFF) {
+        if (codePoint <= 0xFFFF && Character.isSurrogate((char) codePoint)) {
             return true;
         }
         if ((codePoint >= 0xFDD0 && codePoint <= 0xFDEF) || (codePoint & 0xFFFE) == 0xFFFE) {
             return true;
         }
         return switch (codePoint) {
-            // Embeddings, overrides and isolates reorder what is displayed (Trojan Source); the interlinear annotation
-            // marks hide text; the line and paragraph separators break lines where scripts and logs do not expect it.
-            case 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069, 0xFFF9, 0xFFFA, 0xFFFB,
-                 0x2028, 0x2029 -> true;
-            default -> false;
+            // Zero-width space, word joiner and the invisible math operators, byte order mark, Mongolian vowel
+            // separator, Hangul fillers; embeddings, overrides and isolates, which reorder what is displayed (Trojan
+            // Source); the interlinear annotation marks, which hide text.
+            case 0x200B, 0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0xFEFF, 0x180E, 0x115F, 0x1160, 0x3164, 0xFFA0,
+                 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069, 0xFFF9, 0xFFFA, 0xFFFB -> true;
+            default -> isTag(codePoint);
         };
     }
 }
