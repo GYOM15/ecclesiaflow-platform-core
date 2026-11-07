@@ -37,6 +37,9 @@ enum EmailTemplateType {
   EMAIL_TEMPLATE_SENSITIVE_ACTION_CONFIRMATION = 10; // Confirm a sensitive gesture out of band (linked account)
   EMAIL_TEMPLATE_ACCOUNT_DELETION_REQUESTED = 11;    // Account deletion requested, grace period open
   EMAIL_TEMPLATE_ACCOUNT_DELETED = 12;               // Account erased at the end of the grace period
+  // A receipt is personal and legal: the mail only links to it, never carries the PDF or an amount.
+  EMAIL_TEMPLATE_RECEIPT_AVAILABLE = 13;             // Official donation receipt issued
+  EMAIL_TEMPLATE_RECEIPT_REPLACED = 14;              // Official donation receipt replaced by a new one
 }
 
 // Request to send an email

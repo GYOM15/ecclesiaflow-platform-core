@@ -605,6 +605,8 @@ class ContractWireCompatibilityTest {
               10 EMAIL_TEMPLATE_SENSITIVE_ACTION_CONFIRMATION
               11 EMAIL_TEMPLATE_ACCOUNT_DELETION_REQUESTED
               12 EMAIL_TEMPLATE_ACCOUNT_DELETED
+              13 EMAIL_TEMPLATE_RECEIPT_AVAILABLE
+              14 EMAIL_TEMPLATE_RECEIPT_REPLACED
               reserved 1
               reserved 2
             enum ecclesiaflow.email.Priority
