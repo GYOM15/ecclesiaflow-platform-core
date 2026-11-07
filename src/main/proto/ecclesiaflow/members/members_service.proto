@@ -16,6 +16,11 @@ service MembersService {
   rpc GetMemberProfile(GetMemberProfileRequest) returns (GetMemberProfileResponse);
   rpc GetMemberContacts(GetMemberContactsRequest) returns (GetMemberContactsResponse);
   rpc ProvisionMember (ProvisionMemberRequest) returns (ProvisionMemberResponse);
+  // The name and address an official donation receipt prints, read once when church prepares a
+  // batch and frozen in it. Not scoped to the calling church: a member who left in December is
+  // still the donor of that year's gifts, so church guards the call by asking only for the donors
+  // its own ledger holds. Scope ef:members:donor-identity:read, granted to church only.
+  rpc GetDonorIdentities(GetDonorIdentitiesRequest) returns (GetDonorIdentitiesResponse);
 }
 
 message ConfirmationStatusRequest {
@@ -145,3 +150,48 @@ message MemberContact {
 // sourced from the signup command / membership snapshot, never from a raw JWT.
 message ProvisionMemberRequest { string keycloak_user_id = 1; string email = 2; string first_name = 3; string last_name = 4; string church_id = 5; string address = 6; string phone_number = 7; }
 message ProvisionMemberResponse { string member_id = 1; bool created = 2; }   // created=false when it already existed
+
+message GetDonorIdentitiesRequest {
+  // Keycloak user ids. Capped at 500 per call (INVALID_ARGUMENT above the cap); empty returns none.
+  repeated string keycloak_user_ids = 1;
+  // Tenant of the calling church, for members' log and metric only: never a filter (see the RPC).
+  string caller_church_id = 2;
+  // Why the identities are read: TAX_RECEIPT. An open string, so a new purpose is no wire change;
+  // members refuses a purpose it does not know (INVALID_ARGUMENT), so no disclosure goes unexplained.
+  string purpose = 3;
+}
+
+message GetDonorIdentitiesResponse {
+  // One entry per distinct requested id, matched on keycloak_user_id, in no set order.
+  repeated DonorIdentity identities = 1;
+}
+
+// What a receipt prints of a person, and nothing more: no email, no phone.
+message DonorIdentity {
+  string keycloak_user_id = 1;
+  // FOUND, ERASED (the person was anonymised) or NOT_FOUND. An open string: a caller reads any
+  // value but FOUND as no identity to print, so a status added later never yields a receipt.
+  string status = 2;
+  // Every field below is empty unless status is FOUND.
+  string first_name = 3;
+  // One letter, without its period. Empty means no middle name.
+  string middle_initial = 4;
+  string last_name = 5;
+  // Unset when the member entered no structured address. Sent as stored, even partial: the
+  // caller decides whether it is complete enough to print.
+  PostalAddress address = 6;
+  // The free-text address kept from before the structured one, set only when address is unset:
+  // a receipt prints it only once the treasurer has confirmed it.
+  string legacy_address = 7;
+}
+
+message PostalAddress {
+  string line1 = 1;
+  string line2 = 2;
+  string city = 3;
+  // Province, state or region; for CA, one of the 13 province and territory codes.
+  string region = 4;
+  string postal_code = 5;
+  // ISO 3166-1 alpha-2.
+  string country_code = 6;
+}
