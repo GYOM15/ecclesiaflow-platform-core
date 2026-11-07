@@ -499,6 +499,7 @@ class ContractWireCompatibilityTest {
               7 string baptism_type_label
               8 bool phone_shared_with_church
               9 ecclesiaflow.members.BaptismDeclaration baptism_declared
+              10 string email_locale
             message ecclesiaflow.members.GetMemberContactsRequest
               1 repeated string keycloak_user_ids
               2 string caller_church_id

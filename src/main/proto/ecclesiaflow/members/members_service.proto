@@ -111,6 +111,11 @@ message GetMemberProfileResponse {
   // EMPTY both for "declared not baptised" and for "never asked", so this is the
   // only field that separates them — a pastor's directory needs that separation.
   BaptismDeclaration baptism_declared = 9;
+
+  // Language of the member's emails (BCP-47, one SupportedLocales accepts). Empty when members
+  // knows none or predates the field: the caller leaves SendEmailRequest.locale unset, which
+  // communication renders in French.
+  string email_locale = 10;
 }
 
 // Batch resolve members' phone numbers by Keycloak user id — the members module
