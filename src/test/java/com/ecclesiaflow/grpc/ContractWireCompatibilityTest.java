@@ -469,6 +469,7 @@ class ContractWireCompatibilityTest {
               GetMemberProfile ecclesiaflow.members.GetMemberProfileRequest -> ecclesiaflow.members.GetMemberProfileResponse
               GetMemberContacts ecclesiaflow.members.GetMemberContactsRequest -> ecclesiaflow.members.GetMemberContactsResponse
               ProvisionMember ecclesiaflow.members.ProvisionMemberRequest -> ecclesiaflow.members.ProvisionMemberResponse
+              GetDonorIdentities ecclesiaflow.members.GetDonorIdentitiesRequest -> ecclesiaflow.members.GetDonorIdentitiesResponse
             message ecclesiaflow.members.ConfirmationStatusRequest
               1 string email
             message ecclesiaflow.members.ConfirmationStatusResponse
@@ -498,6 +499,7 @@ class ContractWireCompatibilityTest {
               7 string baptism_type_label
               8 bool phone_shared_with_church
               9 ecclesiaflow.members.BaptismDeclaration baptism_declared
+              10 string email_locale
             message ecclesiaflow.members.GetMemberContactsRequest
               1 repeated string keycloak_user_ids
               2 string caller_church_id
@@ -517,6 +519,27 @@ class ContractWireCompatibilityTest {
             message ecclesiaflow.members.ProvisionMemberResponse
               1 string member_id
               2 bool created
+            message ecclesiaflow.members.GetDonorIdentitiesRequest
+              1 repeated string keycloak_user_ids
+              2 string caller_church_id
+              3 string purpose
+            message ecclesiaflow.members.GetDonorIdentitiesResponse
+              1 repeated ecclesiaflow.members.DonorIdentity identities
+            message ecclesiaflow.members.DonorIdentity
+              1 string keycloak_user_id
+              2 string status
+              3 string first_name
+              4 string middle_initial
+              5 string last_name
+              6 ecclesiaflow.members.PostalAddress address
+              7 string legacy_address
+            message ecclesiaflow.members.PostalAddress
+              1 string line1
+              2 string line2
+              3 string city
+              4 string region
+              5 string postal_code
+              6 string country_code
             enum ecclesiaflow.members.BaptismDeclaration
               0 BAPTISM_DECLARATION_UNSPECIFIED
               1 BAPTISM_DECLARATION_NOT_BAPTISED
@@ -582,6 +605,8 @@ class ContractWireCompatibilityTest {
               10 EMAIL_TEMPLATE_SENSITIVE_ACTION_CONFIRMATION
               11 EMAIL_TEMPLATE_ACCOUNT_DELETION_REQUESTED
               12 EMAIL_TEMPLATE_ACCOUNT_DELETED
+              13 EMAIL_TEMPLATE_RECEIPT_AVAILABLE
+              14 EMAIL_TEMPLATE_RECEIPT_REPLACED
               reserved 1
               reserved 2
             enum ecclesiaflow.email.Priority
