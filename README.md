@@ -721,6 +721,34 @@ module decides whether that stops its startup. To rotate, deploy the old key und
 | Clock | A UTC `Clock` bean, unless the module declares one | — |
 | Architecture | `HexagonalArchitectureRules.check("<base package>")`, run from a module test with ArchUnit in test scope | — |
 
+## Upgrading to 0.6.3
+
+The contracts of the official donation receipts, added only: a module that has moved and one that has
+not still talk to each other, and nothing changes for an existing caller.
+
+| Change in 0.6.3 | Effect on a module that adopts nothing | Fix |
+|---|---|---|
+| `MembersService.GetDonorIdentities` is a new RPC, and `S2sScopeRegistry` lists every RPC of a bound service, implemented or not | members does not start: `s2s scope registry is incomplete` | Override it with `@S2sScopeRequired("ef:members:donor-identity:read")`, implemented or as a stub that answers `UNIMPLEMENTED` |
+| `EmailTemplateType` gains `EMAIL_TEMPLATE_RECEIPT_AVAILABLE = 13` and `EMAIL_TEMPLATE_RECEIPT_REPLACED = 14` | A `switch` expression over the enum with no `default` no longer compiles | Add the two cases, or a `default` that refuses a template the module has no mail for |
+| `GetMemberProfileResponse` gains `email_locale = 10` | None: a members build that does not fill it sends it empty | — |
+
+Read in each module's `main` before 0.6.3 was cut, not run: members compiles and its unit tests pass
+(none builds the registry over the real service), but its context does not start until the RPC is
+annotated; communication's `TemplateResolver` already ends on a `default` that refuses both values,
+and its tests expect every value outside its list refused; auth, church and chat only call
+`MembersService`, and a generated stub answers `UNIMPLEMENTED` for an RPC a test double does not
+override.
+
+Adopting it, in deploy order (each step ships before the next one uses it):
+
+| Module | Does |
+|---|---|
+| auth | Declares `ef:members:donor-identity:read` in `provisioning/client-scopes.txt`; gives it and `ef:email:send` to `ecclesiaflow-church-backend` in `client-scope-assignments.txt`; updates `check-realm.reference.json` |
+| deploy | Adds `ecclesiaflow-church-backend` to communication's `S2S_ALLOWED_AZP`; members' list already holds it |
+| communication | Writes the FR and EN mails of templates 13 and 14 and lists them in `TemplateResolver`. They carry a link to the member's receipts, never the PDF or an amount |
+| members | Implements `GetDonorIdentities`: at most 500 ids (`INVALID_ARGUMENT` above), one entry per distinct id, `FOUND`, `ERASED` for an anonymised person or `NOT_FOUND`, the other fields filled only for `FOUND`; no filter on `caller_church_id`, which only feeds its log and `members_donor_identity_disclosed_total`; `INVALID_ARGUMENT` for a `purpose` other than `TAX_RECEIPT`; `legacy_address` only when no structured address is stored. Fills `email_locale` with the language of the member's emails |
+| church | Calls `GetDonorIdentities` from the receipt batch preparation only, with `purpose` `TAX_RECEIPT` and only the member ids of its own ledger; reads any status but `FOUND` as no identity; passes `email_locale` as `SendEmailRequest.locale`, left unset when empty (French); sends templates 13 and 14 only once communication serves them |
+
 ## Upgrading to 0.6.2
 
 - The text input guard drops unsafe characters instead of refusing the body: a request that 0.6.1 answered
