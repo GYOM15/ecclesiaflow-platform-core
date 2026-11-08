@@ -40,6 +40,8 @@ enum EmailTemplateType {
   // A receipt is personal and legal: the mail only links to it, never carries the PDF or an amount.
   EMAIL_TEMPLATE_RECEIPT_AVAILABLE = 13;             // Official donation receipt issued
   EMAIL_TEMPLATE_RECEIPT_REPLACED = 14;              // Official donation receipt replaced by a new one
+  // The code is the proof of the address: never in the subject, which notifications show on a locked screen.
+  EMAIL_TEMPLATE_APP_SIGNUP_CODE = 15;               // Six-digit code that confirms an address at in-app signup
 }
 
 // Request to send an email
