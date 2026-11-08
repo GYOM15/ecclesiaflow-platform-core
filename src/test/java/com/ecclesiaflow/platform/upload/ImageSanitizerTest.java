@@ -6,6 +6,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import javax.imageio.ImageIO;
 import java.awt.Color;
@@ -17,6 +19,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -706,6 +709,73 @@ class ImageSanitizerTest {
             }
         }
         return (double) total / (3L * a.getWidth() * a.getHeight());
+    }
+
+    @Nested
+    @DisplayName("EXIF orientation - a phone photo comes out the way it was taken")
+    class Orientation {
+
+        @ParameterizedTest(name = "orientation {0}")
+        @CsvSource({
+                "1, R, B, G, K",
+                "2, B, R, K, G",
+                "3, K, G, B, R",
+                "4, G, K, R, B",
+                "5, R, G, B, K",
+                "6, G, R, K, B",
+                "7, K, B, G, R",
+                "8, B, K, R, G"})
+        @DisplayName("each orientation lands the stored quadrants where the camera saw them")
+        void appliesTheTag(int value, String topLeft, String topRight, String bottomLeft, String bottomRight)
+                throws Exception {
+            byte[] input = ExifJpegs.withOrientation(ExifJpegs.quadrants(80, 40), value,
+                    ByteOrder.BIG_ENDIAN);
+
+            BufferedImage out = decode(sanitizer.sanitize(input, ImagePolicy.contentImage()).data());
+
+            boolean quarterTurn = value >= 5;
+            assertThat(out.getWidth()).isEqualTo(quarterTurn ? 40 : 80);
+            assertThat(out.getHeight()).isEqualTo(quarterTurn ? 80 : 40);
+            int w = out.getWidth();
+            int h = out.getHeight();
+            assertThat(List.of(
+                    colourAt(out, w / 4, h / 4), colourAt(out, 3 * w / 4, h / 4),
+                    colourAt(out, w / 4, 3 * h / 4), colourAt(out, 3 * w / 4, 3 * h / 4)))
+                    .containsExactly(topLeft, topRight, bottomLeft, bottomRight);
+        }
+
+        @Test
+        @DisplayName("a turned photo is bounded by maxDimension on its displayed longest side")
+        void turnedPhotoIsResizedOnItsDisplayedSize() throws Exception {
+            byte[] input = ExifJpegs.withOrientation(ExifJpegs.quadrants(1000, 400), 6,
+                    ByteOrder.LITTLE_ENDIAN);
+
+            BufferedImage out = decode(sanitizer.sanitize(input, ImagePolicy.avatar()).data());
+
+            assertThat(out.getWidth()).isEqualTo(205);
+            assertThat(out.getHeight()).isEqualTo(512);
+        }
+
+        @Test
+        @DisplayName("the tag is read from JPEG only; the re-encode carries no EXIF")
+        void outputHasNoExif() throws Exception {
+            byte[] input = ExifJpegs.withOrientation(ExifJpegs.quadrants(80, 40), 6, ByteOrder.BIG_ENDIAN);
+
+            byte[] out = sanitizer.sanitize(input, ImagePolicy.contentImage()).data();
+
+            assertThat(ExifOrientation.of(out)).isEqualTo(ExifOrientation.NORMAL);
+        }
+
+        private static String colourAt(BufferedImage image, int x, int y) {
+            int rgb = image.getRGB(x, y);
+            int r = (rgb >> 16) & 0xFF;
+            int g = (rgb >> 8) & 0xFF;
+            int b = rgb & 0xFF;
+            if (Math.max(r, Math.max(g, b)) < 80) {
+                return "K";
+            }
+            return r >= g && r >= b ? "R" : g >= b ? "G" : "B";
+        }
     }
 
     @Test

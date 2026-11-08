@@ -92,6 +92,9 @@ public class ImageSanitizer {
                     "detected media type " + detected + " is not an accepted image input");
         }
 
+        ExifOrientation orientation = MagicBytes.IMAGE_JPEG.equals(detected)
+                ? ExifOrientation.of(bytes)
+                : ExifOrientation.NORMAL;
         long maxPixels = MagicBytes.IMAGE_WEBP.equals(detected)
                 ? Math.min(policy.maxInputPixels(), WEBP_MAX_INPUT_PIXELS)
                 : policy.maxInputPixels();
@@ -100,7 +103,7 @@ public class ImageSanitizer {
         try {
             DecodedImage source = decodeWithinLimits(bytes, maxPixels, policy.maxDimension());
 
-            byte[] reencoded = redrawAndEncode(source, policy);
+            byte[] reencoded = redrawAndEncode(source, orientation, policy);
             String outputType = policy.outputType() == ImagePolicy.OutputType.JPEG
                     ? MagicBytes.IMAGE_JPEG
                     : MagicBytes.IMAGE_PNG;
@@ -166,11 +169,12 @@ public class ImageSanitizer {
         return (int) Math.max(1L, (Math.max(width, height) + window - 1) / window);
     }
 
-    private byte[] redrawAndEncode(DecodedImage source, ImagePolicy policy) {
+    private byte[] redrawAndEncode(DecodedImage source, ExifOrientation orientation, ImagePolicy policy) {
         // Sized from the declared dimensions, not the subsampled raster, so the
         // output is exactly what a full-resolution decode would have produced.
-        int srcW = source.width();
-        int srcH = source.height();
+        boolean swap = orientation.swapsAxes();
+        int srcW = swap ? source.height() : source.width();
+        int srcH = swap ? source.width() : source.height();
         int longest = Math.max(srcW, srcH);
         double scale = longest > policy.maxDimension()
                 ? (double) policy.maxDimension() / longest
@@ -196,7 +200,8 @@ public class ImageSanitizer {
                 g.setColor(Color.WHITE);
                 g.fillRect(0, 0, targetW, targetH);
             }
-            g.drawImage(source.image(), 0, 0, targetW, targetH, null);
+            g.transform(orientation.toCanvas(targetW, targetH));
+            g.drawImage(source.image(), 0, 0, swap ? targetH : targetW, swap ? targetW : targetH, null);
         } finally {
             g.dispose();
         }
