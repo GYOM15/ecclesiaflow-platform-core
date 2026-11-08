@@ -34,6 +34,11 @@ service AuthService {
   // on a linked provider, a fact of the account, never on how the last session
   // was opened. Scope ef:auth:sign-in-methods:read, granted to members only.
   rpc GetSignInMethods(GetSignInMethodsRequest) returns (GetSignInMethodsResponse);
+  // Ends an in-app signup once members has proved the address by a code: the member then chooses
+  // the password on Keycloak's own page, in the app's browser sheet, and arrives signed in, so no
+  // password ever crosses our servers. Idempotent, since members retries it after a failed commit.
+  // Scope ef:auth:token:issue, granted to members only.
+  rpc IssuePasswordSetupAction(IssuePasswordSetupActionRequest) returns (IssuePasswordSetupActionResponse);
 }
 
 // ============================================================================
@@ -284,4 +289,39 @@ message GetSignInMethodsResponse {
   // Aliases of the identity providers linked to the account, such as "google".
   // Open: any value is a linked provider, even one the caller does not know.
   repeated string linked_providers = 2;
+}
+
+// ============================================================================
+// Issue Password Setup Action
+// ============================================================================
+
+message IssuePasswordSetupActionRequest {
+  string member_id = 1;
+  // The address members has just proved by the code it sent there: auth creates the user with it
+  // verified, or finds the user that already holds it.
+  string email = 2;
+  string first_name = 3;
+  string last_name = 4;
+  // "fr" or "en", kept as the account's locale. Empty or unsupported: "fr".
+  string locale = 5;
+  // ecclesiaflow-mobile-ios or ecclesiaflow-mobile-android, from the platform the app's proof
+  // attested. Any other value is INVALID_ARGUMENT: a web client must never redeem the token.
+  string client_id = 6;
+  // RFC 7638 SHA-256 thumbprint of the app's DPoP key, base64url without padding. Keycloak redeems
+  // the token only in an authorization request carrying this same dpop_jkt, so a token read off
+  // the wire is useless without the device's key. Malformed: INVALID_ARGUMENT.
+  string dpop_jkt = 7;
+}
+
+// Failures are reported through the gRPC status, never in the response.
+message IssuePasswordSetupActionResponse {
+  // The user created or found, which members links to its record.
+  string keycloak_user_id = 1;
+  // Single use, valid 300 s, bound to client_id and dpop_jkt. Empty when password_already_set.
+  string action_token = 2;
+  // When action_token lapses, in ms since the Unix epoch. 0 when password_already_set.
+  int64 expires_at_epoch_ms = 3;
+  // The account already holds a password: no token is minted, so a signup cannot replace the
+  // password of an account; the member signs in as usual.
+  bool password_already_set = 4;
 }

@@ -721,6 +721,29 @@ module decides whether that stops its startup. To rotate, deploy the old key und
 | Clock | A UTC `Clock` bean, unless the module declares one | — |
 | Architecture | `HexagonalArchitectureRules.check("<base package>")`, run from a module test with ArchUnit in test scope | — |
 
+## Upgrading to 0.6.6
+
+The contracts of the in-app signup, added only: a module that has moved and one that has not still talk
+to each other, and nothing changes for an existing caller.
+
+| Change in 0.6.6 | Effect on a module that adopts nothing | Fix |
+|---|---|---|
+| `AuthService.IssuePasswordSetupAction` is a new RPC, and `S2sScopeRegistry` lists every RPC of a bound service, implemented or not | auth does not start: `s2s scope registry is incomplete` | Override it with `@S2sScopeRequired("ef:auth:token:issue")`, implemented or as a stub that answers `UNIMPLEMENTED` |
+| `EmailTemplateType` gains `EMAIL_TEMPLATE_APP_SIGNUP_CODE = 15` | A `switch` expression over the enum with no `default` no longer compiles | Add the case, or a `default` that refuses a template the module has no mail for |
+
+Adopting it, in deploy order (each step ships before the next one uses it):
+
+| Module | Does |
+|---|---|
+| communication | Writes the FR and EN mails of template 15 and lists it in `TemplateResolver`. The code is in the body only, never in the subject, and never in a log line |
+| auth | Implements `IssuePasswordSetupAction`: finds the Keycloak user by its address, or creates it enabled, its address verified, without a password, with the names and locale of the request; mints the action token only when the user holds no password, bound to `client_id` and `dpop_jkt`, single use, 300 s; `INVALID_ARGUMENT` for a `client_id` other than the two mobile clients or a malformed `dpop_jkt`. The realm needs nothing: `ecclesiaflow-members-backend` already carries `ef:auth:token:issue` and is in auth's `S2S_ALLOWED_AZP` |
+| members | Calls it from the in-app signup only, once the code is verified; links `keycloak_user_id` in its own transaction; reads `password_already_set` as a finished signup. Sends template 15 only once communication serves it |
+
+Read in each module's `main` before 0.6.6 was cut, not run: communication's `TemplateResolver` ends on a
+`default` that refuses the new value; auth's `AuthGrpcServiceImpl` must gain the annotated override in the
+same upgrade; members and church only call `AuthService`, and a generated stub answers `UNIMPLEMENTED`
+for an RPC a test double does not override; none of them switches over `EmailTemplateType`.
+
 ## Upgrading to 0.6.3
 
 The contracts of the official donation receipts, added only: a module that has moved and one that has
