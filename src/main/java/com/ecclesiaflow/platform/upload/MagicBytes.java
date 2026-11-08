@@ -19,6 +19,7 @@ public final class MagicBytes {
     public static final String XLSX =
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     public static final String TEXT_CSV = "text/csv";
+    public static final String APPLICATION_PDF = "application/pdf";
 
     private static final byte[] JPEG_MAGIC = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF};
     private static final byte[] PNG_MAGIC =
@@ -29,6 +30,7 @@ public final class MagicBytes {
     private static final byte[] GIF89A_MAGIC = {'G', 'I', 'F', '8', '9', 'a'};
     private static final byte[] ZIP_LOCAL_HEADER = {0x50, 0x4B, 0x03, 0x04};
     private static final byte[] XL_ENTRY = {'x', 'l', '/'};
+    private static final byte[] PDF_MAGIC = {'%', 'P', 'D', 'F', '-'};
 
     private MagicBytes() {
     }
@@ -54,6 +56,10 @@ public final class MagicBytes {
         // other ZIPs shows as literal bytes.
         if (startsWith(bytes, ZIP_LOCAL_HEADER) && contains(bytes, XL_ENTRY)) {
             return Optional.of(XLSX);
+        }
+        // At the very start only: readers tolerate junk before the header, which is how polyglots hide one.
+        if (startsWith(bytes, PDF_MAGIC)) {
+            return Optional.of(APPLICATION_PDF);
         }
         // Runs last so that no binary format above is mislabelled as text.
         if (TextUploadDecoder.decode(bytes).isPresent()) {

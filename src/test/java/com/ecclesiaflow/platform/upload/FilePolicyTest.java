@@ -26,4 +26,14 @@ class FilePolicyTest {
         assertThat(policy.allowedTypes()).containsExactlyInAnyOrder(MagicBytes.TEXT_CSV, MagicBytes.XLSX);
         assertThat(policy.maxBytes()).isEqualTo(5L * 1024 * 1024);
     }
+
+    @Test
+    @DisplayName("an expense document is a PDF or a photo, up to 10 MB")
+    void expenseDocument() {
+        FilePolicy policy = FilePolicy.expenseDocument();
+
+        assertThat(policy.allowedTypes()).containsExactlyInAnyOrder(
+                MagicBytes.APPLICATION_PDF, MagicBytes.IMAGE_JPEG, MagicBytes.IMAGE_PNG, MagicBytes.IMAGE_WEBP);
+        assertThat(policy.maxBytes()).isEqualTo(10L * 1024 * 1024);
+    }
 }

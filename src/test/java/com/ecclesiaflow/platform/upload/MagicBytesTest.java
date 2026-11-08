@@ -123,4 +123,18 @@ class MagicBytesTest {
         byte[] bytes = {(byte) 0x80, (byte) 0x81, (byte) 0x82};
         assertThat(MagicBytes.detect(bytes)).isEmpty();
     }
+
+    @Test
+    @DisplayName("a PDF header at the very start is application/pdf, before any text reading")
+    void pdf() {
+        byte[] bytes = {'%', 'P', 'D', 'F', '-', '1', '.', '7', '\n', '%', (byte) 0xE2, (byte) 0xE3, (byte) 0xCF, (byte) 0xD3, '\n'};
+        assertThat(MagicBytes.detect(bytes)).contains(MagicBytes.APPLICATION_PDF);
+    }
+
+    @Test
+    @DisplayName("a PDF header after other bytes is read as text, never as a PDF: polyglots hide one that way")
+    void pdfHeaderNotAtStart() {
+        byte[] bytes = {'a', ';', 'b', '\n', '%', 'P', 'D', 'F', '-', '1', '.', '7', '\n'};
+        assertThat(MagicBytes.detect(bytes)).contains(MagicBytes.TEXT_CSV);
+    }
 }

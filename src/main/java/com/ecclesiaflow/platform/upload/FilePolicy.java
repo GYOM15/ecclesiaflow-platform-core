@@ -18,4 +18,10 @@ public record FilePolicy(long maxBytes, Set<String> allowedTypes) {
     public static FilePolicy spreadsheetImport() {
         return new FilePolicy(5 * MB, Set.of(MagicBytes.TEXT_CSV, MagicBytes.XLSX));
     }
+
+    /** An invoice or a receipt of purchase: scanned to PDF or photographed. */
+    public static FilePolicy expenseDocument() {
+        return new FilePolicy(10 * MB, Set.of(
+                MagicBytes.APPLICATION_PDF, MagicBytes.IMAGE_JPEG, MagicBytes.IMAGE_PNG, MagicBytes.IMAGE_WEBP));
+    }
 }

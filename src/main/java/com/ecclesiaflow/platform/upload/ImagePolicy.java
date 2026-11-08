@@ -64,6 +64,17 @@ public record ImagePolicy(
                 false);
     }
 
+    // A photographed receipt must keep its small print legible, so it keeps more pixels than a content image.
+    public static ImagePolicy expenseDocumentImage() {
+        return new ImagePolicy(
+                10 * MB,
+                DECODABLE_IMAGE_TYPES,
+                DEFAULT_MAX_INPUT_PIXELS,
+                2400,
+                OutputType.JPEG,
+                false);
+    }
+
     public static ImagePolicy logo() {
         return new ImagePolicy(
                 2 * MB,
