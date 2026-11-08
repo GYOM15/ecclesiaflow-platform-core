@@ -40,4 +40,16 @@ class ImagePolicyTest {
         assertThatThrownBy(() -> policy.allowedInputTypes().add(MagicBytes.IMAGE_PNG))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
+
+    @Test
+    @DisplayName("a photographed expense document keeps 2400 pixels and 10 MB, re-encoded as JPEG")
+    void expenseDocumentImage() {
+        ImagePolicy policy = ImagePolicy.expenseDocumentImage();
+
+        assertThat(policy.maxBytes()).isEqualTo(10L * 1024 * 1024);
+        assertThat(policy.maxDimension()).isEqualTo(2400);
+        assertThat(policy.outputType()).isEqualTo(ImagePolicy.OutputType.JPEG);
+        assertThat(policy.allowedInputTypes())
+                .containsExactlyInAnyOrder(MagicBytes.IMAGE_JPEG, MagicBytes.IMAGE_PNG, MagicBytes.IMAGE_WEBP);
+    }
 }
