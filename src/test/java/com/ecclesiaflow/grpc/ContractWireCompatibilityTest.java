@@ -12,6 +12,9 @@ import com.ecclesiaflow.grpc.events.auth.AuthDomainEventsProto;
 import com.ecclesiaflow.grpc.events.auth.ExistingAccountNoticeEvent;
 import com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent;
 import com.ecclesiaflow.grpc.events.auth.TwoFactorRemovedEvent;
+import com.ecclesiaflow.grpc.events.billing.BillingDomainEventsProto;
+import com.ecclesiaflow.grpc.events.billing.BillingNoticeEvent;
+import com.ecclesiaflow.grpc.events.billing.ChurchEntitlementChangedEvent;
 import com.ecclesiaflow.grpc.events.chat.ChatDomainEventsProto;
 import com.ecclesiaflow.grpc.events.chat.ChatMessagePostedEvent;
 import com.ecclesiaflow.grpc.events.church.ChurchDomainEventsProto;
@@ -82,7 +85,8 @@ class ContractWireCompatibilityTest {
             MembersDomainEventsProto.getDescriptor(),
             ChatDomainEventsProto.getDescriptor(),
             ModerationDomainEventsProto.getDescriptor(),
-            BillingCreditServiceProto.getDescriptor());
+            BillingCreditServiceProto.getDescriptor(),
+            BillingDomainEventsProto.getDescriptor());
 
     private static final Path PROTO_ROOT = Path.of("src/main/proto");
 
@@ -101,7 +105,7 @@ class ContractWireCompatibilityTest {
             "members.account.reactivated");
 
     private static final Pattern VERSIONED_KEY = Pattern.compile(
-            "(auth|church|members|chat|communication)\\.[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*\\.v[1-9][0-9]*");
+            "(auth|church|members|chat|communication|billing)\\.[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*\\.v[1-9][0-9]*");
 
     @Test
     @DisplayName("Packages, RPCs, field numbers and types match what the deployed services exchange")
@@ -189,7 +193,7 @@ class ContractWireCompatibilityTest {
                 MemberDeactivatedEvent.class, MemberReactivatedEvent.class, EmailQueueMessage.class,
                 AccountSessionsRevokedEvent.class, MemberSuspendedEvent.class, MemberSuspensionLiftedEvent.class,
                 NotificationCreatedEvent.class, ChatMessagePostedEvent.class, ContentReportedEvent.class,
-                ModerationActionTakenEvent.class))
+                ModerationActionTakenEvent.class, ChurchEntitlementChangedEvent.class, BillingNoticeEvent.class))
                 .extracting(Class::getName)
                 .containsExactly(
                         "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent",
@@ -212,7 +216,9 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.events.church.NotificationCreatedEvent",
                         "com.ecclesiaflow.grpc.events.chat.ChatMessagePostedEvent",
                         "com.ecclesiaflow.grpc.events.moderation.ContentReportedEvent",
-                        "com.ecclesiaflow.grpc.events.moderation.ModerationActionTakenEvent");
+                        "com.ecclesiaflow.grpc.events.moderation.ModerationActionTakenEvent",
+                        "com.ecclesiaflow.grpc.events.billing.ChurchEntitlementChangedEvent",
+                        "com.ecclesiaflow.grpc.events.billing.BillingNoticeEvent");
     }
 
     private static List<Descriptor> events() {
@@ -836,6 +842,26 @@ class ContractWireCompatibilityTest {
               0 CREDIT_CHANNEL_UNSPECIFIED
               1 CREDIT_CHANNEL_SMS_SEGMENT
               2 CREDIT_CHANNEL_EMAIL
+            file ecclesiaflow/events/billing/v1/billing_events.proto package ecclesiaflow.events.billing.v1 java_package com.ecclesiaflow.grpc.events.billing
+            message ecclesiaflow.events.billing.v1.ChurchEntitlementChangedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string church_id
+              4 int64 version
+              5 string access_status
+              6 string plan_code
+              7 optional int64 people_limit
+              8 int64 email_monthly_quota
+              9 int32 email_margin_permille
+              10 bool sms_open
+              11 optional int64 valid_until_epoch_ms
+              12 string restriction_reason
+            message ecclesiaflow.events.billing.v1.BillingNoticeEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string church_id
+              4 string kind
+              5 map<string,string> params
             """;
 
     private static final String ROUTES = """
@@ -862,5 +888,7 @@ class ContractWireCompatibilityTest {
             chat.moderation.action-taken.v1 ecclesiaflow.events.moderation.v1.ModerationActionTakenEvent
             church.moderation.action-taken.v1 ecclesiaflow.events.moderation.v1.ModerationActionTakenEvent
             members.moderation.action-taken.v1 ecclesiaflow.events.moderation.v1.ModerationActionTakenEvent
+            billing.entitlement.changed.v1 ecclesiaflow.events.billing.v1.ChurchEntitlementChangedEvent
+            billing.notice.raised.v1 ecclesiaflow.events.billing.v1.BillingNoticeEvent
             """;
 }

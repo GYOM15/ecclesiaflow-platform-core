@@ -38,6 +38,9 @@ public final class EventRoutes {
     public static final String CHURCH_MODERATION_ACTION_TAKEN_V1 = "church.moderation.action-taken.v1";
     public static final String MEMBERS_MODERATION_ACTION_TAKEN_V1 = "members.moderation.action-taken.v1";
 
+    public static final String BILLING_ENTITLEMENT_CHANGED_V1 = "billing.entitlement.changed.v1";
+    public static final String BILLING_NOTICE_RAISED_V1 = "billing.notice.raised.v1";
+
     private EventRoutes() {
     }
 }
