@@ -110,6 +110,11 @@ class SurfaceScopeAuthorizationAutoConfigurationTest {
             return "reports";
         }
 
+        @GetMapping("/module/ops/plans")
+        String plans() {
+            return "plans";
+        }
+
         @PostMapping("/module/public/signup")
         String signup() {
             return "signed-up";
@@ -134,6 +139,8 @@ class SurfaceScopeAuthorizationAutoConfigurationTest {
         static final String MODERATION = "moderation";
         static final String MODERATION_WITHOUT_ROLE = "moderation-without-role";
         static final String WEB_MODERATOR = "web-moderator";
+        static final String BILLING_OPERATOR = "billing-operator";
+        static final String BILLING_WITHOUT_ROLE = "billing-without-role";
 
         private static final Map<String, Map<String, Object>> CLAIMS = Map.of(
                 WEB, Map.of("scope", "openid ef:surface:full", "azp", "ecclesiaflow-web"),
@@ -142,7 +149,10 @@ class SurfaceScopeAuthorizationAutoConfigurationTest {
                         "realm_access", Map.of("roles", List.of("PLATFORM_MODERATOR"))),
                 MODERATION_WITHOUT_ROLE, Map.of("scope", "ef:moderation:act", "azp", "ecclesiaflow-moderation"),
                 WEB_MODERATOR, Map.of("scope", "openid ef:surface:full", "azp", "ecclesiaflow-web",
-                        "realm_access", Map.of("roles", List.of("PLATFORM_MODERATOR"))));
+                        "realm_access", Map.of("roles", List.of("PLATFORM_MODERATOR"))),
+                BILLING_OPERATOR, Map.of("scope", "ef:billing:operate", "azp", "ecclesiaflow-billing-operations",
+                        "realm_access", Map.of("roles", List.of("PLATFORM_BILLING"))),
+                BILLING_WITHOUT_ROLE, Map.of("scope", "ef:billing:operate", "azp", "ecclesiaflow-billing-operations"));
 
         private Tokens() {
         }
@@ -251,6 +261,17 @@ class SurfaceScopeAuthorizationAutoConfigurationTest {
             assertThat(call("GET", "/module/moderation/reports", Tokens.MODERATION).body()).isEqualTo("reports");
             assertThat(status("GET", "/module/console/members", Tokens.MODERATION)).isEqualTo(403);
             assertThat(status("GET", "/module/moderation/reports", Tokens.MODERATION_WITHOUT_ROLE)).isEqualTo(403);
+        }
+
+        @Test
+        @DisplayName("a billing operator opens billing operations only, which no moderation or web token reaches")
+        void billingOperatorToken() throws Exception {
+            assertThat(call("GET", "/module/ops/plans", Tokens.BILLING_OPERATOR).body()).isEqualTo("plans");
+            assertThat(status("GET", "/module/moderation/reports", Tokens.BILLING_OPERATOR)).isEqualTo(403);
+            assertThat(status("GET", "/module/console/members", Tokens.BILLING_OPERATOR)).isEqualTo(403);
+            assertThat(status("GET", "/module/ops/plans", Tokens.BILLING_WITHOUT_ROLE)).isEqualTo(403);
+            assertThat(status("GET", "/module/ops/plans", Tokens.MODERATION)).isEqualTo(403);
+            assertThat(status("GET", "/module/ops/plans", Tokens.WEB)).isEqualTo(403);
         }
 
         @Test

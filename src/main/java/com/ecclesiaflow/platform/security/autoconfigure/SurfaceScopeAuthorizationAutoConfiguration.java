@@ -97,7 +97,7 @@ public class SurfaceScopeAuthorizationAutoConfiguration {
                 properties.getMode(),
                 surfaces.count(Surface.MEMBER),
                 surfaces.count(Surface.CONSOLE),
-                surfaces.count(Surface.PLATFORM),
+                surfaces.count(Surface.PLATFORM) + surfaces.count(Surface.PLATFORM_BILLING),
                 surfaces.tokenlessCount());
         // A child context (a separate management port) refreshes too and its event reaches us.
         AtomicBoolean announced = new AtomicBoolean();
