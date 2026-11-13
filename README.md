@@ -174,13 +174,18 @@ reaches to every request authenticated by a token (`JwtAuthenticationToken`):
 | `member` | nothing more; decision points cap admin powers when `SurfaceCaller.isConsoleCaller()` is false |
 | absent | `SCOPE_ef:surface:full` (the web console) |
 | `platform` | `SCOPE_ef:moderation:act` and `ROLE_PLATFORM_MODERATOR`; `ef:surface:full` never suffices |
+| `platform` with `x-ef-platform-duty: billing` | `SCOPE_ef:billing:operate` and `ROLE_PLATFORM_BILLING`; neither moderation's couple nor `ef:surface:full` suffices |
+
+`x-ef-platform-duty` names whose operations a `platform` one is: absent or `moderation`, moderators';
+`billing`, billing operators'. Neither couple opens the other's operations.
 
 A `security: []` operation is never ruled; a path outside the contract is console-only, except the
 technical list (`/ws/**`, `/error`, `/actuator/**`, `/v3/api-docs/**`, `/swagger-ui.html`,
 `/swagger-ui/**`). A refusal is the module's own 403: the filter runs right after Spring Security's
 chain and throws `AccessDeniedException`. At startup the module refuses to start when its chain opens,
 to a caller without a token, a route that is neither a `security: []` operation nor technical, or
-closes a `security: []` operation; an `x-ef-surface` other than `member` or `platform` stops it too.
+closes a `security: []` operation; an `x-ef-surface` other than `member` or `platform` stops it too, and so
+does an `x-ef-platform-duty` other than `moderation` or `billing`, or one beside another surface.
 
 | Property | Default | Effect |
 |---|---|---|
@@ -427,12 +432,15 @@ generated classes and the `.proto` files.
 | `church/church_service.proto` | church (`ChurchService`) | `com.ecclesiaflow.grpc.church` |
 | `members/members_service.proto` | members (`MembersService`) | `com.ecclesiaflow.grpc.members` |
 | `email/email_service.proto` | communication (`EmailService`, `EmailQueueMessage`) | `com.ecclesiaflow.grpc.email` |
+| `billing/billing_credit_service.proto` | billing (`BillingCreditService`) | `com.ecclesiaflow.grpc.billing` |
+| `billing/billing_entitlement_service.proto` | billing (`BillingEntitlementService`) | `com.ecclesiaflow.grpc.billing` |
 | `events/event_options.proto` | the `(ecclesiaflow.events.routing_keys)` option | `com.ecclesiaflow.grpc.events` |
 | `events/auth/v1/domain_events.proto` | auth (`SetupTokenIssuedEvent`, `ExistingAccountNoticeEvent`, `TwoFactorRemovedEvent`, `AccountSessionsRevokedEvent`) | `com.ecclesiaflow.grpc.events.auth` |
-| `events/church/v1/church_events.proto` | church (invitation, admission, removal, group events, `NotificationCreatedEvent`) | `com.ecclesiaflow.grpc.events.church` |
+| `events/church/v1/church_events.proto` | church (invitation, admission, removal, group events, `NotificationCreatedEvent`, `ChurchOwnershipTransferredEvent`) | `com.ecclesiaflow.grpc.events.church` |
 | `events/members/v1/members_events.proto` | members (`MemberProfileChangedEvent`, `MemberAnonymizedEvent`, `MemberContactsErasedEvent`, `MemberDeactivatedEvent`, `MemberReactivatedEvent`, `MemberSuspendedEvent`, `MemberSuspensionLiftedEvent`) | `com.ecclesiaflow.grpc.events.members` |
 | `events/chat/v1/chat_events.proto` | chat (`ChatMessagePostedEvent`) | `com.ecclesiaflow.grpc.events.chat` |
 | `events/moderation/v1/moderation_events.proto` | chat, church and members, each under its own key (`ContentReportedEvent`, `ModerationActionTakenEvent`) | `com.ecclesiaflow.grpc.events.moderation` |
+| `events/billing/v1/billing_events.proto` | billing (`ChurchEntitlementChangedEvent`, `BillingNoticeEvent`) | `com.ecclesiaflow.grpc.events.billing` |
 
 A module that calls or serves an RPC, or publishes or consumes an event, uses these classes. It
 keeps no `.proto` of its own and needs no protobuf plugin. Consumers bring `grpc-protobuf`
@@ -720,6 +728,44 @@ module decides whether that stops its startup. To rotate, deploy the old key und
 | Error responses | `PlatformRestExceptionHandler` (lowest precedence, `ApiErrorResponse` with `errorCode`), `GrpcExceptionServerInterceptor`, `ExceptionClassifier` beans for module exceptions | `ecclesiaflow.platform.web.errors.enabled` |
 | Clock | A UTC `Clock` bean, unless the module declares one | — |
 | Architecture | `HexagonalArchitectureRules.check("<base package>")`, run from a module test with ArchUnit in test scope | — |
+
+## Upgrading to 0.6.7
+
+The contracts of the rebuilt billing service, added only: a module that has moved and one that has not still
+talk to each other, and nothing changes for an existing caller.
+
+| Change in 0.6.7 | Effect on a module that adopts nothing | Fix |
+|---|---|---|
+| `ChurchService.CheckBillingRight` and `ChurchService.GetBillingProfile` are new RPCs, and `S2sScopeRegistry` lists every RPC of a bound service, implemented or not | church does not start: `s2s scope registry is incomplete` | Override them with `@S2sScopeRequired("ef:church:billing-right:read")` and `@S2sScopeRequired("ef:church:billing-profile:read")`, implemented or as stubs that answer `UNIMPLEMENTED` |
+| `BillingCreditService`, `BillingEntitlementService`, `ChurchEntitlementChangedEvent`, `BillingNoticeEvent` and `ChurchOwnershipTransferredEvent` are new | None | — |
+| `x-ef-platform-duty` is read beside `x-ef-surface: platform` | None: absent, a `platform` operation keeps moderation's couple | — |
+
+| RPC | Served by | Called by | Scope |
+|---|---|---|---|
+| `BillingCreditService.ReserveCredits`, `CommitCredits`, `ReleaseCredits` | billing | communication | `ef:billing:credit:reserve` |
+| `BillingCreditService.GetCreditBalance` | billing | communication | `ef:billing:credit:read` |
+| `BillingEntitlementService.GetEntitlement` | billing | church, communication | `ef:billing:entitlement:read` |
+| `ChurchService.CheckBillingRight` | church | billing | `ef:church:billing-right:read` |
+| `ChurchService.GetBillingProfile` | church | billing | `ef:church:billing-profile:read` |
+| `AuthService.GetSignInMethods` (existing) | auth | billing | `ef:auth:sign-in-methods:read` |
+| `EmailService.SendEmail` (existing) | communication | billing | `ef:email:send` |
+
+| Event | Key (`EventRoutes`) | Published by | Consumed by |
+|---|---|---|---|
+| `ChurchEntitlementChangedEvent` | `BILLING_ENTITLEMENT_CHANGED_V1` | billing | church, communication |
+| `BillingNoticeEvent` | `BILLING_NOTICE_RAISED_V1` | billing | church |
+| `ChurchOwnershipTransferredEvent` | `CHURCH_OWNERSHIP_TRANSFERRED_V1` | church | billing |
+| `MemberContactsErasedEvent` (existing) | `MEMBERS_CONTACTS_ERASED` | members | billing, besides its current consumers |
+
+Adopting it, in deploy order (each step ships before the next one uses it):
+
+| Module | Does |
+|---|---|
+| auth | Declares the five new s2s scopes and `ef:billing:operate` in `provisioning/client-scopes.txt`; creates `ecclesiaflow-billing-backend` (client credentials, secret on stdin) with `ef:s2s`, `ef:church:billing-right:read`, `ef:church:billing-profile:read`, `ef:auth:sign-in-methods:read` and `ef:email:send`; gives `ecclesiaflow-communication-backend` the three billing scopes and `ecclesiaflow-church-backend` `ef:billing:entitlement:read`; adds the realm role `PLATFORM_BILLING` and gives `ef:billing:operate` to the client of the operations script only; updates `check-realm.reference.json` |
+| deploy | `S2S_ALLOWED_AZP`: billing's list holds communication and church; church's, auth's and communication's gain `ecclesiaflow-billing-backend` |
+| church | Serves the two RPCs: `CheckBillingRight` reads the stored `MANAGE_BILLING` row only; `GetBillingProfile` counts active memberships only. Binds `BILLING_ENTITLEMENT_CHANGED_V1` and `BILLING_NOTICE_RAISED_V1`, applies a snapshot only above the version it holds, rebuilds a missing one with `GetEntitlement`. Publishes `CHURCH_OWNERSHIP_TRANSFERRED_V1` only once billing's queue is bound: the relay parks an unrouted event and blocks the church's later events behind it |
+| communication | Binds `BILLING_ENTITLEMENT_CHANGED_V1` like church; reserves SMS and top-up e-mail credits before a send, one reference per send attempt, and refuses the send when billing does not answer |
+| billing | Serves both services with every RPC annotated; publishes its two events through the outbox; binds `MEMBERS_CONTACTS_ERASED` and `CHURCH_OWNERSHIP_TRANSFERRED_V1`; marks its operations `x-ef-surface: platform` with `x-ef-platform-duty: billing` |
 
 ## Upgrading to 0.6.6
 

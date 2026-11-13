@@ -72,6 +72,19 @@ class SurfaceIndexTest {
     }
 
     @Test
+    @DisplayName("billing operations resolve to their own surface and are counted apart from moderation")
+    void billingDuty() {
+        SurfaceIndex billing = new SurfaceIndex(ApiContract.of(List.of(
+                new ContractOperation("POST", "/billing/ops/plans", null, false,
+                        Map.of(Surface.EXTENSION, "platform", Surface.DUTY_EXTENSION, "billing"), List.of(), "test"),
+                operation("GET", "/moderation/reports", false, "platform"))));
+
+        assertThat(billing.resolve("POST", "/billing/ops/plans").surface()).isEqualTo(Surface.PLATFORM_BILLING);
+        assertThat(billing.count(Surface.PLATFORM_BILLING)).isEqualTo(1);
+        assertThat(billing.count(Surface.PLATFORM)).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("a misdeclared surface stops the module when the index is built")
     void misdeclared() {
         ApiContract contract = ApiContract.of(List.of(operation("GET", "/a", false, "anonymous")));

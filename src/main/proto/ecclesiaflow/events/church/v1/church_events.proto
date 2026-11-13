@@ -196,3 +196,24 @@ message NotificationCreatedEvent {
   // At most 500: a larger audience is split into several events.
   repeated Recipient recipients = 6;
 }
+
+// Emitted when the new owner of a church accepts its ownership. Billing
+// detaches the payment card the former owner saved, so it stops paying for a
+// church that is no longer theirs, and asks the church for a new one.
+message ChurchOwnershipTransferredEvent {
+  option (ecclesiaflow.events.routing_keys) = "church.ownership.transferred.v1";
+
+  // Unique per transfer. Consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the new owner accepted.
+  int64 occurred_at_epoch_ms = 2;
+
+  string church_id = 3;
+
+  // Keycloak sub of the former owner.
+  string previous_owner_user_id = 4;
+
+  // Keycloak sub of the owner who accepted.
+  string new_owner_user_id = 5;
+}

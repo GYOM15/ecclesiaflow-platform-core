@@ -1,0 +1,95 @@
+// Published by the billing module. Consumers load the class named by the __TypeId__
+// header, so java_package and message names are on the wire like field numbers.
+
+syntax = "proto3";
+
+import "ecclesiaflow/events/event_options.proto";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.events.billing";
+option java_outer_classname = "BillingDomainEventsProto";
+
+package ecclesiaflow.events.billing.v1;
+
+// The church's entitlement as a versioned snapshot, never an order: a consumer
+// applies it only when version exceeds the one it holds, so a late or
+// redelivered snapshot never undoes a newer one. Church enforces the access
+// status in its console, communication the quotas and SMS. Consumers read
+// limits and statuses, never plan_code. BillingEntitlementService.GetEntitlement
+// serves the same snapshot.
+message ChurchEntitlementChangedEvent {
+  option (ecclesiaflow.events.routing_keys) = "billing.entitlement.changed.v1";
+
+  // Unique per snapshot. Consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the snapshot was computed.
+  int64 occurred_at_epoch_ms = 2;
+
+  string church_id = 3;
+
+  // Strictly increasing per church.
+  int64 version = 4;
+
+  // Open, never an enum: TRIALING, ACTIVE, PAST_DUE, RESTRICTED and SUSPENDED
+  // today. RESTRICTED leaves the console read-only but for billing and stops the
+  // church's sends; SUSPENDED leaves the console billing alone and stops the
+  // sends. Under every status members keep sign-in, their account and reading.
+  string access_status = 5;
+
+  // The plan, for display only. Empty under a manual entitlement without one.
+  string plan_code = 6;
+
+  // Ceiling of active people, a soft limit that only raises a banner. Absent:
+  // no ceiling (the last tier, a quote).
+  optional int64 people_limit = 7;
+
+  // Mass e-mails the church may send per calendar month, in its time zone,
+  // before top-up credits. 0: none.
+  int64 email_monthly_quota = 8;
+
+  // Mass e-mails tolerated past the quota without top-up credits, in
+  // thousandths of the quota, before the church's sends stop. 0: they stop at
+  // the quota.
+  int32 email_margin_permille = 9;
+
+  // Whether the church may send SMS at all; each one still needs reserved
+  // credits.
+  bool sms_open = 10;
+
+  // When this snapshot lapses (end of the trial, of the paid period, of a
+  // manual entitlement); billing publishes the next one then, so consumers
+  // only display it. Absent: no end.
+  optional int64 valid_until_epoch_ms = 11;
+
+  // Why access is restricted or suspended. Open, never an enum: UNPAID and
+  // DISPUTE today. Empty under any other status.
+  string restriction_reason = 12;
+}
+
+// Something the church's billing holders should know. Church notifies every
+// holder of MANAGE_BILLING, in the app and by e-mail, from its own catalogue,
+// so billing keeps no list of people.
+message BillingNoticeEvent {
+  option (ecclesiaflow.events.routing_keys) = "billing.notice.raised.v1";
+
+  // Unique per notice. Consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) of the fact noticed.
+  int64 occurred_at_epoch_ms = 2;
+
+  string church_id = 3;
+
+  // Open, never an enum: TRIAL_ENDING, INVOICE_ISSUED, PAYMENT_SUCCEEDED,
+  // PAYMENT_FAILED, ACCESS_RESTRICTED, ACCESS_SUSPENDED, CREDIT_LOW,
+  // AUTO_RECHARGE_DONE, AUTO_RECHARGE_STOPPED, DISPUTE_OPENED and
+  // MANUAL_TERMS_ENDING today. Church ships a kind's texts before billing
+  // raises it.
+  string kind = 4;
+
+  // What the kind's text interpolates: amounts in minor units beside their ISO
+  // 4217 currency, instants in epoch milliseconds, formatted by church in the
+  // reader's language. Never a person's data.
+  map<string, string> params = 5;
+}

@@ -1,6 +1,8 @@
 package com.ecclesiaflow.grpc;
 
 import com.ecclesiaflow.grpc.auth.AuthServiceProto;
+import com.ecclesiaflow.grpc.billing.BillingCreditServiceProto;
+import com.ecclesiaflow.grpc.billing.BillingEntitlementServiceProto;
 import com.ecclesiaflow.grpc.church.ChurchServiceProto;
 import com.ecclesiaflow.grpc.email.EmailQueueMessage;
 import com.ecclesiaflow.grpc.email.EmailServiceProto;
@@ -11,10 +13,14 @@ import com.ecclesiaflow.grpc.events.auth.AuthDomainEventsProto;
 import com.ecclesiaflow.grpc.events.auth.ExistingAccountNoticeEvent;
 import com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent;
 import com.ecclesiaflow.grpc.events.auth.TwoFactorRemovedEvent;
+import com.ecclesiaflow.grpc.events.billing.BillingDomainEventsProto;
+import com.ecclesiaflow.grpc.events.billing.BillingNoticeEvent;
+import com.ecclesiaflow.grpc.events.billing.ChurchEntitlementChangedEvent;
 import com.ecclesiaflow.grpc.events.chat.ChatDomainEventsProto;
 import com.ecclesiaflow.grpc.events.chat.ChatMessagePostedEvent;
 import com.ecclesiaflow.grpc.events.church.ChurchDomainEventsProto;
 import com.ecclesiaflow.grpc.events.church.ChurchInvitationCreatedEvent;
+import com.ecclesiaflow.grpc.events.church.ChurchOwnershipTransferredEvent;
 import com.ecclesiaflow.grpc.events.church.MemberAddedToGroupEvent;
 import com.ecclesiaflow.grpc.events.church.MemberAdmittedToChurchEvent;
 import com.ecclesiaflow.grpc.events.church.MemberRemovedFromChurchEvent;
@@ -80,7 +86,10 @@ class ContractWireCompatibilityTest {
             ChurchDomainEventsProto.getDescriptor(),
             MembersDomainEventsProto.getDescriptor(),
             ChatDomainEventsProto.getDescriptor(),
-            ModerationDomainEventsProto.getDescriptor());
+            ModerationDomainEventsProto.getDescriptor(),
+            BillingCreditServiceProto.getDescriptor(),
+            BillingDomainEventsProto.getDescriptor(),
+            BillingEntitlementServiceProto.getDescriptor());
 
     private static final Path PROTO_ROOT = Path.of("src/main/proto");
 
@@ -99,7 +108,7 @@ class ContractWireCompatibilityTest {
             "members.account.reactivated");
 
     private static final Pattern VERSIONED_KEY = Pattern.compile(
-            "(auth|church|members|chat|communication)\\.[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*\\.v[1-9][0-9]*");
+            "(auth|church|members|chat|communication|billing)\\.[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*\\.v[1-9][0-9]*");
 
     @Test
     @DisplayName("Packages, RPCs, field numbers and types match what the deployed services exchange")
@@ -187,7 +196,8 @@ class ContractWireCompatibilityTest {
                 MemberDeactivatedEvent.class, MemberReactivatedEvent.class, EmailQueueMessage.class,
                 AccountSessionsRevokedEvent.class, MemberSuspendedEvent.class, MemberSuspensionLiftedEvent.class,
                 NotificationCreatedEvent.class, ChatMessagePostedEvent.class, ContentReportedEvent.class,
-                ModerationActionTakenEvent.class))
+                ModerationActionTakenEvent.class, ChurchEntitlementChangedEvent.class, BillingNoticeEvent.class,
+                ChurchOwnershipTransferredEvent.class))
                 .extracting(Class::getName)
                 .containsExactly(
                         "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent",
@@ -210,7 +220,10 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.events.church.NotificationCreatedEvent",
                         "com.ecclesiaflow.grpc.events.chat.ChatMessagePostedEvent",
                         "com.ecclesiaflow.grpc.events.moderation.ContentReportedEvent",
-                        "com.ecclesiaflow.grpc.events.moderation.ModerationActionTakenEvent");
+                        "com.ecclesiaflow.grpc.events.moderation.ModerationActionTakenEvent",
+                        "com.ecclesiaflow.grpc.events.billing.ChurchEntitlementChangedEvent",
+                        "com.ecclesiaflow.grpc.events.billing.BillingNoticeEvent",
+                        "com.ecclesiaflow.grpc.events.church.ChurchOwnershipTransferredEvent");
     }
 
     private static List<Descriptor> events() {
@@ -448,6 +461,8 @@ class ContractWireCompatibilityTest {
               RepublishActiveMemberships ecclesiaflow.church.RepublishActiveMembershipsRequest -> ecclesiaflow.church.RepublishActiveMembershipsResponse
               CheckAccountClosure ecclesiaflow.church.CheckAccountClosureRequest -> ecclesiaflow.church.CheckAccountClosureResponse
               CanModerateGroupContent ecclesiaflow.church.CanModerateGroupContentRequest -> ecclesiaflow.church.CanModerateGroupContentResponse
+              CheckBillingRight ecclesiaflow.church.CheckBillingRightRequest -> ecclesiaflow.church.CheckBillingRightResponse
+              GetBillingProfile ecclesiaflow.church.GetBillingProfileRequest -> ecclesiaflow.church.GetBillingProfileResponse
             message ecclesiaflow.church.OnSignupCompletedRequest
               1 string user_id
               2 string church_id
@@ -470,6 +485,23 @@ class ContractWireCompatibilityTest {
               3 string church_group_id
             message ecclesiaflow.church.CanModerateGroupContentResponse
               1 bool allowed
+            message ecclesiaflow.church.CheckBillingRightRequest
+              1 string keycloak_user_id
+              2 string church_id
+            message ecclesiaflow.church.CheckBillingRightResponse
+              1 bool allowed
+            message ecclesiaflow.church.GetBillingProfileRequest
+              1 string church_id
+            message ecclesiaflow.church.GetBillingProfileResponse
+              1 int64 active_people
+              2 string currency
+              3 string time_zone
+              4 string country
+              5 string region
+              6 string name
+              7 string address_line
+              8 string city
+              9 string postal_code
             enum ecclesiaflow.church.ActivationStatus
               0 ACTIVATION_STATUS_UNSPECIFIED
               1 ACTIVATED
@@ -719,6 +751,12 @@ class ContractWireCompatibilityTest {
             message ecclesiaflow.events.church.v1.NotificationCreatedEvent.Recipient
               1 string keycloak_user_id
               2 string notification_id
+            message ecclesiaflow.events.church.v1.ChurchOwnershipTransferredEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string church_id
+              4 string previous_owner_user_id
+              5 string new_owner_user_id
             file ecclesiaflow/events/members/v1/members_events.proto package ecclesiaflow.events.members.v1 java_package com.ecclesiaflow.grpc.events.members
             message ecclesiaflow.events.members.v1.MemberProfileChangedEvent
               1 string event_id
@@ -795,6 +833,81 @@ class ContractWireCompatibilityTest {
               3 string report_id
               4 string action
               5 string actor_user_id
+            file ecclesiaflow/billing/billing_credit_service.proto package ecclesiaflow.billing java_package com.ecclesiaflow.grpc.billing
+            service ecclesiaflow.billing.BillingCreditService
+              ReserveCredits ecclesiaflow.billing.ReserveCreditsRequest -> ecclesiaflow.billing.ReserveCreditsResponse
+              CommitCredits ecclesiaflow.billing.CommitCreditsRequest -> ecclesiaflow.billing.CommitCreditsResponse
+              ReleaseCredits ecclesiaflow.billing.ReleaseCreditsRequest -> ecclesiaflow.billing.ReleaseCreditsResponse
+              GetCreditBalance ecclesiaflow.billing.GetCreditBalanceRequest -> ecclesiaflow.billing.GetCreditBalanceResponse
+            message ecclesiaflow.billing.ReserveCreditsRequest
+              1 string church_id
+              2 ecclesiaflow.billing.CreditChannel channel
+              3 string reference
+              4 int64 units
+            message ecclesiaflow.billing.ReserveCreditsResponse
+              1 bool granted
+              2 int64 expires_at_epoch_ms
+            message ecclesiaflow.billing.CommitCreditsRequest
+              1 string church_id
+              2 string reference
+              3 int64 units_sent
+            message ecclesiaflow.billing.CommitCreditsResponse
+              1 int64 committed_units
+              2 int64 held_units
+            message ecclesiaflow.billing.ReleaseCreditsRequest
+              1 string church_id
+              2 string reference
+              3 string release_reference
+              4 int64 units
+            message ecclesiaflow.billing.ReleaseCreditsResponse
+              1 int64 released_units
+              2 int64 held_units
+            message ecclesiaflow.billing.GetCreditBalanceRequest
+              1 string church_id
+              2 ecclesiaflow.billing.CreditChannel channel
+            message ecclesiaflow.billing.GetCreditBalanceResponse
+              1 int64 available_units
+              2 int64 held_units
+            enum ecclesiaflow.billing.CreditChannel
+              0 CREDIT_CHANNEL_UNSPECIFIED
+              1 CREDIT_CHANNEL_SMS_SEGMENT
+              2 CREDIT_CHANNEL_EMAIL
+            file ecclesiaflow/events/billing/v1/billing_events.proto package ecclesiaflow.events.billing.v1 java_package com.ecclesiaflow.grpc.events.billing
+            message ecclesiaflow.events.billing.v1.ChurchEntitlementChangedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string church_id
+              4 int64 version
+              5 string access_status
+              6 string plan_code
+              7 optional int64 people_limit
+              8 int64 email_monthly_quota
+              9 int32 email_margin_permille
+              10 bool sms_open
+              11 optional int64 valid_until_epoch_ms
+              12 string restriction_reason
+            message ecclesiaflow.events.billing.v1.BillingNoticeEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string church_id
+              4 string kind
+              5 map<string,string> params
+            file ecclesiaflow/billing/billing_entitlement_service.proto package ecclesiaflow.billing java_package com.ecclesiaflow.grpc.billing
+            service ecclesiaflow.billing.BillingEntitlementService
+              GetEntitlement ecclesiaflow.billing.GetEntitlementRequest -> ecclesiaflow.billing.GetEntitlementResponse
+            message ecclesiaflow.billing.GetEntitlementRequest
+              1 string church_id
+            message ecclesiaflow.billing.GetEntitlementResponse
+              1 string church_id
+              2 int64 version
+              3 string access_status
+              4 string plan_code
+              5 optional int64 people_limit
+              6 int64 email_monthly_quota
+              7 int32 email_margin_permille
+              8 bool sms_open
+              9 optional int64 valid_until_epoch_ms
+              10 string restriction_reason
             """;
 
     private static final String ROUTES = """
@@ -808,6 +921,7 @@ class ContractWireCompatibilityTest {
             church.member.added-to-group.v1 ecclesiaflow.events.church.v1.MemberAddedToGroupEvent
             church.member.removed-from-group.v1 ecclesiaflow.events.church.v1.MemberRemovedFromGroupEvent
             church.notification.created.v1 ecclesiaflow.events.church.v1.NotificationCreatedEvent
+            church.ownership.transferred.v1 ecclesiaflow.events.church.v1.ChurchOwnershipTransferredEvent
             members.profile.changed ecclesiaflow.events.members.v1.MemberProfileChangedEvent
             members.profile.anonymized ecclesiaflow.events.members.v1.MemberAnonymizedEvent
             members.contacts.erased ecclesiaflow.events.members.v1.MemberContactsErasedEvent
@@ -821,5 +935,7 @@ class ContractWireCompatibilityTest {
             chat.moderation.action-taken.v1 ecclesiaflow.events.moderation.v1.ModerationActionTakenEvent
             church.moderation.action-taken.v1 ecclesiaflow.events.moderation.v1.ModerationActionTakenEvent
             members.moderation.action-taken.v1 ecclesiaflow.events.moderation.v1.ModerationActionTakenEvent
+            billing.entitlement.changed.v1 ecclesiaflow.events.billing.v1.ChurchEntitlementChangedEvent
+            billing.notice.raised.v1 ecclesiaflow.events.billing.v1.BillingNoticeEvent
             """;
 }

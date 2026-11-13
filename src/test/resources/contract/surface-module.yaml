@@ -22,6 +22,13 @@ paths:
       x-ef-surface: platform
       responses:
         "200": {description: Reports awaiting a moderator}
+  /module/ops/plans:
+    get:
+      operationId: Plans.List
+      x-ef-surface: platform
+      x-ef-platform-duty: billing
+      responses:
+        "200": {description: The catalogue, for a billing operator}
   /module/public/signup:
     post:
       operationId: Signup.Create

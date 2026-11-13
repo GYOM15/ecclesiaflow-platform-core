@@ -73,6 +73,61 @@ class SurfaceTest {
             assertThatThrownBy(() -> Surface.of(operation(true, Map.of(Surface.EXTENSION, "platform"))))
                     .isInstanceOf(InvalidApiContractException.class)
                     .hasMessageContaining("security: []");
+            assertThatThrownBy(() -> Surface.of(operation(true,
+                    Map.of(Surface.EXTENSION, "platform", Surface.DUTY_EXTENSION, "billing"))))
+                    .isInstanceOf(InvalidApiContractException.class)
+                    .hasMessageContaining("security: []");
+        }
+
+        @Test
+        @DisplayName("platform with the billing duty is billing operations; with moderation, or none, moderation")
+        void duties() {
+            assertThat(Surface.of(operation(false,
+                    Map.of(Surface.EXTENSION, "platform", Surface.DUTY_EXTENSION, "billing"))))
+                    .isEqualTo(Surface.PLATFORM_BILLING);
+            assertThat(Surface.of(operation(false,
+                    Map.of(Surface.EXTENSION, "platform", Surface.DUTY_EXTENSION, "moderation"))))
+                    .isEqualTo(Surface.PLATFORM);
+        }
+
+        @Test
+        @DisplayName("any other duty, a misspelling or null included, stops the module")
+        void unknownDuties() {
+            for (Object duty : List.of("Billing", "finance", true)) {
+                assertThatThrownBy(() -> Surface.of(operation(false,
+                        Map.of(Surface.EXTENSION, "platform", Surface.DUTY_EXTENSION, duty))))
+                        .isInstanceOf(InvalidApiContractException.class)
+                        .hasMessageContaining("x-ef-platform-duty: " + duty)
+                        .hasMessageContaining("expected moderation or billing");
+            }
+            Map<String, Object> extensions = new HashMap<>();
+            extensions.put(Surface.EXTENSION, "platform");
+            extensions.put(Surface.DUTY_EXTENSION, null);
+
+            assertThatThrownBy(() -> Surface.of(operation(false, Collections.unmodifiableMap(extensions))))
+                    .isInstanceOf(InvalidApiContractException.class)
+                    .hasMessageContaining("x-ef-platform-duty: null");
+        }
+
+        @Test
+        @DisplayName("a duty beside another surface stops the module, since it would rule nothing")
+        void strayDuty() {
+            for (Map<String, Object> extensions : List.<Map<String, Object>>of(
+                    Map.of(Surface.DUTY_EXTENSION, "billing"),
+                    Map.of(Surface.EXTENSION, "member", Surface.DUTY_EXTENSION, "billing"))) {
+                assertThatThrownBy(() -> Surface.of(operation(false, extensions)))
+                        .isInstanceOf(InvalidApiContractException.class)
+                        .hasMessageContaining("x-ef-platform-duty: billing")
+                        .hasMessageContaining("other than platform");
+            }
+        }
+
+        @Test
+        @DisplayName("platform-billing is a surface's tag, never a value of x-ef-surface")
+        void tagIsNoValue() {
+            assertThatThrownBy(() -> Surface.of(operation(false, Map.of(Surface.EXTENSION, "platform-billing"))))
+                    .isInstanceOf(InvalidApiContractException.class)
+                    .hasMessageContaining("expected member or platform");
         }
     }
 
@@ -108,10 +163,33 @@ class SurfaceTest {
         }
 
         @Test
+        @DisplayName("billing operations need the billing scope and role; moderation's couple and ef:surface:full open none")
+        void platformBilling() {
+            assertThat(Surface.PLATFORM_BILLING.permits(authorities(Surface.BILLING_OPERATE, Surface.BILLING_OPERATOR)))
+                    .isTrue();
+            assertThat(Surface.PLATFORM_BILLING.permits(authorities(Surface.BILLING_OPERATE))).isFalse();
+            assertThat(Surface.PLATFORM_BILLING.permits(authorities(Surface.BILLING_OPERATOR))).isFalse();
+            assertThat(Surface.PLATFORM_BILLING.permits(authorities(Surface.MODERATION_ACT, Surface.PLATFORM_MODERATOR)))
+                    .isFalse();
+            assertThat(Surface.PLATFORM_BILLING.permits(authorities(Surface.SURFACE_FULL, Surface.BILLING_OPERATOR)))
+                    .isFalse();
+            assertThat(Surface.PLATFORM_BILLING.permits(null)).isFalse();
+        }
+
+        @Test
+        @DisplayName("the billing couple opens no moderation and no console operation")
+        void billingCoupleStaysInItsLane() {
+            List<GrantedAuthority> billingOperator = authorities(Surface.BILLING_OPERATE, Surface.BILLING_OPERATOR);
+
+            assertThat(Surface.PLATFORM.permits(billingOperator)).isFalse();
+            assertThat(Surface.CONSOLE.permits(billingOperator)).isFalse();
+        }
+
+        @Test
         @DisplayName("each surface has the tag its metric and log lines carry")
         void tags() {
             assertThat(List.of(Surface.values())).extracting(Surface::tag)
-                    .containsExactly("member", "console", "platform");
+                    .containsExactly("member", "console", "platform", "platform-billing");
         }
     }
 }

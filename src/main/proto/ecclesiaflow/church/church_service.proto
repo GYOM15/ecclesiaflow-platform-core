@@ -45,6 +45,13 @@ service ChurchService {
   // and may lag behind a revoked one. Chat refuses the removal on any failure.
   // Scope ef:church:group-moderation:read, granted to chat only.
   rpc CanModerateGroupContent(CanModerateGroupContentRequest) returns (CanModerateGroupContentResponse);
+  // Asked by billing on every request, reads included: billing keeps no copy of
+  // the right, so a revocation acts on the next request. Billing refuses on any
+  // failure. Scope ef:church:billing-right:read, granted to billing only.
+  rpc CheckBillingRight(CheckBillingRightRequest) returns (CheckBillingRightResponse);
+  // What billing sizes and invoices a church by. Scope
+  // ef:church:billing-profile:read, granted to billing only.
+  rpc GetBillingProfile(GetBillingProfileRequest) returns (GetBillingProfileResponse);
 }
 
 // ============================================================================
@@ -120,4 +127,53 @@ message CanModerateGroupContentRequest {
 // Failures are reported through the gRPC status, never in the response.
 message CanModerateGroupContentResponse {
   bool allowed = 1;
+}
+
+// ============================================================================
+// Check Billing Right
+// ============================================================================
+
+message CheckBillingRightRequest {
+  string keycloak_user_id = 1;
+  string church_id = 2;
+}
+
+// Allowed only by the stored MANAGE_BILLING row of an active membership: never
+// by ownership, a group delegation or a token claim. False for an unknown user
+// or church. Failures are reported through the gRPC status, never in the
+// response.
+message CheckBillingRightResponse {
+  bool allowed = 1;
+}
+
+// ============================================================================
+// Get Billing Profile
+// ============================================================================
+
+message GetBillingProfileRequest {
+  string church_id = 1;
+}
+
+// NOT_FOUND for an unknown or deleted church. Failures are reported through the
+// gRPC status, never in the response.
+message GetBillingProfileResponse {
+  // Active memberships of the church, which set its tier: removed, departed and
+  // anonymised members are not counted.
+  int64 active_people = 1;
+  // ISO 4217 code of the church's currency; billing never converts a price.
+  string currency = 2;
+  // IANA zone of the church, in which its months and due dates fall.
+  string time_zone = 3;
+  // ISO 3166-1 alpha-2.
+  string country = 4;
+  // ISO 3166-2 code of the church's subdivision, such as CA-QC, on which sales
+  // taxes may depend. Empty when church holds none: no regional tax rule
+  // matches it.
+  string region = 5;
+  // Printed on the church's invoices as the buyer.
+  string name = 6;
+  // Empty when church holds none, like city and postal_code.
+  string address_line = 7;
+  string city = 8;
+  string postal_code = 9;
 }
