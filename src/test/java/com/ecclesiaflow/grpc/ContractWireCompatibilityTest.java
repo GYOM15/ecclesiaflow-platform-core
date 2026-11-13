@@ -20,6 +20,7 @@ import com.ecclesiaflow.grpc.events.chat.ChatDomainEventsProto;
 import com.ecclesiaflow.grpc.events.chat.ChatMessagePostedEvent;
 import com.ecclesiaflow.grpc.events.church.ChurchDomainEventsProto;
 import com.ecclesiaflow.grpc.events.church.ChurchInvitationCreatedEvent;
+import com.ecclesiaflow.grpc.events.church.ChurchOwnershipTransferredEvent;
 import com.ecclesiaflow.grpc.events.church.MemberAddedToGroupEvent;
 import com.ecclesiaflow.grpc.events.church.MemberAdmittedToChurchEvent;
 import com.ecclesiaflow.grpc.events.church.MemberRemovedFromChurchEvent;
@@ -195,7 +196,8 @@ class ContractWireCompatibilityTest {
                 MemberDeactivatedEvent.class, MemberReactivatedEvent.class, EmailQueueMessage.class,
                 AccountSessionsRevokedEvent.class, MemberSuspendedEvent.class, MemberSuspensionLiftedEvent.class,
                 NotificationCreatedEvent.class, ChatMessagePostedEvent.class, ContentReportedEvent.class,
-                ModerationActionTakenEvent.class, ChurchEntitlementChangedEvent.class, BillingNoticeEvent.class))
+                ModerationActionTakenEvent.class, ChurchEntitlementChangedEvent.class, BillingNoticeEvent.class,
+                ChurchOwnershipTransferredEvent.class))
                 .extracting(Class::getName)
                 .containsExactly(
                         "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent",
@@ -220,7 +222,8 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.events.moderation.ContentReportedEvent",
                         "com.ecclesiaflow.grpc.events.moderation.ModerationActionTakenEvent",
                         "com.ecclesiaflow.grpc.events.billing.ChurchEntitlementChangedEvent",
-                        "com.ecclesiaflow.grpc.events.billing.BillingNoticeEvent");
+                        "com.ecclesiaflow.grpc.events.billing.BillingNoticeEvent",
+                        "com.ecclesiaflow.grpc.events.church.ChurchOwnershipTransferredEvent");
     }
 
     private static List<Descriptor> events() {
@@ -748,6 +751,12 @@ class ContractWireCompatibilityTest {
             message ecclesiaflow.events.church.v1.NotificationCreatedEvent.Recipient
               1 string keycloak_user_id
               2 string notification_id
+            message ecclesiaflow.events.church.v1.ChurchOwnershipTransferredEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string church_id
+              4 string previous_owner_user_id
+              5 string new_owner_user_id
             file ecclesiaflow/events/members/v1/members_events.proto package ecclesiaflow.events.members.v1 java_package com.ecclesiaflow.grpc.events.members
             message ecclesiaflow.events.members.v1.MemberProfileChangedEvent
               1 string event_id
@@ -912,6 +921,7 @@ class ContractWireCompatibilityTest {
             church.member.added-to-group.v1 ecclesiaflow.events.church.v1.MemberAddedToGroupEvent
             church.member.removed-from-group.v1 ecclesiaflow.events.church.v1.MemberRemovedFromGroupEvent
             church.notification.created.v1 ecclesiaflow.events.church.v1.NotificationCreatedEvent
+            church.ownership.transferred.v1 ecclesiaflow.events.church.v1.ChurchOwnershipTransferredEvent
             members.profile.changed ecclesiaflow.events.members.v1.MemberProfileChangedEvent
             members.profile.anonymized ecclesiaflow.events.members.v1.MemberAnonymizedEvent
             members.contacts.erased ecclesiaflow.events.members.v1.MemberContactsErasedEvent

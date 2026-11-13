@@ -18,6 +18,7 @@ public final class EventRoutes {
     public static final String CHURCH_MEMBER_ADDED_TO_GROUP_V1 = "church.member.added-to-group.v1";
     public static final String CHURCH_MEMBER_REMOVED_FROM_GROUP_V1 = "church.member.removed-from-group.v1";
     public static final String CHURCH_NOTIFICATION_CREATED_V1 = "church.notification.created.v1";
+    public static final String CHURCH_OWNERSHIP_TRANSFERRED_V1 = "church.ownership.transferred.v1";
 
     // Published before the .v1 suffix rule; a key never changes, so these stay as they are.
     public static final String MEMBERS_PROFILE_CHANGED = "members.profile.changed";
