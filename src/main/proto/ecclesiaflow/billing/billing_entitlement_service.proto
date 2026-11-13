@@ -1,0 +1,41 @@
+// Served by the billing module. Field numbers and types are on the wire:
+// add fields, never renumber, retype or reuse one.
+
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.billing";
+option java_outer_classname = "BillingEntitlementServiceProto";
+
+package ecclesiaflow.billing;
+
+// The church's current entitlement, the snapshot ChurchEntitlementChangedEvent
+// carries: church and communication rebuild from it a projection the events
+// have not filled, at startup or for a church they hold nothing for.
+service BillingEntitlementService {
+  // Scope ef:billing:entitlement:read, granted to church and communication.
+  rpc GetEntitlement(GetEntitlementRequest) returns (GetEntitlementResponse);
+}
+
+message GetEntitlementRequest {
+  string church_id = 1;
+}
+
+// Field for field the snapshot ChurchEntitlementChangedEvent carries after its
+// envelope, same names and types, numbered two lower: each field means what it
+// means there, its absence included. A caller applies it like the event, only
+// above the version it holds. NOT_FOUND while billing holds no entitlement for
+// the church (its billing not opened yet): the caller keeps its default. Other
+// failures are reported through the gRPC status, never in the response.
+message GetEntitlementResponse {
+  string church_id = 1;
+  int64 version = 2;
+  string access_status = 3;
+  string plan_code = 4;
+  optional int64 people_limit = 5;
+  int64 email_monthly_quota = 6;
+  int32 email_margin_permille = 7;
+  bool sms_open = 8;
+  optional int64 valid_until_epoch_ms = 9;
+  string restriction_reason = 10;
+}

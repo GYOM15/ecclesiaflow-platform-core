@@ -1,10 +1,13 @@
 package com.ecclesiaflow.platform.rpc.s2s.interceptor;
 
 import com.ecclesiaflow.grpc.billing.BillingCreditServiceGrpc;
+import com.ecclesiaflow.grpc.billing.BillingEntitlementServiceGrpc;
 import com.ecclesiaflow.grpc.billing.CommitCreditsRequest;
 import com.ecclesiaflow.grpc.billing.CommitCreditsResponse;
 import com.ecclesiaflow.grpc.billing.GetCreditBalanceRequest;
 import com.ecclesiaflow.grpc.billing.GetCreditBalanceResponse;
+import com.ecclesiaflow.grpc.billing.GetEntitlementRequest;
+import com.ecclesiaflow.grpc.billing.GetEntitlementResponse;
 import com.ecclesiaflow.grpc.billing.ReleaseCreditsRequest;
 import com.ecclesiaflow.grpc.billing.ReleaseCreditsResponse;
 import com.ecclesiaflow.grpc.billing.ReserveCreditsRequest;
@@ -141,6 +144,16 @@ class S2sScopeRegistryTest {
             assertThat(reg.requiredScope("ecclesiaflow.billing.BillingCreditService/GetCreditBalance"))
                     .contains("ef:billing:credit:read");
         }
+
+        @Test
+        @DisplayName("billing's entitlement read is keyed by its full gRPC name")
+        void billingEntitlementService() {
+            S2sScopeRegistry reg = new S2sScopeRegistry(List.of(new BillingEntitlementService()));
+
+            assertThat(reg.size()).isEqualTo(1);
+            assertThat(reg.requiredScope("ecclesiaflow.billing.BillingEntitlementService/GetEntitlement"))
+                    .contains("ef:billing:entitlement:read");
+        }
     }
 
     static class BillingCreditService extends BillingCreditServiceGrpc.BillingCreditServiceImplBase {
@@ -164,6 +177,14 @@ class S2sScopeRegistryTest {
         @Override
         public void getCreditBalance(GetCreditBalanceRequest request,
                                      StreamObserver<GetCreditBalanceResponse> response) {
+        }
+    }
+
+    static class BillingEntitlementService extends BillingEntitlementServiceGrpc.BillingEntitlementServiceImplBase {
+
+        @S2sScopeRequired("ef:billing:entitlement:read")
+        @Override
+        public void getEntitlement(GetEntitlementRequest request, StreamObserver<GetEntitlementResponse> response) {
         }
     }
 

@@ -2,6 +2,7 @@ package com.ecclesiaflow.grpc;
 
 import com.ecclesiaflow.grpc.auth.AuthServiceProto;
 import com.ecclesiaflow.grpc.billing.BillingCreditServiceProto;
+import com.ecclesiaflow.grpc.billing.BillingEntitlementServiceProto;
 import com.ecclesiaflow.grpc.church.ChurchServiceProto;
 import com.ecclesiaflow.grpc.email.EmailQueueMessage;
 import com.ecclesiaflow.grpc.email.EmailServiceProto;
@@ -86,7 +87,8 @@ class ContractWireCompatibilityTest {
             ChatDomainEventsProto.getDescriptor(),
             ModerationDomainEventsProto.getDescriptor(),
             BillingCreditServiceProto.getDescriptor(),
-            BillingDomainEventsProto.getDescriptor());
+            BillingDomainEventsProto.getDescriptor(),
+            BillingEntitlementServiceProto.getDescriptor());
 
     private static final Path PROTO_ROOT = Path.of("src/main/proto");
 
@@ -862,6 +864,22 @@ class ContractWireCompatibilityTest {
               3 string church_id
               4 string kind
               5 map<string,string> params
+            file ecclesiaflow/billing/billing_entitlement_service.proto package ecclesiaflow.billing java_package com.ecclesiaflow.grpc.billing
+            service ecclesiaflow.billing.BillingEntitlementService
+              GetEntitlement ecclesiaflow.billing.GetEntitlementRequest -> ecclesiaflow.billing.GetEntitlementResponse
+            message ecclesiaflow.billing.GetEntitlementRequest
+              1 string church_id
+            message ecclesiaflow.billing.GetEntitlementResponse
+              1 string church_id
+              2 int64 version
+              3 string access_status
+              4 string plan_code
+              5 optional int64 people_limit
+              6 int64 email_monthly_quota
+              7 int32 email_margin_permille
+              8 bool sms_open
+              9 optional int64 valid_until_epoch_ms
+              10 string restriction_reason
             """;
 
     private static final String ROUTES = """
