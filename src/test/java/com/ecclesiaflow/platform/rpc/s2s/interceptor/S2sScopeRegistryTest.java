@@ -12,6 +12,15 @@ import com.ecclesiaflow.grpc.billing.ReleaseCreditsRequest;
 import com.ecclesiaflow.grpc.billing.ReleaseCreditsResponse;
 import com.ecclesiaflow.grpc.billing.ReserveCreditsRequest;
 import com.ecclesiaflow.grpc.billing.ReserveCreditsResponse;
+import com.ecclesiaflow.grpc.church.CanModerateGroupContentRequest;
+import com.ecclesiaflow.grpc.church.CanModerateGroupContentResponse;
+import com.ecclesiaflow.grpc.church.CheckAccountClosureRequest;
+import com.ecclesiaflow.grpc.church.CheckAccountClosureResponse;
+import com.ecclesiaflow.grpc.church.ChurchServiceGrpc;
+import com.ecclesiaflow.grpc.church.OnSignupCompletedRequest;
+import com.ecclesiaflow.grpc.church.OnSignupCompletedResponse;
+import com.ecclesiaflow.grpc.church.RepublishActiveMembershipsRequest;
+import com.ecclesiaflow.grpc.church.RepublishActiveMembershipsResponse;
 import io.grpc.BindableService;
 import io.grpc.MethodDescriptor;
 import io.grpc.ServerCall;
@@ -154,6 +163,16 @@ class S2sScopeRegistryTest {
             assertThat(reg.requiredScope("ecclesiaflow.billing.BillingEntitlementService/GetEntitlement"))
                     .contains("ef:billing:entitlement:read");
         }
+
+        @Test
+        @DisplayName("a church build that annotates only the RPCs it served before does not start")
+        void churchServiceWithoutTheBillingRpcs() {
+            assertThatThrownBy(() -> new S2sScopeRegistry(List.of(new ChurchServiceBeforeBilling())))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("ecclesiaflow.church.ChurchService/CheckBillingRight")
+                    .hasMessageContaining("ecclesiaflow.church.ChurchService/GetBillingProfile")
+                    .hasMessageNotContaining("ecclesiaflow.church.ChurchService/CanModerateGroupContent");
+        }
     }
 
     static class BillingCreditService extends BillingCreditServiceGrpc.BillingCreditServiceImplBase {
@@ -185,6 +204,35 @@ class S2sScopeRegistryTest {
         @S2sScopeRequired("ef:billing:entitlement:read")
         @Override
         public void getEntitlement(GetEntitlementRequest request, StreamObserver<GetEntitlementResponse> response) {
+        }
+    }
+
+    /** ChurchService as church served it before billing's RPCs were added. */
+    static class ChurchServiceBeforeBilling extends ChurchServiceGrpc.ChurchServiceImplBase {
+
+        @S2sScopeRequired("ef:church:signup:activate")
+        @Override
+        public void onSignupCompleted(OnSignupCompletedRequest request,
+                                      StreamObserver<OnSignupCompletedResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:church:membership:backfill")
+        @Override
+        @SuppressWarnings("deprecation")
+        public void republishActiveMemberships(RepublishActiveMembershipsRequest request,
+                                               StreamObserver<RepublishActiveMembershipsResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:church:account-closure:read")
+        @Override
+        public void checkAccountClosure(CheckAccountClosureRequest request,
+                                        StreamObserver<CheckAccountClosureResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:church:group-moderation:read")
+        @Override
+        public void canModerateGroupContent(CanModerateGroupContentRequest request,
+                                            StreamObserver<CanModerateGroupContentResponse> response) {
         }
     }
 
