@@ -1,11 +1,23 @@
 package com.ecclesiaflow.platform.rpc.s2s.interceptor;
 
+import com.ecclesiaflow.grpc.billing.BillingCreditServiceGrpc;
+import com.ecclesiaflow.grpc.billing.CommitCreditsRequest;
+import com.ecclesiaflow.grpc.billing.CommitCreditsResponse;
+import com.ecclesiaflow.grpc.billing.GetCreditBalanceRequest;
+import com.ecclesiaflow.grpc.billing.GetCreditBalanceResponse;
+import com.ecclesiaflow.grpc.billing.ReleaseCreditsRequest;
+import com.ecclesiaflow.grpc.billing.ReleaseCreditsResponse;
+import com.ecclesiaflow.grpc.billing.ReserveCreditsRequest;
+import com.ecclesiaflow.grpc.billing.ReserveCreditsResponse;
 import io.grpc.BindableService;
 import io.grpc.MethodDescriptor;
 import io.grpc.ServerCall;
 import io.grpc.ServerServiceDefinition;
+import io.grpc.stub.StreamObserver;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.ProxyFactory;
 
@@ -107,6 +119,52 @@ class S2sScopeRegistryTest {
     void infrastructureServicesNeedNoAnnotation() {
         assertThatCode(() -> new S2sScopeRegistry(List.of(new HealthLikeService())))
                 .doesNotThrowAnyException();
+    }
+
+    /** The services of the published contracts, bound as a serving module binds them. */
+    @Nested
+    @DisplayName("over the generated contracts")
+    class GeneratedContracts {
+
+        @Test
+        @DisplayName("billing's credit RPCs are keyed by their full gRPC name, each with the scope its caller holds")
+        void billingCreditService() {
+            S2sScopeRegistry reg = new S2sScopeRegistry(List.of(new BillingCreditService()));
+
+            assertThat(reg.size()).isEqualTo(4);
+            assertThat(reg.requiredScope("ecclesiaflow.billing.BillingCreditService/ReserveCredits"))
+                    .contains("ef:billing:credit:reserve");
+            assertThat(reg.requiredScope("ecclesiaflow.billing.BillingCreditService/CommitCredits"))
+                    .contains("ef:billing:credit:reserve");
+            assertThat(reg.requiredScope("ecclesiaflow.billing.BillingCreditService/ReleaseCredits"))
+                    .contains("ef:billing:credit:reserve");
+            assertThat(reg.requiredScope("ecclesiaflow.billing.BillingCreditService/GetCreditBalance"))
+                    .contains("ef:billing:credit:read");
+        }
+    }
+
+    static class BillingCreditService extends BillingCreditServiceGrpc.BillingCreditServiceImplBase {
+
+        @S2sScopeRequired("ef:billing:credit:reserve")
+        @Override
+        public void reserveCredits(ReserveCreditsRequest request, StreamObserver<ReserveCreditsResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:billing:credit:reserve")
+        @Override
+        public void commitCredits(CommitCreditsRequest request, StreamObserver<CommitCreditsResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:billing:credit:reserve")
+        @Override
+        public void releaseCredits(ReleaseCreditsRequest request, StreamObserver<ReleaseCreditsResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:billing:credit:read")
+        @Override
+        public void getCreditBalance(GetCreditBalanceRequest request,
+                                     StreamObserver<GetCreditBalanceResponse> response) {
+        }
     }
 
     private static ServerServiceDefinition definition(String service, String... rpcs) {

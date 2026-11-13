@@ -1,0 +1,130 @@
+// Served by the billing module. Field numbers and types are on the wire:
+// add fields, never renumber, retype or reuse one.
+
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.billing";
+option java_outer_classname = "BillingCreditServiceProto";
+
+package ecclesiaflow.billing;
+
+// A church's prepaid credits, held in two steps around a send: communication
+// reserves before it sends, commits what the provider accepted and releases
+// the rest. No RPC adds units: credits come only from what billing sells or
+// grants itself, so no caller can make them. Callers set a deadline, and no
+// answer means no send.
+service BillingCreditService {
+  // Scope ef:billing:credit:reserve, granted to communication only.
+  rpc ReserveCredits(ReserveCreditsRequest) returns (ReserveCreditsResponse);
+  // Scope ef:billing:credit:reserve.
+  rpc CommitCredits(CommitCreditsRequest) returns (CommitCreditsResponse);
+  // Scope ef:billing:credit:reserve.
+  rpc ReleaseCredits(ReleaseCreditsRequest) returns (ReleaseCreditsResponse);
+  // Scope ef:billing:credit:read, granted to communication only.
+  rpc GetCreditBalance(GetCreditBalanceRequest) returns (GetCreditBalanceResponse);
+}
+
+// UNSPECIFIED, or a value the billing build does not know, is INVALID_ARGUMENT.
+enum CreditChannel {
+  CREDIT_CHANNEL_UNSPECIFIED = 0;
+  // One unit is one SMS segment, counted on the encoding actually sent.
+  CREDIT_CHANNEL_SMS_SEGMENT = 1;
+  // One unit is one mass e-mail beyond the church's monthly quota.
+  CREDIT_CHANNEL_EMAIL = 2;
+}
+
+// ============================================================================
+// Reserve Credits
+// ============================================================================
+
+message ReserveCreditsRequest {
+  string church_id = 1;
+  CreditChannel channel = 2;
+  // The caller's reference of one send attempt, kept with the send; never a
+  // campaign id, which would let two attempts share one hold. 1 to 64
+  // characters, else INVALID_ARGUMENT. While its hold lasts, the same reference
+  // with the same units answers the same and other units are INVALID_ARGUMENT;
+  // once committed, released or expired it is FAILED_PRECONDITION.
+  string reference = 3;
+  // Positive, else INVALID_ARGUMENT.
+  int64 units = 4;
+}
+
+// Failures are reported through the gRPC status, never in the response.
+message ReserveCreditsResponse {
+  // False when the available balance is short: nothing is held or written, and
+  // the same reference may be tried again.
+  bool granted = 1;
+  // When an uncommitted hold returns to the balance; 0 when not granted. A
+  // commit after it is FAILED_PRECONDITION.
+  int64 expires_at_epoch_ms = 2;
+}
+
+// ============================================================================
+// Commit Credits
+// ============================================================================
+
+message CommitCreditsRequest {
+  string church_id = 1;
+  // The reservation's reference. Unknown: NOT_FOUND; released or expired:
+  // FAILED_PRECONDITION.
+  string reference = 2;
+  // Units the provider accepted. Positive, else INVALID_ARGUMENT: a send the
+  // provider refused entirely is released, not committed.
+  int64 units_sent = 3;
+}
+
+// One commit per reservation: repeating it with the same units answers the
+// first commit, other units are INVALID_ARGUMENT. Failures are reported
+// through the gRPC status, never in the response.
+message CommitCreditsResponse {
+  // Units taken from the balance: units_sent, capped at the units held.
+  int64 committed_units = 1;
+  // Units still held under the reference, freed by ReleaseCredits or at expiry.
+  int64 held_units = 2;
+}
+
+// ============================================================================
+// Release Credits
+// ============================================================================
+
+message ReleaseCreditsRequest {
+  string church_id = 1;
+  // The reservation's reference. Unknown: NOT_FOUND.
+  string reference = 2;
+  // Names this release, one per refused send or late non-delivery report, so a
+  // replay frees nothing twice. 1 to 64 characters, else INVALID_ARGUMENT.
+  string release_reference = 3;
+  // Positive, else INVALID_ARGUMENT.
+  int64 units = 4;
+}
+
+// Repeating a release_reference with the same units answers the first
+// release, other units are INVALID_ARGUMENT. Failures are reported through the
+// gRPC status, never in the response.
+message ReleaseCreditsResponse {
+  // Units returned to the balance: units, capped at the units held and not
+  // committed; 0 once nothing is held, after expiry included.
+  int64 released_units = 1;
+  // Units still held under the reference.
+  int64 held_units = 2;
+}
+
+// ============================================================================
+// Get Credit Balance
+// ============================================================================
+
+message GetCreditBalanceRequest {
+  string church_id = 1;
+  CreditChannel channel = 2;
+}
+
+// A church that never bought or received credits reads as zero, not NOT_FOUND.
+// Failures are reported through the gRPC status, never in the response.
+message GetCreditBalanceResponse {
+  // Units a reservation can take now; frozen units excluded.
+  int64 available_units = 1;
+  // Units held by reservations not yet committed or released.
+  int64 held_units = 2;
+}

@@ -1,6 +1,7 @@
 package com.ecclesiaflow.grpc;
 
 import com.ecclesiaflow.grpc.auth.AuthServiceProto;
+import com.ecclesiaflow.grpc.billing.BillingCreditServiceProto;
 import com.ecclesiaflow.grpc.church.ChurchServiceProto;
 import com.ecclesiaflow.grpc.email.EmailQueueMessage;
 import com.ecclesiaflow.grpc.email.EmailServiceProto;
@@ -80,7 +81,8 @@ class ContractWireCompatibilityTest {
             ChurchDomainEventsProto.getDescriptor(),
             MembersDomainEventsProto.getDescriptor(),
             ChatDomainEventsProto.getDescriptor(),
-            ModerationDomainEventsProto.getDescriptor());
+            ModerationDomainEventsProto.getDescriptor(),
+            BillingCreditServiceProto.getDescriptor());
 
     private static final Path PROTO_ROOT = Path.of("src/main/proto");
 
@@ -795,6 +797,45 @@ class ContractWireCompatibilityTest {
               3 string report_id
               4 string action
               5 string actor_user_id
+            file ecclesiaflow/billing/billing_credit_service.proto package ecclesiaflow.billing java_package com.ecclesiaflow.grpc.billing
+            service ecclesiaflow.billing.BillingCreditService
+              ReserveCredits ecclesiaflow.billing.ReserveCreditsRequest -> ecclesiaflow.billing.ReserveCreditsResponse
+              CommitCredits ecclesiaflow.billing.CommitCreditsRequest -> ecclesiaflow.billing.CommitCreditsResponse
+              ReleaseCredits ecclesiaflow.billing.ReleaseCreditsRequest -> ecclesiaflow.billing.ReleaseCreditsResponse
+              GetCreditBalance ecclesiaflow.billing.GetCreditBalanceRequest -> ecclesiaflow.billing.GetCreditBalanceResponse
+            message ecclesiaflow.billing.ReserveCreditsRequest
+              1 string church_id
+              2 ecclesiaflow.billing.CreditChannel channel
+              3 string reference
+              4 int64 units
+            message ecclesiaflow.billing.ReserveCreditsResponse
+              1 bool granted
+              2 int64 expires_at_epoch_ms
+            message ecclesiaflow.billing.CommitCreditsRequest
+              1 string church_id
+              2 string reference
+              3 int64 units_sent
+            message ecclesiaflow.billing.CommitCreditsResponse
+              1 int64 committed_units
+              2 int64 held_units
+            message ecclesiaflow.billing.ReleaseCreditsRequest
+              1 string church_id
+              2 string reference
+              3 string release_reference
+              4 int64 units
+            message ecclesiaflow.billing.ReleaseCreditsResponse
+              1 int64 released_units
+              2 int64 held_units
+            message ecclesiaflow.billing.GetCreditBalanceRequest
+              1 string church_id
+              2 ecclesiaflow.billing.CreditChannel channel
+            message ecclesiaflow.billing.GetCreditBalanceResponse
+              1 int64 available_units
+              2 int64 held_units
+            enum ecclesiaflow.billing.CreditChannel
+              0 CREDIT_CHANNEL_UNSPECIFIED
+              1 CREDIT_CHANNEL_SMS_SEGMENT
+              2 CREDIT_CHANNEL_EMAIL
             """;
 
     private static final String ROUTES = """
