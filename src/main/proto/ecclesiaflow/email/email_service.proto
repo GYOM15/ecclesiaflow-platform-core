@@ -42,6 +42,8 @@ enum EmailTemplateType {
   EMAIL_TEMPLATE_RECEIPT_REPLACED = 14;              // Official donation receipt replaced by a new one
   // The code is the proof of the address: never in the subject, which notifications show on a locked screen.
   EMAIL_TEMPLATE_APP_SIGNUP_CODE = 15;               // Six-digit code that confirms an address at in-app signup
+  // Names the gesture from a closed list, never an amount or a church: the code is worth one request only.
+  EMAIL_TEMPLATE_SENSITIVE_ACTION_CODE = 16;         // Six-digit code that confirms a sensitive gesture of a linked account
 }
 
 // Request to send an email
