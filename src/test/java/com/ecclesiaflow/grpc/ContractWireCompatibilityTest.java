@@ -442,6 +442,7 @@ class ContractWireCompatibilityTest {
             message ecclesiaflow.auth.GetSignInMethodsResponse
               1 bool has_password
               2 repeated string linked_providers
+              3 optional bool has_authenticator
             message ecclesiaflow.auth.IssuePasswordSetupActionRequest
               1 string member_id
               2 string email
@@ -654,6 +655,7 @@ class ContractWireCompatibilityTest {
               13 EMAIL_TEMPLATE_RECEIPT_AVAILABLE
               14 EMAIL_TEMPLATE_RECEIPT_REPLACED
               15 EMAIL_TEMPLATE_APP_SIGNUP_CODE
+              16 EMAIL_TEMPLATE_SENSITIVE_ACTION_CODE
               reserved 1
               reserved 2
             enum ecclesiaflow.email.Priority

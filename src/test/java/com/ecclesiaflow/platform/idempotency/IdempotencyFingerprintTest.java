@@ -43,6 +43,29 @@ class IdempotencyFingerprintTest {
                             Visibility.PUBLIC, Instant.parse("2026-10-22T08:00:00Z"), new Mention(EVENT, 4)));
         }
 
+        // Stored beside every created row: a change of encoding would turn each retry into a conflict.
+        @Test
+        @DisplayName("as the very value earlier releases stored")
+        void pinned() {
+            assertThat(IdempotencyFingerprint.of("Subscription.Cancel", null, List.of(1, "b"),
+                    Instant.parse("2026-11-14T10:00:00Z")))
+                    .isEqualTo("8022dc76f2405453d6f51e80192251f921b02502ff4d3aa53e73f111c8cc2638");
+        }
+
+        @Test
+        @DisplayName("as the SHA-256 of its canonical form, which a keyed digest reads")
+        void canonicalForm() throws Exception {
+            Object[] parts = {"Subscription.Cancel", null, List.of(1, "b")};
+
+            assertThat(IdempotencyFingerprint.of(parts)).isEqualTo(java.util.HexFormat.of().formatHex(
+                    java.security.MessageDigest.getInstance("SHA-256")
+                            .digest(IdempotencyFingerprint.canonicalForm(parts))));
+            assertThat(IdempotencyFingerprint.canonicalForm("ab", "c"))
+                    .isNotEqualTo(IdempotencyFingerprint.canonicalForm("a", "bc"));
+            assertThatThrownBy(() -> IdempotencyFingerprint.canonicalForm(new HashSet<>(List.of("a"))))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
         @Test
         @DisplayName("over an ordered collection or an object array, element by element")
         void sequences() {

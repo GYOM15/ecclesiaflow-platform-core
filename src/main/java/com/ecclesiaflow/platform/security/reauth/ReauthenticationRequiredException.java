@@ -13,7 +13,12 @@ public class ReauthenticationRequiredException extends RuntimeException {
         BROKERED_SIGN_IN,
         /** The token does not say when the user signed in. */
         NO_SIGN_IN_TIME,
-        SIGN_IN_TOO_OLD
+        SIGN_IN_TOO_OLD,
+        /**
+         * An account linked to a provider holds an authenticator app, and its token attests no recent second
+         * factor: signing in again asks for the app's code, which is the confirmation.
+         */
+        SECOND_FACTOR_NOT_PRESENTED
     }
 
     private final Reason reason;
@@ -37,6 +42,10 @@ public class ReauthenticationRequiredException extends RuntimeException {
 
     public static ReauthenticationRequiredException signInTooOld() {
         return new ReauthenticationRequiredException(Reason.SIGN_IN_TOO_OLD);
+    }
+
+    public static ReauthenticationRequiredException secondFactorNotPresented() {
+        return new ReauthenticationRequiredException(Reason.SECOND_FACTOR_NOT_PRESENTED);
     }
 
     public Reason getReason() {

@@ -317,6 +317,74 @@ only, a bean that is not proxied (AOP off), a return type other than `ResponseEn
 
 `RecentAuthEventListener` logs refusals and confirmations sent at INFO, unreadable sign-in methods
 at WARN, with the subject masked.
+`RecentAuthMetrics` counts every refusal in `ef_recent_auth_refusals_total{reason}`.
+
+### Linked accounts confirmed by second factor or e-mail code (opt-in)
+
+`@RecentAuthRequired(action = ..., linkedAccounts = LinkedAccountProof.SECOND_FACTOR_OR_EMAIL_CODE)`
+replaces the link for the accounts linked to a provider; the default, `CONFIRMATION_LINK`, keeps the
+table above, and an account without a link is judged as above in both modes. For a linked account,
+in this order:
+
+| Case | Answer |
+|---|---|
+| `auth_time` at most `maxAgeSeconds` old and `amr` holds `otp` or `recovery-code` | the method runs (Keycloak attests the second factor; an `identity_provider` note is no refusal here) |
+| `GetSignInMethods` says `has_authenticator: true` | 403 `REAUTH_REQUIRED`, reason `SECOND_FACTOR_NOT_PRESENTED`: signing in again asks for the app's code |
+| otherwise, `has_authenticator` false or absent (an older auth) | 202 `PendingConfirmation` `CODE_SENT`: a six-digit code went to the token's `email`, never a pass |
+| sign-in methods unreadable | 503 `SERVICE_UNAVAILABLE` |
+
+The request is replayed with `Reauth-Challenge` (the 202's `challengeId`) and `Reauth-Code`, same
+body and same `Idempotency-Key`. The code is worth that request only: its keyed digest binds the
+gesture, the `sub`, the key of an operation marked `x-ef-idempotency` and what the module's
+`ConfirmableGestures.boundParts` returns. Answers: 400 `REAUTH_CODE_INVALID` (wrong code, counted;
+malformed headers, not counted), 410 `REAUTH_CODE_EXPIRED` (unknown, another account's, lapsed,
+replaced, worn out, voided or used; a challenge presented with another request is replaced), 429
+`REAUTH_CODE_LOCKED` with `Retry-After`, 429 `RATE_LIMIT_EXCEEDED` with `Retry-After` for the
+sending caps, 503 when the mail is refused (the challenge is voided and the send not counted).
+
+| Closed limit (`EmailCodeLimits`, no property) | Value |
+|---|---|
+| Code / challenge lifetime | 10 minutes / 30 minutes |
+| Delay before a new code | 60 s |
+| Wrong codes | 5 per code; 10 per account in 24 sliding hours, then locked; nothing resets them |
+| Codes sent per account | 3 per hour, 10 per 24 hours, resends included |
+| Open challenges per account | 1: a new gesture replaces the open one |
+| Retention | 7 days, by `EmailCodeService.purge()` |
+
+The right code is consumed and committed before the method runs. Without an `Idempotency-Key` a
+code passes once; with one, the same request with the same code passes again until the code
+expires, and the idempotency primitive keeps a single effect.
+
+A gesture checked in its delegate calls `RecentAuthGate.require(action, arguments...)` before any
+effect: it returns when the gesture may run and throws `ConfirmationCodeSentException`, answered 202,
+when a code went out. The resend operation calls `EmailCodeConfirmation.resend(challengeId)` and
+answers its `PendingConfirmation` with 202.
+
+The module provides, beside its `SignInMethodsClient` (mapping `has_authenticator`, `null` when
+absent):
+
+- `ecclesiaflow.security.reauth.email-code.enabled=true` and `.key`, 32 random bytes or more in
+  base64, its own; a missing or short key refuses the startup.
+- An `EmailCodeMailer`, which sends `EmailCodeDelivery` (address, code, closed gesture label,
+  lifetime, locale) within its own deadline and throws on failure; its aspect logs the outcome only.
+- A `ConfirmableGestures`: `actions()`, `boundParts(action)`, a read-only `precheck(action)` that
+  refuses with the gesture's own exception before any code is sent, and `emailLabel(action)`.
+- The tables of `db/reauth/reauth_email_code.sql`, copied unchanged into its next migration, unless
+  it declares its own `EmailCodeStore`; and a scheduled job, under its own lock, calling `purge()`.
+- On each operation of such a gesture, `x-ef-reauth-linked: email-code` beside `x-ef-reauth: recent`,
+  the optional `Reauth-Challenge` (`format: uuid`) and `Reauth-Code` (`pattern: '^[0-9]{6}$'`)
+  headers and the 202 `PendingConfirmation`; `REAUTH_CODE_INVALID` (400), `REAUTH_CODE_EXPIRED` (410)
+  and `REAUTH_CODE_LOCKED` (429) in its `x-error-codes`, and `EmailCodeExceptionHandler` in its
+  registry sweep.
+
+It does not start when `ConfirmableGestures.actions()` and the contract's marked operations differ,
+when a mark is misdeclared, when a gesture confirmed by code is unknown to them, or when the mailer,
+the gestures or a single transaction manager is missing; a gesture confirmed by code needs no
+`PendingConfirmationIssuer`. `EmailCodeEventListener` logs every decision with the subject and the
+challenge masked, never a code, an address, a digest or a `Reauth-*` header; `EmailCodeMetrics`
+counts `ef_reauth_email_codes_total{outcome}` (`sent`, `not_sent`, `verified`, `invalid`, `expired`,
+`locked`, `superseded`).
+
 ## Moderation term filter
 
 `TermFilter` refuses a text that holds a listed term. `PlatformTermFilterAutoConfiguration` publishes it
@@ -729,6 +797,19 @@ module decides whether that stops its startup. To rotate, deploy the old key und
 | Clock | A UTC `Clock` bean, unless the module declares one | — |
 | Architecture | `HexagonalArchitectureRules.check("<base package>")`, run from a module test with ArchUnit in test scope | — |
 
+## Upgrading to 0.6.8
+
+Added only: a module that adopts nothing keeps its answers byte for byte.
+
+| Change in 0.6.8 | Effect on a module that adopts nothing | Fix |
+|---|---|---|
+| `GetSignInMethodsResponse.has_authenticator = 3`, optional | None; auth fills it when it adopts | Map it into `SignInMethods(hasPassword, linkedProviders, hasAuthenticator)`, `null` when absent |
+| `EmailTemplateType.EMAIL_TEMPLATE_SENSITIVE_ACTION_CODE = 16` | A `switch` expression over the enum with no `default` no longer compiles | Add the case, or a `default` that refuses a template the module has no mail for |
+| `PendingConfirmation` gains `challengeId`, `channel`, `maskedAddress`, `resendAvailableAt` and the `CODE_SENT` status | None: the fields are left out when null, so a link's body keeps its three fields | — |
+| `RecentAuthRequired.linkedAccounts()`, `RecentAuthVerdict.CONFIRM_BY_EMAIL_CODE`, `Reason.SECOND_FACTOR_NOT_PRESENTED` | None: the verdict is only answered in the new mode; a `switch` over either enum without `default` must add the value | Add the case |
+| `RecentAuthMetrics` counts refusals | A new series, `ef_recent_auth_refusals_total{reason}` | — |
+| `PlatformEmailCodeAutoConfiguration` | Off until `ecclesiaflow.security.reauth.email-code.enabled=true` | See [linked accounts](#linked-accounts-confirmed-by-second-factor-or-e-mail-code-opt-in) |
+
 ## Upgrading to 0.6.7
 
 The contracts of the rebuilt billing service, added only: a module that has moved and one that has not still
@@ -872,6 +953,7 @@ because `provider-callbacks.yaml` declares no `security` while its `SecurityConf
 | Surface authorization (`SurfaceScopeAuthorizationAutoConfiguration`) | a servlet application with `JwtAuthenticationToken`, `WebInvocationPrivilegeEvaluator` and `DispatcherServlet` on the classpath | **On, in `enforce` mode** (see below) |
 | Idempotency (`PlatformIdempotencyAutoConfiguration`) | always; `IdempotentCreator` needs one `PlatformTransactionManager`, the key resolver a servlet application | On, inert. It acts on an operation marked `x-ef-idempotency` only, and refuses to start on a mark that is misdeclared. A contract without the mark is untouched |
 | Recent sign-in (`PlatformRecentAuthAutoConfiguration`) | a servlet application with `JwtAuthenticationToken`, `DispatcherServlet` and AspectJ on the classpath | On, inert. Nothing is guarded until a method carries `@RecentAuthRequired`; the module then declares a `SignInMethodsClient` and a `PendingConfirmationIssuer`, or does not start |
+| E-mail code (`PlatformEmailCodeAutoConfiguration`) | a servlet application with `JdbcTemplate`, `JwtAuthenticationToken` and `DispatcherServlet` on the classpath, and `ecclesiaflow.security.reauth.email-code.enabled=true` | Off until the property is set; then a key, an `EmailCodeMailer`, a `ConfirmableGestures`, one transaction manager and a contract that agrees are required, or the module does not start |
 | JWKS cache (`FaultTolerantJwkSource`, in the REST decoder) | `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` set, `ecclesiaflow.rest.jwt.enabled` not `false`, no module `JwtDecoder` bean | On for a module that uses the shared decoder; a module with its own `JwtDecoder` is unchanged. Keys are still reloaded every 5 minutes, but a failed reload now keeps the last set for up to 24 hours instead of refusing every token, an unknown `kid` reloads at once (at most every 30 seconds), and a reload waits at most 2 seconds to connect and 2 to read. No property is required; a zero or negative duration refuses the startup |
 | Term filter (`PlatformTermFilterAutoConfiguration`) | `ecclesiaflow.moderation.terms-file` is present | Off until the property is set. Present but blank, or naming a missing file, refuses the startup: bridge `${MODERATION_TERMS_FILE:}` only where the deploy always sets the variable |
 | Traceparent filter (`PlatformTraceparentAutoConfiguration`) | a servlet application, `ecclesiaflow.platform.web.traceparent.enabled` not `false` | On. A valid `traceparent` header puts its trace id in the MDC as `traceId`; nothing shows until the log pattern prints it, and nothing else changes |
@@ -898,6 +980,7 @@ off; only excluding `SurfaceScopeAuthorizationAutoConfiguration` does.
 | A surface per operation | `x-ef-surface: member` or `platform` on the operation | [Surface authorization](#surface-authorization-openapi-x-ef-surface) |
 | An idempotent creation | `x-ef-idempotency: required` on a POST, the optional `Idempotency-Key` header, `IdempotentCreator` in the service | [Idempotent creations](#idempotent-creations-openapi-x-ef-idempotency) |
 | A recent sign-in before a gesture | `@RecentAuthRequired` on the method, a `SignInMethodsClient` and a `PendingConfirmationIssuer` | [Recent sign-in](#recent-sign-in-before-sensitive-gestures-recentauthrequired) |
+| A code by e-mail for linked accounts | `linkedAccounts = SECOND_FACTOR_OR_EMAIL_CODE`, the property and key, an `EmailCodeMailer`, `ConfirmableGestures`, the DDL, `x-ef-reauth-linked` | [Linked accounts](#linked-accounts-confirmed-by-second-factor-or-e-mail-code-opt-in) |
 | The term filter | `ecclesiaflow.moderation.terms-file`, bridged from `MODERATION_TERMS_FILE` | [Moderation term filter](#moderation-term-filter) |
 | Delayed retries of an external effect | a `DelayedRetryTopology` bean per queue and `DelayedRetryMessageRecoverer` in the listener's retry interceptor | [Delayed retries](#delayed-retries-for-consumers-with-an-external-effect-opt-in) |
 | Exact bindings | the `EventRoutes` constant of each key, never a wildcard | [Contracts](#grpc-and-domain-event-contracts) |

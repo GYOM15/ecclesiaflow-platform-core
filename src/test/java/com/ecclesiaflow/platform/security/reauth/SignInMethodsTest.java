@@ -22,4 +22,13 @@ class SignInMethodsTest {
         assertThat(new SignInMethods(true, List.of()).linkedToProvider()).isFalse();
         assertThat(new SignInMethods(true, null).linkedProviders()).isEmpty();
     }
+
+    @Test
+    @DisplayName("an authenticator app counts only when auth says so, an older auth saying nothing")
+    void authenticator() {
+        assertThat(new SignInMethods(false, List.of("google"), true).knownToHaveAuthenticator()).isTrue();
+        assertThat(new SignInMethods(false, List.of("google"), false).knownToHaveAuthenticator()).isFalse();
+        assertThat(new SignInMethods(false, List.of("google"), null).knownToHaveAuthenticator()).isFalse();
+        assertThat(new SignInMethods(false, List.of("google")).hasAuthenticator()).isNull();
+    }
 }

@@ -20,6 +20,12 @@ public class RecentAuthEventListener {
     }
 
     @EventListener
+    public void onSecondFactorPassed(RecentAuthEvents.SecondFactorPassed event) {
+        log.debug("REAUTH: Recent second factor accepted for a linked account — {} s old, limit {} s, subject={}",
+                event.signInAgeSeconds(), event.maxAgeSeconds(), event.subject());
+    }
+
+    @EventListener
     public void onRefused(RecentAuthEvents.Refused event) {
         String age = event.signInAgeSeconds() == null ? "unknown" : event.signInAgeSeconds() + " s";
         log.info("REAUTH: ❌ Sign-in required again ({}) — sign-in {}, limit {} s, subject={}",
@@ -33,6 +39,16 @@ public class RecentAuthEventListener {
                 .collect(Collectors.joining(", "));
         log.info("REAUTH: ⚠ Account linked to {} — gesture held for a confirmation link, subject={}",
                 providers, event.subject());
+    }
+
+    @EventListener
+    public void onEmailCodeRequired(RecentAuthEvents.EmailCodeRequired event) {
+        String providers = event.linkedProviders().stream()
+                .map(SecurityMaskingUtils::escapeControlChars)
+                .collect(Collectors.joining(", "));
+        log.info("REAUTH: ⚠ Account linked to {}, {} — gesture held for an e-mail code, subject={}", providers,
+                event.authenticatorUnknown() ? "authenticator app unknown to auth" : "no authenticator app",
+                event.subject());
     }
 
     @EventListener

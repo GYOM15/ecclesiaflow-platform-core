@@ -1,46 +1,37 @@
 package com.ecclesiaflow.platform.security.reauth;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.authority.AuthorityUtils;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class RecentAuthAspectTest {
 
-    private static final String SUB = "3f2c1d4e-1111-4222-8333-944455556666";
+    private static final Duration FIVE_MINUTES = Duration.ofSeconds(300);
 
     @Mock
-    private RecentAuthPolicy policy;
+    private RecentAuthGate gate;
     @Mock
-    private PendingConfirmationIssuer issuer;
-    @Mock
-    private ObjectProvider<RecentAuthPolicy> policies;
-    @Mock
-    private ObjectProvider<PendingConfirmationIssuer> issuers;
+    private ObjectProvider<RecentAuthGate> gates;
 
     private final AccountGestures target = new AccountGestures();
     private AccountGestures gestures;
@@ -62,6 +53,13 @@ class RecentAuthAspectTest {
             return ResponseEntity.ok("reactivated");
         }
 
+        @RecentAuthRequired(action = "Subscription.Cancel",
+                linkedAccounts = LinkedAccountProof.SECOND_FACTOR_OR_EMAIL_CODE)
+        public ResponseEntity<String> cancel(String church) {
+            runs.incrementAndGet();
+            return ResponseEntity.ok("canceled");
+        }
+
         public ResponseEntity<String> unguarded() {
             runs.incrementAndGet();
             return ResponseEntity.ok("free");
@@ -72,79 +70,55 @@ class RecentAuthAspectTest {
     void proxy() {
         AspectJProxyFactory factory = new AspectJProxyFactory(target);
         factory.setProxyTargetClass(true);
-        factory.addAspect(new RecentAuthAspect(policies, issuers));
+        factory.addAspect(new RecentAuthAspect(gates));
         gestures = factory.getProxy();
-        Jwt jwt = Jwt.withTokenValue("t").header("alg", "RS256").subject(SUB)
-                .issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(60)).build();
-        SecurityContextHolder.getContext().setAuthentication(
-                new JwtAuthenticationToken(jwt, AuthorityUtils.NO_AUTHORITIES));
-    }
-
-    @AfterEach
-    void clear() {
-        SecurityContextHolder.clearContext();
     }
 
     @Test
-    @DisplayName("a recent sign-in runs the gesture, with the annotation's limit")
+    @DisplayName("runs the gesture the gate lets through, with the annotation's action, limit, mode and arguments")
     void passed() {
-        when(policies.getObject()).thenReturn(policy);
-        when(policy.require(Duration.ofSeconds(300))).thenReturn(RecentAuthVerdict.PASSED);
+        when(gates.getObject()).thenReturn(gate);
+        when(gate.hold("EMAIL_CHANGE", FIVE_MINUTES, LinkedAccountProof.CONFIRMATION_LINK,
+                Arrays.asList("new@example.org", null))).thenReturn(Optional.empty());
 
         assertThat(gestures.changeEmail("new@example.org", null).getBody()).isEqualTo("changed to new@example.org");
         assertThat(target.runs).hasValue(1);
-        verifyNoInteractions(issuers);
     }
 
     @Test
-    @DisplayName("a reactivation is judged against its own 600 s")
-    void ownLimit() {
-        when(policies.getObject()).thenReturn(policy);
-        when(policy.require(Duration.ofSeconds(600))).thenReturn(RecentAuthVerdict.PASSED);
+    @DisplayName("hands a reactivation its own 600 s, and a gesture confirmed by code its mode")
+    void ownLimitAndMode() {
+        when(gates.getObject()).thenReturn(gate);
+        when(gate.hold("ACCOUNT_REACTIVATION", Duration.ofSeconds(600), LinkedAccountProof.CONFIRMATION_LINK,
+                List.of())).thenReturn(Optional.empty());
+        when(gate.hold("Subscription.Cancel", FIVE_MINUTES, LinkedAccountProof.SECOND_FACTOR_OR_EMAIL_CODE,
+                List.of("church"))).thenReturn(Optional.empty());
 
         assertThat(gestures.reactivate().getBody()).isEqualTo("reactivated");
+        assertThat(gestures.cancel("church").getBody()).isEqualTo("canceled");
     }
 
     @Test
-    @DisplayName("a linked account answers 202 with the issuer's body and the gesture does not run")
-    void confirmOutOfBand() {
+    @DisplayName("answers 202 with the gate's body and the gesture does not run")
+    void held() {
         PendingConfirmation pending = PendingConfirmation.sentToCurrentAddress(Instant.parse("2026-10-22T08:15:00Z"));
-        when(policies.getObject()).thenReturn(policy);
-        when(policy.require(Duration.ofSeconds(300))).thenReturn(RecentAuthVerdict.CONFIRM_OUT_OF_BAND);
-        when(issuers.getObject()).thenReturn(issuer);
-        when(issuer.issue(any())).thenReturn(pending);
+        when(gates.getObject()).thenReturn(gate);
+        when(gate.hold("EMAIL_CHANGE", FIVE_MINUTES, LinkedAccountProof.CONFIRMATION_LINK,
+                Arrays.asList("new@example.org", null))).thenReturn(Optional.of(pending));
 
         ResponseEntity<String> answer = gestures.changeEmail("new@example.org", null);
 
         assertThat(answer.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         assertThat((Object) answer.getBody()).isEqualTo(pending);
         assertThat(target.runs).hasValue(0);
-        ArgumentCaptor<SensitiveAction> action = ArgumentCaptor.forClass(SensitiveAction.class);
-        verify(issuer).issue(action.capture());
-        assertThat(action.getValue().name()).isEqualTo("EMAIL_CHANGE");
-        assertThat(action.getValue().subject()).isEqualTo(SUB);
-        assertThat(action.getValue().arguments()).containsExactly("new@example.org", null);
-        assertThat(action.getValue().argument(String.class)).contains("new@example.org");
-    }
-
-    @Test
-    @DisplayName("an issuer that answers no body fails the call rather than letting the gesture run")
-    void noBody() {
-        when(policies.getObject()).thenReturn(policy);
-        when(policy.require(Duration.ofSeconds(300))).thenReturn(RecentAuthVerdict.CONFIRM_OUT_OF_BAND);
-        when(issuers.getObject()).thenReturn(issuer);
-
-        assertThatThrownBy(() -> gestures.changeEmail("new@example.org", null))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("EMAIL_CHANGE");
-        assertThat(target.runs).hasValue(0);
     }
 
     @Test
     @DisplayName("a refusal reaches the caller and the gesture does not run")
     void refused() {
-        when(policies.getObject()).thenReturn(policy);
-        when(policy.require(Duration.ofSeconds(300))).thenThrow(ReauthenticationRequiredException.signInTooOld());
+        when(gates.getObject()).thenReturn(gate);
+        when(gate.hold("EMAIL_CHANGE", FIVE_MINUTES, LinkedAccountProof.CONFIRMATION_LINK,
+                Arrays.asList("new@example.org", null))).thenThrow(ReauthenticationRequiredException.signInTooOld());
 
         assertThatThrownBy(() -> gestures.changeEmail("new@example.org", null))
                 .isInstanceOf(ReauthenticationRequiredException.class);
@@ -152,21 +126,9 @@ class RecentAuthAspectTest {
     }
 
     @Test
-    @DisplayName("unreadable sign-in methods reach the caller and the gesture does not run")
-    void unavailable() {
-        when(policies.getObject()).thenReturn(policy);
-        when(policy.require(Duration.ofSeconds(300)))
-                .thenThrow(new SignInMethodsUnavailableException(new IllegalStateException("down")));
-
-        assertThatThrownBy(() -> gestures.changeEmail("new@example.org", null))
-                .isInstanceOf(SignInMethodsUnavailableException.class);
-        assertThat(target.runs).hasValue(0);
-    }
-
-    @Test
     @DisplayName("a method without the annotation is left alone")
     void unguarded() {
         assertThat(gestures.unguarded().getBody()).isEqualTo("free");
-        verifyNoInteractions(policies, issuers);
+        verifyNoInteractions(gates);
     }
 }

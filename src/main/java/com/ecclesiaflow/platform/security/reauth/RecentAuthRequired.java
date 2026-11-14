@@ -12,7 +12,8 @@ import java.lang.annotation.Target;
  * <ul>
  *   <li>an account linked to an identity provider answers 202 with what the module's
  *       {@link PendingConfirmationIssuer} returns, and the method does not run: the provider can sign the user
- *       back in silently, so a fresh {@code auth_time} proves nothing for it;</li>
+ *       back in silently, so a fresh {@code auth_time} proves nothing for it. Under
+ *       {@link #linkedAccounts()} {@code SECOND_FACTOR_OR_EMAIL_CODE}, see {@link LinkedAccountProof};</li>
  *   <li>any other account runs the method only when its sign-in is at most {@link #maxAgeSeconds()} old and was
  *       not brokered by a provider, else 403 {@code REAUTH_REQUIRED};</li>
  *   <li>when the sign-in methods cannot be read, 503 {@code SERVICE_UNAVAILABLE}, never a pass.</li>
@@ -36,4 +37,11 @@ public @interface RecentAuthRequired {
 
     /** 600 for a reactivation, which follows the sign-in that found the account deactivated. */
     long maxAgeSeconds() default DEFAULT_MAX_AGE_SECONDS;
+
+    /**
+     * How an account linked to a provider confirms the gesture. The default keeps the link of the module's
+     * {@link PendingConfirmationIssuer}; {@link LinkedAccountProof#SECOND_FACTOR_OR_EMAIL_CODE} needs the
+     * platform's e-mail code instead, and the operation's {@code x-ef-reauth-linked: email-code}.
+     */
+    LinkedAccountProof linkedAccounts() default LinkedAccountProof.CONFIRMATION_LINK;
 }

@@ -234,6 +234,195 @@ class RecentAuthPolicyTest {
         }
     }
 
+    /** One test per row of PLAN-REAUTH-CODE §3.3, in its order, and per way a token can miss a row. */
+    @Nested
+    @DisplayName("a linked account under SECOND_FACTOR_OR_EMAIL_CODE")
+    class SecondFactorOrEmailCode {
+
+        private static final LinkedAccountProof MODE = LinkedAccountProof.SECOND_FACTOR_OR_EMAIL_CODE;
+        private static final SignInMethods GOOGLE_WITH_APP = new SignInMethods(false, List.of("google"), true);
+        private static final SignInMethods GOOGLE_WITHOUT_APP = new SignInMethods(false, List.of("google"), false);
+
+        private JwtAuthenticationToken signedIn(long secondsAgo, Object amr) {
+            return token(claims -> {
+                claims.put("auth_time", NOW.getEpochSecond() - secondsAgo);
+                claims.put("identity_provider", "google");
+                if (amr != null) {
+                    claims.put("amr", amr);
+                }
+            });
+        }
+
+        private RecentAuthVerdict verdict(JwtAuthenticationToken token) {
+            return policy().require(token, ACCOUNT_CHANGE, MODE);
+        }
+
+        private ReauthenticationRequiredException.Reason refusal(JwtAuthenticationToken token) {
+            Throwable thrown = catchThrowable(() -> verdict(token));
+            assertThat(thrown).isInstanceOf(ReauthenticationRequiredException.class);
+            return ((ReauthenticationRequiredException) thrown).getReason();
+        }
+
+        @ParameterizedTest(name = "signed in {0} s ago")
+        @ValueSource(longs = {0, 1, 299, 300})
+        @DisplayName("row 1: passes on an otp at most 300 s old, though a provider brokered the sign-in")
+        void recentOtp(long seconds) {
+            when(signInMethods.find(SUB)).thenReturn(GOOGLE_WITH_APP);
+
+            assertThat(verdict(signedIn(seconds, List.of("pwd", "otp")))).isEqualTo(RecentAuthVerdict.PASSED);
+            assertThat(events).containsExactly(
+                    new RecentAuthEvents.SecondFactorPassed("3f2c1d4e********", seconds, 300));
+        }
+
+        @Test
+        @DisplayName("row 1: passes on a recovery code, as at sign-in, and on a lone string claim")
+        void recoveryCode() {
+            when(signInMethods.find(SUB)).thenReturn(GOOGLE_WITH_APP);
+
+            assertThat(verdict(signedIn(10, List.of("recovery-code")))).isEqualTo(RecentAuthVerdict.PASSED);
+            assertThat(verdict(signedIn(10, "otp"))).isEqualTo(RecentAuthVerdict.PASSED);
+        }
+
+        @Test
+        @DisplayName("row 1: passes even when auth did not say whether the account has an app")
+        void attestedWhateverAuthSays() {
+            when(signInMethods.find(SUB)).thenReturn(GOOGLE_LINKED);
+
+            assertThat(verdict(signedIn(10, List.of("otp")))).isEqualTo(RecentAuthVerdict.PASSED);
+        }
+
+        @Test
+        @DisplayName("row 2: an account with an app is sent to sign in again past 300 s, otp or not")
+        void appButSignInTooOld() {
+            when(signInMethods.find(SUB)).thenReturn(GOOGLE_WITH_APP);
+
+            assertThat(refusal(signedIn(301, List.of("otp"))))
+                    .isEqualTo(ReauthenticationRequiredException.Reason.SECOND_FACTOR_NOT_PRESENTED);
+            assertThat(events).containsExactly(new RecentAuthEvents.Refused("3f2c1d4e********",
+                    ReauthenticationRequiredException.Reason.SECOND_FACTOR_NOT_PRESENTED, 301L, 300));
+        }
+
+        @Test
+        @DisplayName("row 2: an account with an app is sent to sign in again without a second factor attested")
+        void appWithoutSecondFactor() {
+            when(signInMethods.find(SUB)).thenReturn(GOOGLE_WITH_APP);
+
+            assertThat(refusal(signedIn(5, null)))
+                    .isEqualTo(ReauthenticationRequiredException.Reason.SECOND_FACTOR_NOT_PRESENTED);
+            assertThat(refusal(signedIn(5, List.of("pwd"))))
+                    .isEqualTo(ReauthenticationRequiredException.Reason.SECOND_FACTOR_NOT_PRESENTED);
+            assertThat(refusal(signedIn(5, List.of())))
+                    .isEqualTo(ReauthenticationRequiredException.Reason.SECOND_FACTOR_NOT_PRESENTED);
+            assertThat(refusal(signedIn(5, Map.of("otp", true))))
+                    .isEqualTo(ReauthenticationRequiredException.Reason.SECOND_FACTOR_NOT_PRESENTED);
+            assertThat(refusal(signedIn(5, List.of(42, "OTP"))))
+                    .isEqualTo(ReauthenticationRequiredException.Reason.SECOND_FACTOR_NOT_PRESENTED);
+        }
+
+        @Test
+        @DisplayName("row 2: an undated sign-in attests no recent second factor")
+        void appWithoutSignInTime() {
+            when(signInMethods.find(SUB)).thenReturn(GOOGLE_WITH_APP);
+
+            assertThat(refusal(token(claims -> claims.put("amr", List.of("otp")))))
+                    .isEqualTo(ReauthenticationRequiredException.Reason.SECOND_FACTOR_NOT_PRESENTED);
+            assertThat(events).singleElement().isEqualTo(new RecentAuthEvents.Refused("3f2c1d4e********",
+                    ReauthenticationRequiredException.Reason.SECOND_FACTOR_NOT_PRESENTED, null, 300));
+        }
+
+        @Test
+        @DisplayName("row 3: an account known to have no app gets a code by e-mail, never a pass")
+        void noApp() {
+            when(signInMethods.find(SUB)).thenReturn(GOOGLE_WITHOUT_APP);
+
+            assertThat(verdict(signedIn(1, List.of("pwd")))).isEqualTo(RecentAuthVerdict.CONFIRM_BY_EMAIL_CODE);
+            assertThat(verdict(signedIn(86_400, null))).isEqualTo(RecentAuthVerdict.CONFIRM_BY_EMAIL_CODE);
+            assertThat(events).first().isEqualTo(new RecentAuthEvents.EmailCodeRequired("3f2c1d4e********",
+                    List.of("google"), false));
+        }
+
+        @Test
+        @DisplayName("row 3: an absent has_authenticator, an older auth, counts as no app, never as a pass")
+        void olderAuth() {
+            when(signInMethods.find(SUB)).thenReturn(PASSWORD_AND_GOOGLE);
+
+            assertThat(verdict(signedIn(1, null))).isEqualTo(RecentAuthVerdict.CONFIRM_BY_EMAIL_CODE);
+            assertThat(events).containsExactly(new RecentAuthEvents.EmailCodeRequired("3f2c1d4e********",
+                    List.of("google"), true));
+        }
+
+        @Test
+        @DisplayName("row 4: unreadable sign-in methods answer 503, even with an otp attested")
+        void unavailable() {
+            when(signInMethods.find(SUB)).thenThrow(Status.UNAVAILABLE.asRuntimeException());
+
+            assertThatThrownBy(() -> verdict(signedIn(1, List.of("otp"))))
+                    .isInstanceOf(SignInMethodsUnavailableException.class);
+        }
+
+        @Test
+        @DisplayName("leaves an account without a provider link judged on its sign-in alone")
+        void unlinkedUnchanged() {
+            when(signInMethods.find(SUB)).thenReturn(new SignInMethods(true, List.of(), true));
+
+            assertThat(policy().require(signedInSecondsAgo(300), ACCOUNT_CHANGE, MODE))
+                    .isEqualTo(RecentAuthVerdict.PASSED);
+            assertThat(refusal(signedInSecondsAgo(301)))
+                    .isEqualTo(ReauthenticationRequiredException.Reason.SIGN_IN_TOO_OLD);
+            assertThat(refusal(signedIn(5, List.of("otp"))))
+                    .isEqualTo(ReauthenticationRequiredException.Reason.BROKERED_SIGN_IN);
+        }
+
+        @Test
+        @DisplayName("reads the request's authentication when none is given")
+        void currentRequest() {
+            when(signInMethods.find(SUB)).thenReturn(GOOGLE_WITHOUT_APP);
+            SecurityContextHolder.getContext().setAuthentication(signedIn(10, null));
+
+            assertThat(policy().require(ACCOUNT_CHANGE, MODE)).isEqualTo(RecentAuthVerdict.CONFIRM_BY_EMAIL_CODE);
+        }
+
+        @Test
+        @DisplayName("refuses to judge without a mode")
+        void noMode() {
+            assertThatThrownBy(() -> policy().require(signedIn(1, null), ACCOUNT_CHANGE, null))
+                    .isInstanceOf(NullPointerException.class);
+        }
+    }
+
+    /** members and church keep the default: what their tests expect today must not move. */
+    @Nested
+    @DisplayName("a linked account under the default CONFIRMATION_LINK")
+    class ConfirmationLinkUnchanged {
+
+        @Test
+        @DisplayName("is still sent out of band, whatever its app, its otp or its sign-in time")
+        void stillOutOfBand() {
+            when(signInMethods.find(SUB)).thenReturn(new SignInMethods(false, List.of("google"), true),
+                    new SignInMethods(false, List.of("google"), false));
+            JwtAuthenticationToken attested = token(claims -> {
+                claims.put("auth_time", NOW.getEpochSecond() - 1);
+                claims.put("amr", List.of("otp"));
+            });
+
+            assertThat(policy().require(attested, ACCOUNT_CHANGE)).isEqualTo(RecentAuthVerdict.CONFIRM_OUT_OF_BAND);
+            assertThat(policy().require(attested, ACCOUNT_CHANGE, LinkedAccountProof.CONFIRMATION_LINK))
+                    .isEqualTo(RecentAuthVerdict.CONFIRM_OUT_OF_BAND);
+            assertThat(events).containsExactly(
+                    new RecentAuthEvents.ConfirmationRequired("3f2c1d4e********", List.of("google")),
+                    new RecentAuthEvents.ConfirmationRequired("3f2c1d4e********", List.of("google")));
+        }
+
+        @Test
+        @DisplayName("is the mode of the one-argument entry points")
+        void defaultMode() {
+            when(signInMethods.find(SUB)).thenReturn(new SignInMethods(false, List.of("google"), false));
+            SecurityContextHolder.getContext().setAuthentication(signedInSecondsAgo(1));
+
+            assertThat(policy().require(ACCOUNT_CHANGE)).isEqualTo(RecentAuthVerdict.CONFIRM_OUT_OF_BAND);
+        }
+    }
+
     @Nested
     @DisplayName("sign-in methods that cannot be read")
     class Unavailable {

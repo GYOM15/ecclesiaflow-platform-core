@@ -71,4 +71,28 @@ class RecentAuthEventListenerTest {
                 .contains("subject=3f2c1d4e********")
                 .doesNotContain("auth:9090");
     }
+
+    @Test
+    @DisplayName("a pass on an attested second factor is only DEBUG")
+    void secondFactorPassed() {
+        logs.setLogLevelToDebug();
+
+        listener.onSecondFactorPassed(new RecentAuthEvents.SecondFactorPassed(SUBJECT, 12, 300));
+
+        assertThat(logs.getDebugLogs()).containsExactly("REAUTH: Recent second factor accepted for a linked account "
+                + "— 12 s old, limit 300 s, subject=3f2c1d4e********");
+    }
+
+    @Test
+    @DisplayName("an e-mail code asked for is INFO, telling an account without an app from an auth that did not say")
+    void emailCodeRequired() {
+        listener.onEmailCodeRequired(new RecentAuthEvents.EmailCodeRequired(SUBJECT, List.of("google"), false));
+        listener.onEmailCodeRequired(new RecentAuthEvents.EmailCodeRequired(SUBJECT, List.of("idp\rforged"), true));
+
+        assertThat(logs.getInfoLogs()).containsExactly(
+                "REAUTH: ⚠ Account linked to google, no authenticator app — gesture held for an e-mail code, "
+                        + "subject=3f2c1d4e********",
+                "REAUTH: ⚠ Account linked to idp\\rforged, authenticator app unknown to auth — gesture held for an "
+                        + "e-mail code, subject=3f2c1d4e********");
+    }
 }

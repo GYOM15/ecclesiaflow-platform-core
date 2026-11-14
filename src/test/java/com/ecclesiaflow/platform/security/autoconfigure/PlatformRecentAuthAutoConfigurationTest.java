@@ -5,6 +5,7 @@ import com.ecclesiaflow.platform.security.reauth.PendingConfirmation;
 import com.ecclesiaflow.platform.security.reauth.PendingConfirmationIssuer;
 import com.ecclesiaflow.platform.security.reauth.RecentAuthAspect;
 import com.ecclesiaflow.platform.security.reauth.RecentAuthExceptionHandler;
+import com.ecclesiaflow.platform.security.reauth.RecentAuthGate;
 import com.ecclesiaflow.platform.security.reauth.RecentAuthPolicy;
 import com.ecclesiaflow.platform.security.reauth.RecentAuthRequired;
 import com.ecclesiaflow.platform.security.reauth.RecentAuthVerifier;
@@ -12,6 +13,7 @@ import com.ecclesiaflow.platform.security.reauth.SensitiveAction;
 import com.ecclesiaflow.platform.security.reauth.SignInMethods;
 import com.ecclesiaflow.platform.security.reauth.SignInMethodsClient;
 import com.ecclesiaflow.platform.security.reauth.events.RecentAuthEventListener;
+import com.ecclesiaflow.platform.security.reauth.events.RecentAuthMetrics;
 import com.ecclesiaflow.platform.time.autoconfigure.PlatformClockAutoConfiguration;
 import com.ecclesiaflow.platform.web.error.autoconfigure.PlatformWebErrorAutoConfiguration;
 import io.grpc.Status;
@@ -396,7 +398,7 @@ class PlatformRecentAuthAutoConfigurationTest {
     }
 
     @Test
-    @DisplayName("registers the policy, aspect, startup check, listener and refusal answers")
+    @DisplayName("registers the policy, gate, aspect, startup check, listener, refusal answers and counter")
     void registered() {
         members.run(context -> {
             assertThat(context).hasSingleBean(RecentAuthPolicy.class);
@@ -404,6 +406,8 @@ class PlatformRecentAuthAutoConfigurationTest {
             assertThat(context).hasSingleBean(RecentAuthVerifier.class);
             assertThat(context).hasSingleBean(RecentAuthEventListener.class);
             assertThat(context).hasSingleBean(RecentAuthExceptionHandler.class);
+            assertThat(context).hasSingleBean(RecentAuthMetrics.class);
+            assertThat(context).hasSingleBean(RecentAuthGate.class);
         });
     }
 
