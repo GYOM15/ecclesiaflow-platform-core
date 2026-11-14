@@ -442,6 +442,7 @@ class ContractWireCompatibilityTest {
             message ecclesiaflow.auth.GetSignInMethodsResponse
               1 bool has_password
               2 repeated string linked_providers
+              3 optional bool has_authenticator
             message ecclesiaflow.auth.IssuePasswordSetupActionRequest
               1 string member_id
               2 string email

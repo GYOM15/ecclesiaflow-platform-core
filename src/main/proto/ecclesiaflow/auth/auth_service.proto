@@ -289,6 +289,10 @@ message GetSignInMethodsResponse {
   // Aliases of the identity providers linked to the account, such as "google".
   // Open: any value is a linked provider, even one the caller does not know.
   repeated string linked_providers = 2;
+  // Whether the account holds at least one authenticator app (an otp credential).
+  // Absent: auth predates the field, and the caller treats the account as having
+  // none, so a gesture falls back to a code by e-mail, never to a pass.
+  optional bool has_authenticator = 3;
 }
 
 // ============================================================================
