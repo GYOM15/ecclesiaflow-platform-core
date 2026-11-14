@@ -4,6 +4,7 @@ import com.ecclesiaflow.platform.security.autoconfigure.PlatformRecentAuthAutoCo
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import com.ecclesiaflow.platform.security.reauth.code.web.EmailCodeConfirmation;
 import com.ecclesiaflow.platform.security.reauth.fixture.UnresolvableSignature;
 import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
@@ -15,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doReturn;
@@ -145,6 +147,91 @@ class RecentAuthVerifierTest {
         @Override
         public Class<?> getObjectType() {
             return null;
+        }
+    }
+
+    public static class BillingDelegate {
+
+        @RecentAuthRequired(action = "Subscription.Cancel",
+                linkedAccounts = LinkedAccountProof.SECOND_FACTOR_OR_EMAIL_CODE)
+        public ResponseEntity<Void> cancel() {
+            return ResponseEntity.ok().build();
+        }
+
+        @RecentAuthRequired(action = "PaymentMethod.Remove",
+                linkedAccounts = LinkedAccountProof.SECOND_FACTOR_OR_EMAIL_CODE)
+        public ResponseEntity<Void> removeCard() {
+            return ResponseEntity.noContent().build();
+        }
+    }
+
+    /** One gesture confirmed by link beside one confirmed by code. */
+    public static class MixedDelegate {
+
+        @RecentAuthRequired(action = "ACCOUNT_DELETION")
+        public ResponseEntity<Void> deleteMyAccount() {
+            return ResponseEntity.noContent().build();
+        }
+
+        @RecentAuthRequired(action = "Subscription.Cancel",
+                linkedAccounts = LinkedAccountProof.SECOND_FACTOR_OR_EMAIL_CODE)
+        public ResponseEntity<Void> cancel() {
+            return ResponseEntity.ok().build();
+        }
+    }
+
+    private static EmailCodeConfirmation confirming(String... actions) {
+        EmailCodeConfirmation confirmation = mock(EmailCodeConfirmation.class);
+        when(confirmation.actions()).thenReturn(Set.of(actions));
+        return confirmation;
+    }
+
+    private static WebApplicationContextRunner codeModule() {
+        return new WebApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(AopAutoConfiguration.class,
+                        PlatformRecentAuthAutoConfiguration.class))
+                .withBean(SignInMethodsClient.class, () -> SIGN_IN_METHODS);
+    }
+
+    @Nested
+    @DisplayName("for gestures confirmed by e-mail code")
+    class EmailCode {
+
+        @Test
+        @DisplayName("lets a module start with its e-mail code and no PendingConfirmationIssuer")
+        void wired() {
+            codeModule().withBean(EmailCodeConfirmation.class, () -> confirming("Subscription.Cancel",
+                            "PaymentMethod.Remove"))
+                    .withBean(BillingDelegate.class)
+                    .run(context -> assertThat(context).hasNotFailed());
+        }
+
+        @Test
+        @DisplayName("refuses a module that has not enabled the e-mail code")
+        void notEnabled() {
+            codeModule().withBean(BillingDelegate.class).run(context -> assertThat(context).getFailure()
+                    .hasMessageContaining("no e-mail code confirms PaymentMethod.Remove, Subscription.Cancel")
+                    .hasMessageContaining("ecclesiaflow.security.reauth.email-code.enabled=true"));
+        }
+
+        @Test
+        @DisplayName("refuses a gesture that neither its ConfirmableGestures nor its contract name")
+        void unknownGesture() {
+            codeModule().withBean(EmailCodeConfirmation.class, () -> confirming("Subscription.Cancel"))
+                    .withBean(BillingDelegate.class)
+                    .run(context -> assertThat(context).getFailure()
+                            .hasMessageContaining("PaymentMethod.Remove confirmed by e-mail code, but named neither")
+                            .satisfies(failure -> assertThat(failure.getMessage())
+                                    .doesNotContain("Subscription.Cancel confirmed")));
+        }
+
+        @Test
+        @DisplayName("still asks for the issuer when one gesture keeps the link")
+        void mixed() {
+            codeModule().withBean(EmailCodeConfirmation.class, () -> confirming("Subscription.Cancel"))
+                    .withBean(MixedDelegate.class)
+                    .run(context -> assertThat(context).getFailure()
+                            .hasMessageContaining("no PendingConfirmationIssuer bean"));
         }
     }
 

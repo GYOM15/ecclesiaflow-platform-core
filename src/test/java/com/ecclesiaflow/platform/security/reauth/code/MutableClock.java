@@ -7,15 +7,15 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 
 /** A clock the test moves forward, to cross the code's, the challenge's and the caps' windows. */
-final class MutableClock extends Clock {
+public final class MutableClock extends Clock {
 
     private Instant now;
 
-    MutableClock(Instant start) {
+    public MutableClock(Instant start) {
         this.now = start;
     }
 
-    void advance(Duration step) {
+    public void advance(Duration step) {
         now = now.plus(step);
     }
 

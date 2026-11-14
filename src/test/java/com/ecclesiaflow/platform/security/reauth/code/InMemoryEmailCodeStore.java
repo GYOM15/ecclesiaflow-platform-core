@@ -18,17 +18,17 @@ import java.util.UUID;
  * The store's contract kept in memory, with transactions that roll back on an exception as the database does:
  * what a refused call wrote before refusing must not survive it.
  */
-final class InMemoryEmailCodeStore implements EmailCodeStore {
+public final class InMemoryEmailCodeStore implements EmailCodeStore {
 
-    record Occurrence(String subject, EmailCodeOccurrence kind, UUID challengeId, Instant at) {
+    public record Occurrence(String subject, EmailCodeOccurrence kind, UUID challengeId, Instant at) {
     }
 
-    final Map<UUID, EmailCodeChallenge> challenges = new LinkedHashMap<>();
-    final List<Occurrence> occurrences = new ArrayList<>();
-    final List<String> locks = new ArrayList<>();
-    int transactionsRun;
+    public final Map<UUID, EmailCodeChallenge> challenges = new LinkedHashMap<>();
+    public final List<Occurrence> occurrences = new ArrayList<>();
+    public final List<String> locks = new ArrayList<>();
+    public int transactionsRun;
 
-    final TransactionOperations transactions = new TransactionOperations() {
+    public final TransactionOperations transactions = new TransactionOperations() {
         @Override
         public <T> T execute(TransactionCallback<T> action) {
             transactionsRun++;
@@ -118,17 +118,17 @@ final class InMemoryEmailCodeStore implements EmailCodeStore {
         return before - challenges.size() - occurrences.size();
     }
 
-    long count(String subject, EmailCodeOccurrence kind) {
+    public long count(String subject, EmailCodeOccurrence kind) {
         return occurrences.stream().filter(o -> o.subject().equals(subject) && o.kind() == kind).count();
     }
 
-    EmailCodeChallenge only() {
+    public EmailCodeChallenge only() {
         return challenges.values().stream().reduce((first, second) -> {
             throw new IllegalStateException("more than one challenge");
         }).orElseThrow();
     }
 
-    EmailCodeChallenge get(UUID id) {
+    public EmailCodeChallenge get(UUID id) {
         return Objects.requireNonNull(challenges.get(id));
     }
 }

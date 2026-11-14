@@ -30,24 +30,6 @@ class EmailCodeServiceTest {
     private static final String OTHER_SUB = "9a8b7c6d-1111-4222-8333-944455556666";
     private static final String ADDRESS = "caleb@gmail.com";
 
-    /** Records each mail, and refuses them while {@link #failure} is set. */
-    static final class RecordingMailer implements EmailCodeMailer {
-        final List<EmailCodeDelivery> sent = new ArrayList<>();
-        RuntimeException failure;
-
-        @Override
-        public void send(EmailCodeDelivery delivery) {
-            if (failure != null) {
-                throw failure;
-            }
-            sent.add(delivery);
-        }
-
-        String lastCode() {
-            return sent.get(sent.size() - 1).code();
-        }
-    }
-
     private final MutableClock clock = new MutableClock(START);
     private final InMemoryEmailCodeStore store = new InMemoryEmailCodeStore();
     private final RecordingMailer mailer = new RecordingMailer();

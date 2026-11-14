@@ -1,5 +1,6 @@
 package com.ecclesiaflow.platform.security.reauth;
 
+import com.ecclesiaflow.platform.security.reauth.code.web.EmailCodeConfirmation;
 import org.springframework.aop.PointcutAdvisor;
 import org.springframework.aop.aspectj.AbstractAspectJAdvice;
 import org.springframework.aop.framework.Advised;
@@ -20,13 +21,16 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Refuses to start a module in which a {@link RecentAuthRequired} method would run unchecked or could not answer:
- * no {@link SignInMethodsClient} or {@link PendingConfirmationIssuer}, a method the aspect does not intercept
- * (private, static or final, annotated only on an interface, on a bean that is not proxied, AOP turned off), or
- * one that does not return a {@code ResponseEntity}, in which a 202 cannot be answered. An unenforced sensitive
- * gesture looks exactly like an enforced one until it is abused.
+ * no {@link SignInMethodsClient}, no {@link PendingConfirmationIssuer} for a gesture confirmed by link, no e-mail
+ * code for a gesture confirmed by code or one its {@code ConfirmableGestures} and contract do not name, a method the
+ * aspect does not intercept (private, static or final, annotated only on an interface, on a bean that is not
+ * proxied, AOP turned off), or one that does not return a {@code ResponseEntity}, in which a 202 cannot be
+ * answered. An unenforced sensitive gesture looks exactly like an enforced one until it is abused.
  */
 public class RecentAuthVerifier implements SmartInitializingSingleton {
 
@@ -40,6 +44,8 @@ public class RecentAuthVerifier implements SmartInitializingSingleton {
     public void afterSingletonsInstantiated() {
         List<String> problems = new ArrayList<>();
         boolean annotated = false;
+        boolean confirmedByLink = false;
+        Set<String> confirmedByCode = new TreeSet<>();
         for (String name : beanFactory.getBeanNamesForType(Object.class, false, false)) {
             Class<?> type = AutoProxyUtils.determineTargetClass(beanFactory, name);
             if (type == null || !AnnotationUtils.isCandidateClass(type, RecentAuthRequired.class)) {
@@ -51,10 +57,17 @@ public class RecentAuthVerifier implements SmartInitializingSingleton {
             }
             annotated = true;
             Object bean = beanFactory.getBean(name);
-            methods.forEach((method, recentAuth) -> problems.addAll(problemsOf(bean, type, method, recentAuth)));
+            for (Map.Entry<Method, RecentAuthRequired> entry : methods.entrySet()) {
+                problems.addAll(problemsOf(bean, type, entry.getKey(), entry.getValue()));
+                if (entry.getValue().linkedAccounts() == LinkedAccountProof.SECOND_FACTOR_OR_EMAIL_CODE) {
+                    confirmedByCode.add(entry.getValue().action());
+                } else {
+                    confirmedByLink = true;
+                }
+            }
         }
         if (annotated) {
-            problems.addAll(missingCollaborators());
+            problems.addAll(missingCollaborators(confirmedByLink, confirmedByCode));
         }
         if (!problems.isEmpty()) {
             throw new IllegalStateException("@RecentAuthRequired would not hold: " + String.join("; ", problems));
@@ -118,17 +131,35 @@ public class RecentAuthVerifier implements SmartInitializingSingleton {
                 && advice.getAspectJAdviceMethod().getDeclaringClass() == RecentAuthAspect.class;
     }
 
-    private List<String> missingCollaborators() {
+    private List<String> missingCollaborators(boolean confirmedByLink, Set<String> confirmedByCode) {
         List<String> missing = new ArrayList<>();
         // The policy exists only beside a SignInMethodsClient, which is what the module has to declare.
         if (beanFactory.getBeanNamesForType(RecentAuthPolicy.class, true, false).length == 0) {
             missing.add("no " + SignInMethodsClient.class.getSimpleName()
                     + " bean reads the account's sign-in methods");
         }
-        if (beanFactory.getBeanNamesForType(PendingConfirmationIssuer.class, true, false).length == 0) {
+        if (confirmedByLink
+                && beanFactory.getBeanNamesForType(PendingConfirmationIssuer.class, true, false).length == 0) {
             missing.add("no " + PendingConfirmationIssuer.class.getSimpleName()
                     + " bean holds the gestures of linked accounts");
         }
+        if (!confirmedByCode.isEmpty()) {
+            missing.addAll(missingEmailCode(confirmedByCode));
+        }
         return missing;
+    }
+
+    // The confirmation exists only once the module enabled the code with its key, mailer and gestures.
+    private List<String> missingEmailCode(Set<String> confirmedByCode) {
+        EmailCodeConfirmation confirmation = beanFactory.getBeanProvider(EmailCodeConfirmation.class).getIfAvailable();
+        if (confirmation == null) {
+            return List.of("no e-mail code confirms " + String.join(", ", confirmedByCode)
+                    + ": set ecclesiaflow.security.reauth.email-code.enabled=true with its key, an EmailCodeMailer "
+                    + "and a ConfirmableGestures bean");
+        }
+        Set<String> unknown = new TreeSet<>(confirmedByCode);
+        unknown.removeAll(confirmation.actions());
+        return unknown.isEmpty() ? List.of() : List.of(String.join(", ", unknown) + " confirmed by e-mail code, but "
+                + "named neither by ConfirmableGestures nor by an x-ef-reauth-linked operation of the contract");
     }
 }
