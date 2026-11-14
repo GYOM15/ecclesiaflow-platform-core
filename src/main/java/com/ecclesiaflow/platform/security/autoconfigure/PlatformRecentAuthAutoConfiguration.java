@@ -7,7 +7,9 @@ import com.ecclesiaflow.platform.security.reauth.RecentAuthPolicy;
 import com.ecclesiaflow.platform.security.reauth.RecentAuthVerifier;
 import com.ecclesiaflow.platform.security.reauth.SignInMethodsClient;
 import com.ecclesiaflow.platform.security.reauth.events.RecentAuthEventListener;
+import com.ecclesiaflow.platform.security.reauth.events.RecentAuthMetrics;
 import com.ecclesiaflow.platform.time.autoconfigure.PlatformClockAutoConfiguration;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -17,6 +19,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 import java.time.Clock;
 
@@ -65,5 +68,17 @@ public class PlatformRecentAuthAutoConfiguration {
     public RecentAuthExceptionHandler recentAuthExceptionHandler(ObjectProvider<Clock> clock) {
         return new RecentAuthExceptionHandler(clock.getIfUnique(Clock::systemUTC)) {
         };
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "io.micrometer.core.instrument.MeterRegistry")
+    static class RecentAuthMetricsConfiguration {
+
+        /** Without a registry bean the counter is inert rather than absent, so nothing else changes. */
+        @Bean
+        @ConditionalOnMissingBean
+        RecentAuthMetrics recentAuthMetrics(ObjectProvider<MeterRegistry> registry) {
+            return new RecentAuthMetrics(registry.getIfUnique());
+        }
     }
 }

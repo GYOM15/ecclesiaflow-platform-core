@@ -12,6 +12,7 @@ import com.ecclesiaflow.platform.security.reauth.SensitiveAction;
 import com.ecclesiaflow.platform.security.reauth.SignInMethods;
 import com.ecclesiaflow.platform.security.reauth.SignInMethodsClient;
 import com.ecclesiaflow.platform.security.reauth.events.RecentAuthEventListener;
+import com.ecclesiaflow.platform.security.reauth.events.RecentAuthMetrics;
 import com.ecclesiaflow.platform.time.autoconfigure.PlatformClockAutoConfiguration;
 import com.ecclesiaflow.platform.web.error.autoconfigure.PlatformWebErrorAutoConfiguration;
 import io.grpc.Status;
@@ -396,7 +397,7 @@ class PlatformRecentAuthAutoConfigurationTest {
     }
 
     @Test
-    @DisplayName("registers the policy, aspect, startup check, listener and refusal answers")
+    @DisplayName("registers the policy, aspect, startup check, listener, refusal answers and refusal counter")
     void registered() {
         members.run(context -> {
             assertThat(context).hasSingleBean(RecentAuthPolicy.class);
@@ -404,6 +405,7 @@ class PlatformRecentAuthAutoConfigurationTest {
             assertThat(context).hasSingleBean(RecentAuthVerifier.class);
             assertThat(context).hasSingleBean(RecentAuthEventListener.class);
             assertThat(context).hasSingleBean(RecentAuthExceptionHandler.class);
+            assertThat(context).hasSingleBean(RecentAuthMetrics.class);
         });
     }
 
