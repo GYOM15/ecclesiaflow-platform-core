@@ -2,6 +2,7 @@ package com.ecclesiaflow.platform.idempotency;
 
 import org.springframework.util.ReflectionUtils;
 
+import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -36,37 +37,47 @@ public final class IdempotencyFingerprint {
      * @throws IllegalArgumentException on a part without a stable text form
      */
     public static String of(Object... parts) {
-        MessageDigest digest = sha256();
-        writeSequence(digest, Arrays.asList(parts == null ? new Object[]{null} : parts));
-        return HexFormat.of().formatHex(digest.digest());
+        return HexFormat.of().formatHex(sha256().digest(canonicalForm(parts)));
     }
 
-    private static void writeSequence(MessageDigest digest, Collection<?> parts) {
-        digest.update(SEQUENCE);
-        digest.update(lengthOf(parts.size()));
+    /**
+     * The bytes {@link #of(Object...)} digests, for a keyed digest that must tell requests apart exactly as the
+     * fingerprint does.
+     *
+     * @throws IllegalArgumentException on a part without a stable text form
+     */
+    public static byte[] canonicalForm(Object... parts) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        writeSequence(out, Arrays.asList(parts == null ? new Object[]{null} : parts));
+        return out.toByteArray();
+    }
+
+    private static void writeSequence(ByteArrayOutputStream out, Collection<?> parts) {
+        out.write(SEQUENCE);
+        out.writeBytes(lengthOf(parts.size()));
         for (Object part : parts) {
-            write(digest, part);
+            write(out, part);
         }
     }
 
-    private static void write(MessageDigest digest, Object part) {
+    private static void write(ByteArrayOutputStream out, Object part) {
         if (part == null) {
-            digest.update(NULL);
+            out.write(NULL);
             return;
         }
         if (part instanceof SequencedCollection<?> sequence) {
-            writeSequence(digest, sequence);
+            writeSequence(out, sequence);
             return;
         }
         if (part instanceof Object[] array) {
-            writeSequence(digest, Arrays.asList(array));
+            writeSequence(out, Arrays.asList(array));
             return;
         }
         refuseUnstable(part);
         byte[] text = String.valueOf(part).getBytes(StandardCharsets.UTF_8);
-        digest.update(VALUE);
-        digest.update(lengthOf(text.length));
-        digest.update(text);
+        out.write(VALUE);
+        out.writeBytes(lengthOf(text.length));
+        out.writeBytes(text);
     }
 
     private static void refuseUnstable(Object part) {
