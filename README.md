@@ -504,7 +504,7 @@ generated classes and the `.proto` files.
 | `billing/billing_entitlement_service.proto` | billing (`BillingEntitlementService`) | `com.ecclesiaflow.grpc.billing` |
 | `events/event_options.proto` | the `(ecclesiaflow.events.routing_keys)` option | `com.ecclesiaflow.grpc.events` |
 | `events/auth/v1/domain_events.proto` | auth (`SetupTokenIssuedEvent`, `ExistingAccountNoticeEvent`, `TwoFactorRemovedEvent`, `AccountSessionsRevokedEvent`) | `com.ecclesiaflow.grpc.events.auth` |
-| `events/church/v1/church_events.proto` | church (invitation, admission, removal, group events, `NotificationCreatedEvent`, `ChurchOwnershipTransferredEvent`) | `com.ecclesiaflow.grpc.events.church` |
+| `events/church/v1/church_events.proto` | church (invitation, admission, removal, group events, `NotificationCreatedEvent`, `ChurchOwnershipTransferredEvent`, `ChurchActivatedEvent`) | `com.ecclesiaflow.grpc.events.church` |
 | `events/members/v1/members_events.proto` | members (`MemberProfileChangedEvent`, `MemberAnonymizedEvent`, `MemberContactsErasedEvent`, `MemberDeactivatedEvent`, `MemberReactivatedEvent`, `MemberSuspendedEvent`, `MemberSuspensionLiftedEvent`) | `com.ecclesiaflow.grpc.events.members` |
 | `events/chat/v1/chat_events.proto` | chat (`ChatMessagePostedEvent`) | `com.ecclesiaflow.grpc.events.chat` |
 | `events/moderation/v1/moderation_events.proto` | chat, church and members, each under its own key (`ContentReportedEvent`, `ModerationActionTakenEvent`) | `com.ecclesiaflow.grpc.events.moderation` |
@@ -796,6 +796,26 @@ module decides whether that stops its startup. To rotate, deploy the old key und
 | Error responses | `PlatformRestExceptionHandler` (lowest precedence, `ApiErrorResponse` with `errorCode`), `GrpcExceptionServerInterceptor`, `ExceptionClassifier` beans for module exceptions | `ecclesiaflow.platform.web.errors.enabled` |
 | Clock | A UTC `Clock` bean, unless the module declares one | — |
 | Architecture | `HexagonalArchitectureRules.check("<base package>")`, run from a module test with ArchUnit in test scope | — |
+
+## Upgrading to 0.6.9
+
+Added only: a module that adopts nothing keeps its answers byte for byte.
+
+| Change in 0.6.9 | Effect on a module that adopts nothing | Fix |
+|---|---|---|
+| `ChurchActivatedEvent` (`event_id = 1`, `occurred_at_epoch_ms = 2`, `church_id = 3`) is new | None | — |
+
+| Event | Key (`EventRoutes`) | Published by | Consumed by |
+|---|---|---|---|
+| `ChurchActivatedEvent` | `CHURCH_CHURCH_ACTIVATED_V1` (`church.church.activated.v1`) | church | billing |
+
+Adopting it, in deploy order (each step ships before the next one uses it):
+
+| Module | Does |
+|---|---|
+| deploy | Sets the dead-letter policy of billing's new queue, never bounded, before billing's image declares it |
+| billing | Binds `CHURCH_CHURCH_ACTIVATED_V1` on a queue of its own and starts the church's trial from `occurred_at_epoch_ms`, or from the opening of billing when that comes later |
+| church | Publishes it through the outbox, in the transaction that activates the church, with the activation instant as `occurred_at_epoch_ms`. Only once billing's queue is bound: the relay parks an unrouted event |
 
 ## Upgrading to 0.6.8
 

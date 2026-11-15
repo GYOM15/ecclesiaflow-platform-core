@@ -217,3 +217,18 @@ message ChurchOwnershipTransferredEvent {
   // Keycloak sub of the owner who accepted.
   string new_owner_user_id = 5;
 }
+
+// Emitted when a church becomes ACTIVE. Billing starts the church's trial from
+// it, or from the opening of billing when that comes later.
+message ChurchActivatedEvent {
+  option (ecclesiaflow.events.routing_keys) = "church.church.activated.v1";
+
+  // Unique per activation.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which church activated the church,
+  // not the instant auth reported the signup: the trial counts from it.
+  int64 occurred_at_epoch_ms = 2;
+
+  string church_id = 3;
+}
