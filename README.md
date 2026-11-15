@@ -509,6 +509,7 @@ generated classes and the `.proto` files.
 | `events/chat/v1/chat_events.proto` | chat (`ChatMessagePostedEvent`) | `com.ecclesiaflow.grpc.events.chat` |
 | `events/moderation/v1/moderation_events.proto` | chat, church and members, each under its own key (`ContentReportedEvent`, `ModerationActionTakenEvent`) | `com.ecclesiaflow.grpc.events.moderation` |
 | `events/billing/v1/billing_events.proto` | billing (`ChurchEntitlementChangedEvent`, `BillingNoticeEvent`) | `com.ecclesiaflow.grpc.events.billing` |
+| `events/appointments/v1/appointments_events.proto` | appointments (`AppointmentBookedEvent`, `AppointmentConfirmedEvent`, `AppointmentMovedEvent`, `AppointmentCancelledEvent`, `AppointmentReminderDueEvent`) | `com.ecclesiaflow.grpc.events.appointments` |
 
 A module that calls or serves an RPC, or publishes or consumes an event, uses these classes. It
 keeps no `.proto` of its own and needs no protobuf plugin. Consumers bring `grpc-protobuf`
@@ -796,6 +797,42 @@ module decides whether that stops its startup. To rotate, deploy the old key und
 | Error responses | `PlatformRestExceptionHandler` (lowest precedence, `ApiErrorResponse` with `errorCode`), `GrpcExceptionServerInterceptor`, `ExceptionClassifier` beans for module exceptions | `ecclesiaflow.platform.web.errors.enabled` |
 | Clock | A UTC `Clock` bean, unless the module declares one | — |
 | Architecture | `HexagonalArchitectureRules.check("<base package>")`, run from a module test with ArchUnit in test scope | — |
+
+## Upgrading to 0.6.10
+
+Added only: a module that adopts nothing keeps its answers byte for byte.
+
+| Change in 0.6.10 | Effect on a module that adopts nothing | Fix |
+|---|---|---|
+| `AppointmentBookedEvent`, `AppointmentConfirmedEvent`, `AppointmentMovedEvent`, `AppointmentCancelledEvent` and `AppointmentReminderDueEvent` are new, with five `EventRoutes` constants | None | — |
+| `ContractWireCompatibilityTest` accepts the `appointments` module in a routing key | None | — |
+
+The five events come from a service that knows no project of its own: a space, a host and a booker are
+opaque ids. Fields 3 to 21 are the same in all of them (the booking, its two time zones, the type's
+title, the place), and each adds its own from 22: `previous_booking_id`, `previous_starts_at_epoch_ms`,
+`previous_ends_at_epoch_ms` and `actor` on a move, `actor` and `reason_code` on a cancellation, `offset`
+on a reminder. A vocabulary (`status`, `actor`, `reason_code`, `location_kind`) is an open string. None of
+them carries the reason a booker gave, an address, a phone number or a language: the consumer resolves
+those from the subject.
+
+| Event | Key (`EventRoutes`) | `event_id` | Published by |
+|---|---|---|---|
+| `AppointmentBookedEvent` | `APPOINTMENTS_BOOKING_BOOKED_V1` (`appointments.booking.booked.v1`) | `appt:<bookingId>:booked` | appointments |
+| `AppointmentConfirmedEvent` | `APPOINTMENTS_BOOKING_CONFIRMED_V1` (`appointments.booking.confirmed.v1`) | `appt:<bookingId>:confirmed` | appointments |
+| `AppointmentMovedEvent` | `APPOINTMENTS_BOOKING_MOVED_V1` (`appointments.booking.moved.v1`) | `appt:<newBookingId>:moved` | appointments |
+| `AppointmentCancelledEvent` | `APPOINTMENTS_BOOKING_CANCELLED_V1` (`appointments.booking.cancelled.v1`) | `appt:<bookingId>:cancelled` | appointments |
+| `AppointmentReminderDueEvent` | `APPOINTMENTS_BOOKING_REMINDER_DUE_V1` (`appointments.booking.reminder-due.v1`) | `appt:<bookingId>:reminder:<offset>` | appointments |
+
+The publisher stages each of them under the aggregate key `booking:<origin_booking_id>`, so the events of
+one booking chain reach a consumer in order and a parked one blocks that chain alone.
+
+Adopting it, in deploy order (each step ships before the next one uses it):
+
+| Module | Does |
+|---|---|
+| deploy | Sets the dead-letter policy of the consumer's new queue, never bounded, before its image declares it |
+| a consumer | Binds the five constants by name on a queue of its own, dedupes on `event_id`, and reads the shared fields from 3 to 21 whatever the message |
+| appointments | Publishes through the outbox, in the transaction of the change, only once a consumer's queue is bound: the relay parks an unrouted event |
 
 ## Upgrading to 0.6.9
 

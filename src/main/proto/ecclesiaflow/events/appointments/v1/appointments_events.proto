@@ -1,0 +1,253 @@
+// Published by the appointments service. Consumers load the class named by the __TypeId__
+// header, so java_package and message names are on the wire like field numbers.
+//
+// The service is generic and keeps nothing of its hosting project: a space, a host and a booker
+// are opaque ids the project resolves itself (address, language, wording).
+//
+// Fields 3 to 21 are the same in every message, so a consumer reads one booking shape. Each
+// message adds its own fields from 22.
+//
+// The reason a booker gives for a booking is confidential and never appears in an event.
+//
+// The publisher stages every event of a booking chain under the aggregate key
+// "booking:<origin_booking_id>", so booked, moved and cancelled reach a consumer in order.
+
+syntax = "proto3";
+
+import "ecclesiaflow/events/event_options.proto";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.events.appointments";
+option java_outer_classname = "AppointmentsDomainEventsProto";
+
+package ecclesiaflow.events.appointments.v1;
+
+// A booking was created, either waiting for its host (PENDING) or confirmed at once. A type
+// that needs no confirmation books straight to CONFIRMED and never gets a confirmed event.
+message AppointmentBookedEvent {
+  option (ecclesiaflow.events.routing_keys) = "appointments.booking.booked.v1";
+
+  // "appt:<booking_id>:booked": a row appended twice keeps its id, so consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the booking was created.
+  int64 occurred_at_epoch_ms = 2;
+
+  // The tenant the booking belongs to, as the token names it.
+  string space_id = 3;
+
+  string booking_id = 4;
+
+  // The first booking of the chain a move extends; equal to booking_id until a move.
+  string origin_booking_id = 5;
+
+  // Position in the chain, up by one at each move. A calendar invitation takes
+  // origin_booking_id as its UID and this number as its SEQUENCE.
+  int32 sequence = 6;
+
+  string calendar_id = 7;
+
+  string type_id = 8;
+
+  // Opaque id of the person who receives the appointment.
+  string host_subject = 9;
+
+  // Opaque id of the person who booked.
+  string booker_subject = 10;
+
+  // Milliseconds since Unix epoch (UTC).
+  int64 starts_at_epoch_ms = 11;
+
+  // Milliseconds since Unix epoch (UTC), after starts_at_epoch_ms.
+  int64 ends_at_epoch_ms = 12;
+
+  // IANA zone of the host, so a notice can show the host's own time.
+  string host_time_zone = 13;
+
+  // IANA zone the booker's device reported, so a notice is written in their time.
+  string booker_time_zone = 14;
+
+  // What the booking said when it was made: a later edit of the type changes none of it.
+  string type_title = 15;
+
+  string host_display_name = 16;
+
+  // Empty once the booker is erased, so a notice to the host names nobody.
+  string booker_display_name = 17;
+
+  // Open, never an enum: IN_PERSON and ONLINE today.
+  string location_kind = 18;
+
+  // The address of an in-person appointment. Empty otherwise.
+  string location_place = 19;
+
+  // The https link of an online appointment, which only the two participants may see. Empty
+  // otherwise.
+  string location_link = 20;
+
+  // Open, never an enum: PENDING or CONFIRMED here.
+  string status = 21;
+}
+
+// The host confirmed a pending request. Only a booking that needed confirmation gets this event.
+message AppointmentConfirmedEvent {
+  option (ecclesiaflow.events.routing_keys) = "appointments.booking.confirmed.v1";
+
+  // "appt:<booking_id>:confirmed".
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the host confirmed.
+  int64 occurred_at_epoch_ms = 2;
+
+  string space_id = 3;
+  string booking_id = 4;
+  string origin_booking_id = 5;
+  int32 sequence = 6;
+  string calendar_id = 7;
+  string type_id = 8;
+  string host_subject = 9;
+  string booker_subject = 10;
+  int64 starts_at_epoch_ms = 11;
+  int64 ends_at_epoch_ms = 12;
+  string host_time_zone = 13;
+  string booker_time_zone = 14;
+  string type_title = 15;
+  string host_display_name = 16;
+  string booker_display_name = 17;
+  string location_kind = 18;
+  string location_place = 19;
+  string location_link = 20;
+
+  // Open, never an enum: CONFIRMED here.
+  string status = 21;
+}
+
+// A booking moved: the shared fields describe the new booking, and the previous one is closed.
+// Its sequence is the new SEQUENCE of the calendar invitation, so the invitation updates in place.
+message AppointmentMovedEvent {
+  option (ecclesiaflow.events.routing_keys) = "appointments.booking.moved.v1";
+
+  // "appt:<booking_id>:moved", with the new booking's id.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) of the move.
+  int64 occurred_at_epoch_ms = 2;
+
+  string space_id = 3;
+
+  // The new booking.
+  string booking_id = 4;
+
+  string origin_booking_id = 5;
+  int32 sequence = 6;
+  string calendar_id = 7;
+  string type_id = 8;
+  string host_subject = 9;
+  string booker_subject = 10;
+
+  // The new instants.
+  int64 starts_at_epoch_ms = 11;
+  int64 ends_at_epoch_ms = 12;
+
+  string host_time_zone = 13;
+  string booker_time_zone = 14;
+  string type_title = 15;
+  string host_display_name = 16;
+  string booker_display_name = 17;
+  string location_kind = 18;
+  string location_place = 19;
+  string location_link = 20;
+
+  // Open, never an enum: PENDING or CONFIRMED, the new booking's state. A request moved
+  // while pending stays to confirm.
+  string status = 21;
+
+  // The booking this one replaces.
+  string previous_booking_id = 22;
+
+  // The instants the replaced booking held, for a notice that shows from where it moved.
+  int64 previous_starts_at_epoch_ms = 23;
+  int64 previous_ends_at_epoch_ms = 24;
+
+  // Who moved it. Open, never an enum: HOST or BOOKER today, the system never moves a booking.
+  string actor = 25;
+}
+
+// A booking ended without taking place: cancelled, declined, expired, or closed with its host
+// or its space. The shared fields describe the booking as it stood.
+message AppointmentCancelledEvent {
+  option (ecclesiaflow.events.routing_keys) = "appointments.booking.cancelled.v1";
+
+  // "appt:<booking_id>:cancelled".
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the booking was cancelled.
+  int64 occurred_at_epoch_ms = 2;
+
+  string space_id = 3;
+  string booking_id = 4;
+  string origin_booking_id = 5;
+  int32 sequence = 6;
+  string calendar_id = 7;
+  string type_id = 8;
+  string host_subject = 9;
+  string booker_subject = 10;
+  int64 starts_at_epoch_ms = 11;
+  int64 ends_at_epoch_ms = 12;
+  string host_time_zone = 13;
+  string booker_time_zone = 14;
+  string type_title = 15;
+  string host_display_name = 16;
+  string booker_display_name = 17;
+  string location_kind = 18;
+  string location_place = 19;
+  string location_link = 20;
+
+  // Open, never an enum: CANCELLED here.
+  string status = 21;
+
+  // Who ended it, which decides who is told. Open, never an enum: HOST, BOOKER or SYSTEM today.
+  string actor = 22;
+
+  // Open, never an enum: REQUESTED, DECLINED, EXPIRED, HOST_UNAVAILABLE, BOOKER_UNAVAILABLE and
+  // SPACE_CLOSED today. A code, never the free text a person wrote.
+  string reason_code = 23;
+}
+
+// A reminder fell due for a booking that has not started. The service says a reminder is due; the
+// hosting project picks the channel and the wording.
+message AppointmentReminderDueEvent {
+  option (ecclesiaflow.events.routing_keys) = "appointments.booking.reminder-due.v1";
+
+  // "appt:<booking_id>:reminder:<offset>": a reminder is never due twice.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the reminder fell due, not when the scheduler
+  // ran it, so a consumer can tell a late reminder from a timely one.
+  int64 occurred_at_epoch_ms = 2;
+
+  string space_id = 3;
+  string booking_id = 4;
+  string origin_booking_id = 5;
+  int32 sequence = 6;
+  string calendar_id = 7;
+  string type_id = 8;
+  string host_subject = 9;
+  string booker_subject = 10;
+  int64 starts_at_epoch_ms = 11;
+  int64 ends_at_epoch_ms = 12;
+  string host_time_zone = 13;
+  string booker_time_zone = 14;
+  string type_title = 15;
+  string host_display_name = 16;
+  string booker_display_name = 17;
+  string location_kind = 18;
+  string location_place = 19;
+  string location_link = 20;
+
+  // Open, never an enum: PENDING or CONFIRMED.
+  string status = 21;
+
+  // How long before the start the reminder was set, as an ISO 8601 duration: "P1D", "PT1H".
+  string offset = 22;
+}
