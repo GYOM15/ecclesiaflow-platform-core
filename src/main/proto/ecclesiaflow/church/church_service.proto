@@ -15,8 +15,9 @@ package ecclesiaflow.church;
 //
 // OnSignupCompleted is invoked by the auth module after a pastor sets their
 // initial password (stage 2 of the church signup saga). The church module
-// activates the church (status PENDING -> ACTIVE, tier -> TRIAL with a
-// 30-day window) and grants CHURCH_ADMIN to the user via the auth module.
+// activates the church (status PENDING -> ACTIVE) and grants CHURCH_ADMIN to
+// the user via the auth module. The activation publishes ChurchActivatedEvent,
+// from which billing draws the church's trial.
 //
 // Idempotent on the server side: a duplicate call returns ALREADY_ACTIVE
 // without re-mutating state.
