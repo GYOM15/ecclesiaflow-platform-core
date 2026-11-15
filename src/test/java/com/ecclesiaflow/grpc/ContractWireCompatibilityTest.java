@@ -8,6 +8,12 @@ import com.ecclesiaflow.grpc.email.EmailQueueMessage;
 import com.ecclesiaflow.grpc.email.EmailServiceProto;
 import com.ecclesiaflow.grpc.events.EventOptionsProto;
 import com.ecclesiaflow.grpc.events.EventRoutes;
+import com.ecclesiaflow.grpc.events.appointments.AppointmentBookedEvent;
+import com.ecclesiaflow.grpc.events.appointments.AppointmentCancelledEvent;
+import com.ecclesiaflow.grpc.events.appointments.AppointmentConfirmedEvent;
+import com.ecclesiaflow.grpc.events.appointments.AppointmentMovedEvent;
+import com.ecclesiaflow.grpc.events.appointments.AppointmentReminderDueEvent;
+import com.ecclesiaflow.grpc.events.appointments.AppointmentsDomainEventsProto;
 import com.ecclesiaflow.grpc.events.auth.AccountSessionsRevokedEvent;
 import com.ecclesiaflow.grpc.events.auth.AuthDomainEventsProto;
 import com.ecclesiaflow.grpc.events.auth.ExistingAccountNoticeEvent;
@@ -90,7 +96,8 @@ class ContractWireCompatibilityTest {
             ModerationDomainEventsProto.getDescriptor(),
             BillingCreditServiceProto.getDescriptor(),
             BillingDomainEventsProto.getDescriptor(),
-            BillingEntitlementServiceProto.getDescriptor());
+            BillingEntitlementServiceProto.getDescriptor(),
+            AppointmentsDomainEventsProto.getDescriptor());
 
     private static final Path PROTO_ROOT = Path.of("src/main/proto");
 
@@ -109,7 +116,7 @@ class ContractWireCompatibilityTest {
             "members.account.reactivated");
 
     private static final Pattern VERSIONED_KEY = Pattern.compile(
-            "(auth|church|members|chat|communication|billing)\\.[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*\\.v[1-9][0-9]*");
+            "(auth|church|members|chat|communication|billing|appointments)\\.[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*\\.v[1-9][0-9]*");
 
     @Test
     @DisplayName("Packages, RPCs, field numbers and types match what the deployed services exchange")
@@ -198,7 +205,9 @@ class ContractWireCompatibilityTest {
                 AccountSessionsRevokedEvent.class, MemberSuspendedEvent.class, MemberSuspensionLiftedEvent.class,
                 NotificationCreatedEvent.class, ChatMessagePostedEvent.class, ContentReportedEvent.class,
                 ModerationActionTakenEvent.class, ChurchEntitlementChangedEvent.class, BillingNoticeEvent.class,
-                ChurchOwnershipTransferredEvent.class, ChurchActivatedEvent.class))
+                ChurchOwnershipTransferredEvent.class, ChurchActivatedEvent.class,
+                AppointmentBookedEvent.class, AppointmentConfirmedEvent.class, AppointmentMovedEvent.class,
+                AppointmentCancelledEvent.class, AppointmentReminderDueEvent.class))
                 .extracting(Class::getName)
                 .containsExactly(
                         "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent",
@@ -225,7 +234,12 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.events.billing.ChurchEntitlementChangedEvent",
                         "com.ecclesiaflow.grpc.events.billing.BillingNoticeEvent",
                         "com.ecclesiaflow.grpc.events.church.ChurchOwnershipTransferredEvent",
-                        "com.ecclesiaflow.grpc.events.church.ChurchActivatedEvent");
+                        "com.ecclesiaflow.grpc.events.church.ChurchActivatedEvent",
+                        "com.ecclesiaflow.grpc.events.appointments.AppointmentBookedEvent",
+                        "com.ecclesiaflow.grpc.events.appointments.AppointmentConfirmedEvent",
+                        "com.ecclesiaflow.grpc.events.appointments.AppointmentMovedEvent",
+                        "com.ecclesiaflow.grpc.events.appointments.AppointmentCancelledEvent",
+                        "com.ecclesiaflow.grpc.events.appointments.AppointmentReminderDueEvent");
     }
 
     private static List<Descriptor> events() {
@@ -916,6 +930,124 @@ class ContractWireCompatibilityTest {
               8 bool sms_open
               9 optional int64 valid_until_epoch_ms
               10 string restriction_reason
+            file ecclesiaflow/events/appointments/v1/appointments_events.proto package ecclesiaflow.events.appointments.v1 java_package com.ecclesiaflow.grpc.events.appointments
+            message ecclesiaflow.events.appointments.v1.AppointmentBookedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string space_id
+              4 string booking_id
+              5 string origin_booking_id
+              6 int32 sequence
+              7 string calendar_id
+              8 string type_id
+              9 string host_subject
+              10 string booker_subject
+              11 int64 starts_at_epoch_ms
+              12 int64 ends_at_epoch_ms
+              13 string host_time_zone
+              14 string booker_time_zone
+              15 string type_title
+              16 string host_display_name
+              17 string booker_display_name
+              18 string location_kind
+              19 string location_place
+              20 string location_link
+              21 string status
+            message ecclesiaflow.events.appointments.v1.AppointmentConfirmedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string space_id
+              4 string booking_id
+              5 string origin_booking_id
+              6 int32 sequence
+              7 string calendar_id
+              8 string type_id
+              9 string host_subject
+              10 string booker_subject
+              11 int64 starts_at_epoch_ms
+              12 int64 ends_at_epoch_ms
+              13 string host_time_zone
+              14 string booker_time_zone
+              15 string type_title
+              16 string host_display_name
+              17 string booker_display_name
+              18 string location_kind
+              19 string location_place
+              20 string location_link
+              21 string status
+            message ecclesiaflow.events.appointments.v1.AppointmentMovedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string space_id
+              4 string booking_id
+              5 string origin_booking_id
+              6 int32 sequence
+              7 string calendar_id
+              8 string type_id
+              9 string host_subject
+              10 string booker_subject
+              11 int64 starts_at_epoch_ms
+              12 int64 ends_at_epoch_ms
+              13 string host_time_zone
+              14 string booker_time_zone
+              15 string type_title
+              16 string host_display_name
+              17 string booker_display_name
+              18 string location_kind
+              19 string location_place
+              20 string location_link
+              21 string status
+              22 string previous_booking_id
+              23 int64 previous_starts_at_epoch_ms
+              24 int64 previous_ends_at_epoch_ms
+              25 string actor
+            message ecclesiaflow.events.appointments.v1.AppointmentCancelledEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string space_id
+              4 string booking_id
+              5 string origin_booking_id
+              6 int32 sequence
+              7 string calendar_id
+              8 string type_id
+              9 string host_subject
+              10 string booker_subject
+              11 int64 starts_at_epoch_ms
+              12 int64 ends_at_epoch_ms
+              13 string host_time_zone
+              14 string booker_time_zone
+              15 string type_title
+              16 string host_display_name
+              17 string booker_display_name
+              18 string location_kind
+              19 string location_place
+              20 string location_link
+              21 string status
+              22 string actor
+              23 string reason_code
+            message ecclesiaflow.events.appointments.v1.AppointmentReminderDueEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string space_id
+              4 string booking_id
+              5 string origin_booking_id
+              6 int32 sequence
+              7 string calendar_id
+              8 string type_id
+              9 string host_subject
+              10 string booker_subject
+              11 int64 starts_at_epoch_ms
+              12 int64 ends_at_epoch_ms
+              13 string host_time_zone
+              14 string booker_time_zone
+              15 string type_title
+              16 string host_display_name
+              17 string booker_display_name
+              18 string location_kind
+              19 string location_place
+              20 string location_link
+              21 string status
+              22 string offset
             """;
 
     private static final String ROUTES = """
@@ -946,5 +1078,10 @@ class ContractWireCompatibilityTest {
             members.moderation.action-taken.v1 ecclesiaflow.events.moderation.v1.ModerationActionTakenEvent
             billing.entitlement.changed.v1 ecclesiaflow.events.billing.v1.ChurchEntitlementChangedEvent
             billing.notice.raised.v1 ecclesiaflow.events.billing.v1.BillingNoticeEvent
+            appointments.booking.booked.v1 ecclesiaflow.events.appointments.v1.AppointmentBookedEvent
+            appointments.booking.confirmed.v1 ecclesiaflow.events.appointments.v1.AppointmentConfirmedEvent
+            appointments.booking.moved.v1 ecclesiaflow.events.appointments.v1.AppointmentMovedEvent
+            appointments.booking.cancelled.v1 ecclesiaflow.events.appointments.v1.AppointmentCancelledEvent
+            appointments.booking.reminder-due.v1 ecclesiaflow.events.appointments.v1.AppointmentReminderDueEvent
             """;
 }

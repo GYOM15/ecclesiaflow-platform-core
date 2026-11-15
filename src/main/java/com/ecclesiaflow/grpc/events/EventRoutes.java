@@ -43,6 +43,12 @@ public final class EventRoutes {
     public static final String BILLING_ENTITLEMENT_CHANGED_V1 = "billing.entitlement.changed.v1";
     public static final String BILLING_NOTICE_RAISED_V1 = "billing.notice.raised.v1";
 
+    public static final String APPOINTMENTS_BOOKING_BOOKED_V1 = "appointments.booking.booked.v1";
+    public static final String APPOINTMENTS_BOOKING_CONFIRMED_V1 = "appointments.booking.confirmed.v1";
+    public static final String APPOINTMENTS_BOOKING_MOVED_V1 = "appointments.booking.moved.v1";
+    public static final String APPOINTMENTS_BOOKING_CANCELLED_V1 = "appointments.booking.cancelled.v1";
+    public static final String APPOINTMENTS_BOOKING_REMINDER_DUE_V1 = "appointments.booking.reminder-due.v1";
+
     private EventRoutes() {
     }
 }
