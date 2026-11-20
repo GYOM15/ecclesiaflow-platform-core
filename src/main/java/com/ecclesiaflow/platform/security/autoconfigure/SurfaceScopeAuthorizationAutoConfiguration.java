@@ -29,6 +29,7 @@ import org.springframework.security.web.access.WebInvocationPrivilegeEvaluator;
 import org.springframework.web.servlet.handler.AbstractUrlHandlerMapping;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
 
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -97,7 +98,7 @@ public class SurfaceScopeAuthorizationAutoConfiguration {
                 properties.getMode(),
                 surfaces.count(Surface.MEMBER),
                 surfaces.count(Surface.CONSOLE),
-                surfaces.count(Surface.PLATFORM) + surfaces.count(Surface.PLATFORM_BILLING),
+                Arrays.stream(Surface.values()).filter(Surface::platform).mapToInt(surfaces::count).sum(),
                 surfaces.tokenlessCount());
         // A child context (a separate management port) refreshes too and its event reaches us.
         AtomicBoolean announced = new AtomicBoolean();

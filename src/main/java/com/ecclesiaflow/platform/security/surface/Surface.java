@@ -49,6 +49,29 @@ public enum Surface {
         public boolean permits(Collection<? extends GrantedAuthority> authorities) {
             return has(authorities, BILLING_OPERATE) && has(authorities, BILLING_OPERATOR);
         }
+    },
+
+    /**
+     * {@code x-ef-surface: platform} with {@code x-ef-platform-duty: support}: the back-office's search, files and
+     * reset requests. Its scope with either role: the support finds and checks, the super admin may do the same.
+     */
+    PLATFORM_SUPPORT("platform-support") {
+        @Override
+        public boolean permits(Collection<? extends GrantedAuthority> authorities) {
+            return has(authorities, BACKOFFICE_ACT) && (has(authorities, SUPPORT) || has(authorities, SUPER_ADMIN));
+        }
+    },
+
+    /**
+     * {@code x-ef-surface: platform} with {@code x-ef-platform-duty: administration}: what withdraws an access or
+     * hands an account back to a mailbox, and the journals. The super admin alone, so a stolen support session
+     * decides nothing.
+     */
+    PLATFORM_ADMINISTRATION("platform-administration") {
+        @Override
+        public boolean permits(Collection<? extends GrantedAuthority> authorities) {
+            return has(authorities, BACKOFFICE_ACT) && has(authorities, SUPER_ADMIN);
+        }
     };
 
     public static final String EXTENSION = "x-ef-surface";
@@ -59,9 +82,14 @@ public enum Surface {
     public static final String PLATFORM_MODERATOR = "ROLE_PLATFORM_MODERATOR";
     public static final String BILLING_OPERATE = "SCOPE_ef:billing:operate";
     public static final String BILLING_OPERATOR = "ROLE_PLATFORM_BILLING";
+    public static final String BACKOFFICE_ACT = "SCOPE_ef:backoffice:act";
+    public static final String SUPPORT = "ROLE_SUPPORT";
+    public static final String SUPER_ADMIN = "ROLE_SUPER_ADMIN";
 
     private static final String MODERATION_DUTY = "moderation";
     private static final String BILLING_DUTY = "billing";
+    private static final String SUPPORT_DUTY = "support";
+    private static final String ADMINISTRATION_DUTY = "administration";
 
     private final String tag;
 
@@ -77,15 +105,20 @@ public enum Surface {
         return tag;
     }
 
+    /** Whether this is one of the platform's duties, the only operations an operating client reaches. */
+    public boolean platform() {
+        return this != MEMBER && this != CONSOLE;
+    }
+
     /**
      * Reads the operation's declaration.
      *
      * @throws InvalidApiContractException when {@code x-ef-surface} holds anything but {@code member} or
      *                                     {@code platform}, or marks a {@code security: []} operation
      *                                     {@code platform}, which would open moderation to callers without a token;
-     *                                     when {@code x-ef-platform-duty} holds anything but {@code moderation} or
-     *                                     {@code billing}, or stands beside another surface, where it would rule
-     *                                     nothing
+     *                                     when {@code x-ef-platform-duty} holds anything but {@code moderation},
+     *                                     {@code billing}, {@code support} or {@code administration}, or stands
+     *                                     beside another surface, where it would rule nothing
      */
     public static Surface of(ContractOperation operation) {
         Map<String, Object> extensions = operation.extensions();
@@ -127,7 +160,14 @@ public enum Surface {
         if (BILLING_DUTY.equals(duty)) {
             return PLATFORM_BILLING;
         }
-        throw InvalidApiContractException.invalidExtension(operation, DUTY_EXTENSION, duty, "moderation or billing");
+        if (SUPPORT_DUTY.equals(duty)) {
+            return PLATFORM_SUPPORT;
+        }
+        if (ADMINISTRATION_DUTY.equals(duty)) {
+            return PLATFORM_ADMINISTRATION;
+        }
+        throw InvalidApiContractException.invalidExtension(operation, DUTY_EXTENSION, duty,
+                "moderation, billing, support or administration");
     }
 
     private static boolean has(Collection<? extends GrantedAuthority> authorities, String expected) {

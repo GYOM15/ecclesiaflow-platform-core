@@ -175,9 +175,12 @@ reaches to every request authenticated by a token (`JwtAuthenticationToken`):
 | absent | `SCOPE_ef:surface:full` (the web console) |
 | `platform` | `SCOPE_ef:moderation:act` and `ROLE_PLATFORM_MODERATOR`; `ef:surface:full` never suffices |
 | `platform` with `x-ef-platform-duty: billing` | `SCOPE_ef:billing:operate` and `ROLE_PLATFORM_BILLING`; neither moderation's couple nor `ef:surface:full` suffices |
+| `platform` with `x-ef-platform-duty: support` | `SCOPE_ef:backoffice:act` and `ROLE_SUPPORT` or `ROLE_SUPER_ADMIN`; `ef:surface:full` never suffices |
+| `platform` with `x-ef-platform-duty: administration` | `SCOPE_ef:backoffice:act` and `ROLE_SUPER_ADMIN`; neither `ROLE_SUPPORT` nor `ef:surface:full` suffices |
 
 `x-ef-platform-duty` names whose operations a `platform` one is: absent or `moderation`, moderators';
-`billing`, billing operators'. Neither couple opens the other's operations.
+`billing`, billing operators'; `support`, the back-office's support and super admin; `administration`,
+the super admin's alone. No couple opens another duty's operations.
 
 A `security: []` operation is never ruled; a path outside the contract is console-only, except the
 technical list (`/ws/**`, `/error`, `/actuator/**`, `/v3/api-docs/**`, `/swagger-ui.html`,
@@ -185,7 +188,8 @@ technical list (`/ws/**`, `/error`, `/actuator/**`, `/v3/api-docs/**`, `/swagger
 chain and throws `AccessDeniedException`. At startup the module refuses to start when its chain opens,
 to a caller without a token, a route that is neither a `security: []` operation nor technical, or
 closes a `security: []` operation; an `x-ef-surface` other than `member` or `platform` stops it too, and so
-does an `x-ef-platform-duty` other than `moderation` or `billing`, or one beside another surface.
+does an `x-ef-platform-duty` other than `moderation`, `billing`, `support` or `administration`, or one beside
+another surface.
 
 | Property | Default | Effect |
 |---|---|---|

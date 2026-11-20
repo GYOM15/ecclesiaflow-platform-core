@@ -91,14 +91,40 @@ class SurfaceTest {
         }
 
         @Test
+        @DisplayName("platform with the support or the administration duty is the back-office's")
+        void backOfficeDuties() {
+            assertThat(Surface.of(operation(false,
+                    Map.of(Surface.EXTENSION, "platform", Surface.DUTY_EXTENSION, "support"))))
+                    .isEqualTo(Surface.PLATFORM_SUPPORT);
+            assertThat(Surface.of(operation(false,
+                    Map.of(Surface.EXTENSION, "platform", Surface.DUTY_EXTENSION, "administration"))))
+                    .isEqualTo(Surface.PLATFORM_ADMINISTRATION);
+        }
+
+        @Test
+        @DisplayName("a back-office duty on a security: [] operation, or beside another surface, stops the module")
+        void backOfficeDutiesMisplaced() {
+            for (String duty : List.of("support", "administration")) {
+                assertThatThrownBy(() -> Surface.of(operation(true,
+                        Map.of(Surface.EXTENSION, "platform", Surface.DUTY_EXTENSION, duty))))
+                        .isInstanceOf(InvalidApiContractException.class)
+                        .hasMessageContaining("security: []");
+                assertThatThrownBy(() -> Surface.of(operation(false,
+                        Map.of(Surface.EXTENSION, "member", Surface.DUTY_EXTENSION, duty))))
+                        .isInstanceOf(InvalidApiContractException.class)
+                        .hasMessageContaining("other than platform");
+            }
+        }
+
+        @Test
         @DisplayName("any other duty, a misspelling or null included, stops the module")
         void unknownDuties() {
-            for (Object duty : List.of("Billing", "finance", true)) {
+            for (Object duty : List.of("Billing", "finance", "Support", "admin", "platform-support", true)) {
                 assertThatThrownBy(() -> Surface.of(operation(false,
                         Map.of(Surface.EXTENSION, "platform", Surface.DUTY_EXTENSION, duty))))
                         .isInstanceOf(InvalidApiContractException.class)
                         .hasMessageContaining("x-ef-platform-duty: " + duty)
-                        .hasMessageContaining("expected moderation or billing");
+                        .hasMessageContaining("expected moderation, billing, support or administration");
             }
             Map<String, Object> extensions = new HashMap<>();
             extensions.put(Surface.EXTENSION, "platform");
@@ -183,13 +209,75 @@ class SurfaceTest {
 
             assertThat(Surface.PLATFORM.permits(billingOperator)).isFalse();
             assertThat(Surface.CONSOLE.permits(billingOperator)).isFalse();
+            assertThat(Surface.PLATFORM_SUPPORT.permits(billingOperator)).isFalse();
+            assertThat(Surface.PLATFORM_ADMINISTRATION.permits(billingOperator)).isFalse();
+        }
+
+        @Test
+        @DisplayName("support needs the back-office scope with the support or the super admin role")
+        void platformSupport() {
+            assertThat(Surface.PLATFORM_SUPPORT.permits(authorities(Surface.BACKOFFICE_ACT, Surface.SUPPORT)))
+                    .isTrue();
+            assertThat(Surface.PLATFORM_SUPPORT.permits(authorities(Surface.BACKOFFICE_ACT, Surface.SUPER_ADMIN)))
+                    .isTrue();
+            assertThat(Surface.PLATFORM_SUPPORT.permits(authorities(Surface.BACKOFFICE_ACT))).isFalse();
+            assertThat(Surface.PLATFORM_SUPPORT.permits(authorities(Surface.SUPPORT, Surface.SUPER_ADMIN))).isFalse();
+            assertThat(Surface.PLATFORM_SUPPORT.permits(authorities(Surface.BACKOFFICE_ACT,
+                    Surface.PLATFORM_MODERATOR, Surface.BILLING_OPERATOR))).isFalse();
+            assertThat(Surface.PLATFORM_SUPPORT.permits(null)).isFalse();
+        }
+
+        @Test
+        @DisplayName("administration needs the back-office scope and the super admin role; support never suffices")
+        void platformAdministration() {
+            assertThat(Surface.PLATFORM_ADMINISTRATION.permits(authorities(Surface.BACKOFFICE_ACT,
+                    Surface.SUPER_ADMIN))).isTrue();
+            assertThat(Surface.PLATFORM_ADMINISTRATION.permits(authorities(Surface.BACKOFFICE_ACT, Surface.SUPPORT)))
+                    .isFalse();
+            assertThat(Surface.PLATFORM_ADMINISTRATION.permits(authorities(Surface.SUPER_ADMIN))).isFalse();
+            assertThat(Surface.PLATFORM_ADMINISTRATION.permits(authorities(Surface.BACKOFFICE_ACT))).isFalse();
+            assertThat(Surface.PLATFORM_ADMINISTRATION.permits(null)).isFalse();
+        }
+
+        @Test
+        @DisplayName("ef:surface:full replaces neither the back-office scope nor its roles")
+        void surfaceFullOpensNoBackOfficeDuty() {
+            List<GrantedAuthority> ownerWebToken = authorities(Surface.SURFACE_FULL, Surface.SUPER_ADMIN,
+                    Surface.SUPPORT);
+
+            assertThat(Surface.PLATFORM_SUPPORT.permits(ownerWebToken)).isFalse();
+            assertThat(Surface.PLATFORM_ADMINISTRATION.permits(ownerWebToken)).isFalse();
+            assertThat(Surface.PLATFORM_SUPPORT.permits(authorities(Surface.SURFACE_FULL, Surface.BACKOFFICE_ACT)))
+                    .isFalse();
+            assertThat(Surface.PLATFORM_ADMINISTRATION.permits(authorities(Surface.SURFACE_FULL,
+                    Surface.BACKOFFICE_ACT))).isFalse();
+        }
+
+        @Test
+        @DisplayName("the back-office couples open no moderation, billing or console operation")
+        void backOfficeCouplesStayInTheirLane() {
+            List<GrantedAuthority> superAdmin = authorities(Surface.BACKOFFICE_ACT, Surface.SUPER_ADMIN,
+                    Surface.SUPPORT);
+
+            assertThat(Surface.PLATFORM.permits(superAdmin)).isFalse();
+            assertThat(Surface.PLATFORM_BILLING.permits(superAdmin)).isFalse();
+            assertThat(Surface.CONSOLE.permits(superAdmin)).isFalse();
         }
 
         @Test
         @DisplayName("each surface has the tag its metric and log lines carry")
         void tags() {
             assertThat(List.of(Surface.values())).extracting(Surface::tag)
-                    .containsExactly("member", "console", "platform", "platform-billing");
+                    .containsExactly("member", "console", "platform", "platform-billing", "platform-support",
+                            "platform-administration");
+        }
+
+        @Test
+        @DisplayName("every surface but member and console is a platform duty")
+        void platformDuties() {
+            assertThat(List.of(Surface.values())).filteredOn(Surface::platform)
+                    .containsExactly(Surface.PLATFORM, Surface.PLATFORM_BILLING, Surface.PLATFORM_SUPPORT,
+                            Surface.PLATFORM_ADMINISTRATION);
         }
     }
 }
