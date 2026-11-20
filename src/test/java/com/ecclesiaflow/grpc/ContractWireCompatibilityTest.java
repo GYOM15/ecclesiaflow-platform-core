@@ -47,6 +47,7 @@ import com.ecclesiaflow.grpc.events.moderation.ContentReportedEvent;
 import com.ecclesiaflow.grpc.events.moderation.ModerationActionTakenEvent;
 import com.ecclesiaflow.grpc.events.moderation.ModerationDomainEventsProto;
 import com.ecclesiaflow.grpc.members.MembersServiceProto;
+import com.ecclesiaflow.grpc.payments.PaymentsServiceProto;
 import com.google.protobuf.DescriptorProtos.DescriptorProto;
 import com.google.protobuf.DescriptorProtos.EnumDescriptorProto;
 import com.google.protobuf.Descriptors.Descriptor;
@@ -99,7 +100,8 @@ class ContractWireCompatibilityTest {
             BillingCreditServiceProto.getDescriptor(),
             BillingDomainEventsProto.getDescriptor(),
             BillingEntitlementServiceProto.getDescriptor(),
-            AppointmentsDomainEventsProto.getDescriptor());
+            AppointmentsDomainEventsProto.getDescriptor(),
+            PaymentsServiceProto.getDescriptor());
 
     private static final Path PROTO_ROOT = Path.of("src/main/proto");
 
@@ -1073,6 +1075,229 @@ class ContractWireCompatibilityTest {
               20 string location_link
               21 string status
               22 string offset
+            file ecclesiaflow/payments/payments_service.proto package ecclesiaflow.payments java_package com.ecclesiaflow.grpc.payments
+            service ecclesiaflow.payments.PaymentsService
+              OpenMerchantAccount ecclesiaflow.payments.OpenMerchantAccountRequest -> ecclesiaflow.payments.OpenMerchantAccountResponse
+              CreateOnboardingSession ecclesiaflow.payments.CreateOnboardingSessionRequest -> ecclesiaflow.payments.CreateOnboardingSessionResponse
+              GetMerchantAccount ecclesiaflow.payments.GetMerchantAccountRequest -> ecclesiaflow.payments.GetMerchantAccountResponse
+              DisableMerchantAccount ecclesiaflow.payments.DisableMerchantAccountRequest -> ecclesiaflow.payments.DisableMerchantAccountResponse
+              StartPayment ecclesiaflow.payments.StartPaymentRequest -> ecclesiaflow.payments.StartPaymentResponse
+              ChargeSavedMethod ecclesiaflow.payments.ChargeSavedMethodRequest -> ecclesiaflow.payments.ChargeSavedMethodResponse
+              StartMethodSetup ecclesiaflow.payments.StartMethodSetupRequest -> ecclesiaflow.payments.StartMethodSetupResponse
+              GetPayment ecclesiaflow.payments.GetPaymentRequest -> ecclesiaflow.payments.GetPaymentResponse
+              FindPaymentByReference ecclesiaflow.payments.FindPaymentByReferenceRequest -> ecclesiaflow.payments.FindPaymentByReferenceResponse
+              ListPayments ecclesiaflow.payments.ListPaymentsRequest -> ecclesiaflow.payments.ListPaymentsResponse
+              RefundPayment ecclesiaflow.payments.RefundPaymentRequest -> ecclesiaflow.payments.RefundPaymentResponse
+              ListPayoutLines ecclesiaflow.payments.ListPayoutLinesRequest -> ecclesiaflow.payments.ListPayoutLinesResponse
+              GetProviderStatus ecclesiaflow.payments.GetProviderStatusRequest -> ecclesiaflow.payments.GetProviderStatusResponse
+              ErasePayer ecclesiaflow.payments.ErasePayerRequest -> ecclesiaflow.payments.ErasePayerResponse
+            message ecclesiaflow.payments.MerchantAccount
+              1 string merchant_account_id
+              2 string merchant_ref
+              3 string provider
+              4 string provider_account_ref
+              5 string country
+              6 string currency
+              7 string entity_kind
+              8 string status
+              9 bool charges_enabled
+              10 bool payouts_enabled
+              11 repeated string requirements_due
+              12 string disabled_reason
+              13 string provider_status
+              14 bool live
+              15 int64 version
+            message ecclesiaflow.payments.SavedMethod
+              1 string saved_method_id
+              2 string payer_key
+              3 string brand
+              4 string last4
+              5 int32 exp_month
+              6 int32 exp_year
+              7 string status
+            message ecclesiaflow.payments.Refund
+              1 string refund_id
+              2 string payment_id
+              3 string caller_reference
+              4 string origin
+              5 int64 amount_minor
+              6 string currency
+              7 string status
+              8 string reason_code
+              9 string provider_refund_ref
+              10 string provider_status
+              11 int64 requested_at_epoch_ms
+              12 int64 settled_at_epoch_ms
+            message ecclesiaflow.payments.Dispute
+              1 string dispute_id
+              2 string payment_id
+              3 string phase
+              4 int64 amount_minor
+              5 string currency
+              6 int64 respond_by_epoch_ms
+              7 string provider_dispute_ref
+              8 string provider_status
+            message ecclesiaflow.payments.Payment
+              1 string payment_id
+              2 string merchant_account_id
+              3 string merchant_ref
+              4 string caller_reference
+              5 string kind
+              6 int64 amount_minor
+              7 string currency
+              8 string status
+              9 string reason_code
+              10 string provider
+              11 string provider_status
+              12 string provider_failure_code
+              13 string provider_payment_ref
+              14 string hosted_url
+              15 int64 expires_at_epoch_ms
+              16 int64 paid_at_epoch_ms
+              17 int64 refunded_minor
+              18 ecclesiaflow.payments.SavedMethod saved_method
+              19 bool live
+              20 int64 version
+              21 int64 created_at_epoch_ms
+              22 int64 updated_at_epoch_ms
+              23 repeated ecclesiaflow.payments.Refund refunds
+              24 repeated ecclesiaflow.payments.Dispute disputes
+            message ecclesiaflow.payments.MethodSetup
+              1 string method_setup_id
+              2 string merchant_account_id
+              3 string caller_reference
+              4 string payer_key
+              5 string status
+              6 string reason_code
+              7 string hosted_url
+              8 int64 expires_at_epoch_ms
+              9 ecclesiaflow.payments.SavedMethod saved_method
+              10 string provider
+              11 string provider_status
+            message ecclesiaflow.payments.Payout
+              1 string payout_id
+              2 string merchant_account_id
+              3 int64 amount_minor
+              4 string currency
+              5 string status
+              6 int64 arrival_at_epoch_ms
+              7 string provider
+              8 string provider_payout_ref
+              9 string provider_status
+              10 string provider_failure_code
+            message ecclesiaflow.payments.PayoutLine
+              1 string kind
+              2 int64 gross_minor
+              3 int64 fee_minor
+              4 int64 net_minor
+              5 string currency
+              6 string payment_id
+              7 string caller_reference
+              8 string refund_id
+              9 string dispute_id
+            message ecclesiaflow.payments.OpenMerchantAccountRequest
+              1 string merchant_ref
+              2 string country
+              3 string currency
+              4 string entity_kind
+            message ecclesiaflow.payments.OpenMerchantAccountResponse
+              1 ecclesiaflow.payments.MerchantAccount merchant_account
+            message ecclesiaflow.payments.CreateOnboardingSessionRequest
+              1 string merchant_account_id
+              2 repeated string components
+              3 repeated string features
+            message ecclesiaflow.payments.CreateOnboardingSessionResponse
+              1 string provider
+              2 string client_secret
+              3 int64 expires_at_epoch_ms
+            message ecclesiaflow.payments.GetMerchantAccountRequest
+              1 string merchant_account_id
+            message ecclesiaflow.payments.GetMerchantAccountResponse
+              1 ecclesiaflow.payments.MerchantAccount merchant_account
+            message ecclesiaflow.payments.DisableMerchantAccountRequest
+              1 string merchant_account_id
+            message ecclesiaflow.payments.DisableMerchantAccountResponse
+              1 ecclesiaflow.payments.MerchantAccount merchant_account
+            message ecclesiaflow.payments.StartPaymentRequest
+              1 string merchant_account_id
+              2 string caller_reference
+              3 int64 amount_minor
+              4 string currency
+              5 string success_url
+              6 string cancel_url
+              7 string item_label
+              8 string purpose
+              9 string locale
+              10 bool save_method
+              11 string payer_key
+              12 string payer_email
+            message ecclesiaflow.payments.StartPaymentResponse
+              1 ecclesiaflow.payments.Payment payment
+            message ecclesiaflow.payments.ChargeSavedMethodRequest
+              1 string merchant_account_id
+              2 string caller_reference
+              3 string saved_method_id
+              4 int64 amount_minor
+              5 string currency
+            message ecclesiaflow.payments.ChargeSavedMethodResponse
+              1 ecclesiaflow.payments.Payment payment
+            message ecclesiaflow.payments.StartMethodSetupRequest
+              1 string merchant_account_id
+              2 string caller_reference
+              3 string payer_key
+              4 string replaces_saved_method_id
+              5 string success_url
+              6 string cancel_url
+              7 string locale
+              8 string payer_email
+            message ecclesiaflow.payments.StartMethodSetupResponse
+              1 ecclesiaflow.payments.MethodSetup method_setup
+            message ecclesiaflow.payments.GetPaymentRequest
+              1 string payment_id
+            message ecclesiaflow.payments.GetPaymentResponse
+              1 ecclesiaflow.payments.Payment payment
+            message ecclesiaflow.payments.FindPaymentByReferenceRequest
+              1 string caller_reference
+            message ecclesiaflow.payments.FindPaymentByReferenceResponse
+              1 ecclesiaflow.payments.Payment payment
+            message ecclesiaflow.payments.ListPaymentsRequest
+              1 string merchant_account_id
+              2 int64 changed_from_epoch_ms
+              3 int64 changed_to_epoch_ms
+              4 int32 limit
+              5 string cursor
+            message ecclesiaflow.payments.ListPaymentsResponse
+              1 repeated ecclesiaflow.payments.Payment payments
+              2 string next_cursor
+            message ecclesiaflow.payments.RefundPaymentRequest
+              1 string payment_id
+              2 string caller_reference
+              3 int64 amount_minor
+              4 string currency
+              5 string reason_code
+            message ecclesiaflow.payments.RefundPaymentResponse
+              1 ecclesiaflow.payments.Refund refund
+            message ecclesiaflow.payments.ListPayoutLinesRequest
+              1 string merchant_account_id
+              2 string payout_id
+              3 int32 limit
+              4 string cursor
+            message ecclesiaflow.payments.ListPayoutLinesResponse
+              1 ecclesiaflow.payments.Payout payout
+              2 repeated ecclesiaflow.payments.PayoutLine lines
+              3 string next_cursor
+            message ecclesiaflow.payments.GetProviderStatusRequest
+              1 string provider
+              2 string merchant_account_id
+            message ecclesiaflow.payments.GetProviderStatusResponse
+              1 string provider
+              2 string status
+              3 int64 since_epoch_ms
+              4 int64 checked_at_epoch_ms
+            message ecclesiaflow.payments.ErasePayerRequest
+              1 string payer_key
+            message ecclesiaflow.payments.ErasePayerResponse
+              1 int32 erased_payers
             """;
 
     private static final String ROUTES = """

@@ -1,0 +1,759 @@
+// Served by the payments service. Field numbers and types are on the wire:
+// add fields, never renumber, retype or reuse one.
+
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.payments";
+option java_outer_classname = "PaymentsServiceProto";
+
+package ecclesiaflow.payments;
+
+// Merchant accounts, payments, refunds, disputes and payouts, kept for several
+// callers by a service that knows none of their projects: a merchant, a payer
+// and every caller reference are opaque strings the caller resolves itself.
+// The service talks to one provider per merchant, the one its country routes
+// to at opening, and never moves a payment to another.
+//
+// Every amount is an integer in minor units of its ISO 4217 currency, whose
+// exponent the currency gives (0 for GNF and XOF, 2 for CAD); a merchant pays
+// and is paid in its own currency only, and nothing is ever converted.
+//
+// A call that names a merchant, a payment, a payout or a payer the caller's azp
+// did not open answers NOT_FOUND, as an unknown one does: the answer never
+// tells that another caller's object exists.
+//
+// Every vocabulary is an open string, never an enum, so a value a later build
+// adds breaks no caller; each field says how a caller reads a value it does not
+// know. Failures are reported through the gRPC status, never in a response.
+// Callers set a deadline; every write is idempotent on its caller reference, so
+// a call left without an answer is replayed as it was.
+service PaymentsService {
+  // Opens the merchant at the provider its country routes to. Scope
+  // ef:payments:merchant:write.
+  rpc OpenMerchantAccount(OpenMerchantAccountRequest) returns (OpenMerchantAccountResponse);
+  // A single-use credential for the provider's embedded pages. Scope
+  // ef:payments:merchant:session.
+  rpc CreateOnboardingSession(CreateOnboardingSessionRequest) returns (CreateOnboardingSessionResponse);
+  // Scope ef:payments:merchant:read.
+  rpc GetMerchantAccount(GetMerchantAccountRequest) returns (GetMerchantAccountResponse);
+  // No payment starts afterwards; refunds, disputes and payouts go on. Scope
+  // ef:payments:merchant:write.
+  rpc DisableMerchantAccount(DisableMerchantAccountRequest) returns (DisableMerchantAccountResponse);
+  // A payment the payer completes on the provider's hosted page. Scope
+  // ef:payments:payment:write.
+  rpc StartPayment(StartPaymentRequest) returns (StartPaymentResponse);
+  // Charges a saved method without the payer. Scope ef:payments:payment:write.
+  rpc ChargeSavedMethod(ChargeSavedMethodRequest) returns (ChargeSavedMethodResponse);
+  // A hosted page that saves a method, or replaces one. Scope
+  // ef:payments:payment:write.
+  rpc StartMethodSetup(StartMethodSetupRequest) returns (StartMethodSetupResponse);
+  // A payment with its refunds and disputes. Scope ef:payments:payment:read.
+  rpc GetPayment(GetPaymentRequest) returns (GetPaymentResponse);
+  // The payment of a caller reference, read after a call left without an
+  // answer. Scope ef:payments:payment:read.
+  rpc FindPaymentByReference(FindPaymentByReferenceRequest) returns (FindPaymentByReferenceResponse);
+  // A merchant's payments over a window, for the caller's reconciliation. Scope
+  // ef:payments:payment:read.
+  rpc ListPayments(ListPaymentsRequest) returns (ListPaymentsResponse);
+  // A full or partial refund. Scope ef:payments:refund:write.
+  rpc RefundPayment(RefundPaymentRequest) returns (RefundPaymentResponse);
+  // The lines of a paid payout. Scope ef:payments:payout:read.
+  rpc ListPayoutLines(ListPayoutLinesRequest) returns (ListPayoutLinesResponse);
+  // Scope ef:payments:status:read.
+  rpc GetProviderStatus(GetProviderStatusRequest) returns (GetProviderStatusResponse);
+  // Erases a payer at the provider and in the service. Scope
+  // ef:payments:payer:erase.
+  rpc ErasePayer(ErasePayerRequest) returns (ErasePayerResponse);
+}
+
+// ============================================================================
+// Shared shapes
+// ============================================================================
+
+message MerchantAccount {
+  string merchant_account_id = 1;
+
+  // The caller's reference given at opening.
+  string merchant_ref = 2;
+
+  // The provider the merchant's country routed to at opening, never changed
+  // afterwards: "stripe" today.
+  string provider = 3;
+
+  // The account's id at the provider.
+  string provider_account_ref = 4;
+
+  // ISO 3166-1 alpha-2.
+  string country = 5;
+
+  // ISO 4217. Every payment, refund and payout of the merchant is in it.
+  string currency = 6;
+
+  // Open, never an enum: NON_PROFIT and COMPANY today.
+  string entity_kind = 7;
+
+  // Open, never an enum: OPENING, RESTRICTED, ENABLED and DISABLED today.
+  // Payments start only under ENABLED; refunds, disputes and payouts go on
+  // under every status. A value the caller does not know offers no payment.
+  string status = 8;
+
+  bool charges_enabled = 9;
+
+  bool payouts_enabled = 10;
+
+  // What the provider still asks of the merchant, in the provider's codes,
+  // never a value the merchant gave. Empty: nothing due.
+  repeated string requirements_due = 11;
+
+  // Why the account is RESTRICTED or DISABLED: the provider's code, or CALLER
+  // after DisableMerchantAccount. Empty under the other statuses.
+  string disabled_reason = 12;
+
+  // The provider's own state of the account, as it says it, for an operator.
+  string provider_status = 13;
+
+  // False in the provider's test mode.
+  bool live = 14;
+
+  // Grows at every change. MerchantAccountChangedEvent carries the same, so a
+  // snapshot is applied only above the version the caller holds.
+  int64 version = 15;
+}
+
+// A method the payer let the service charge without them.
+message SavedMethod {
+  string saved_method_id = 1;
+
+  // The caller's key of the payer the method belongs to.
+  string payer_key = 2;
+
+  // Open: the card network as the provider names it, for display only.
+  string brand = 3;
+
+  // The four last digits, for display only.
+  string last4 = 4;
+
+  int32 exp_month = 5;
+
+  int32 exp_year = 6;
+
+  // Open, never an enum: ACTIVE and DETACHED today. Only an ACTIVE method is
+  // charged; a value the caller does not know is read as DETACHED.
+  string status = 7;
+}
+
+message Refund {
+  string refund_id = 1;
+
+  string payment_id = 2;
+
+  // The reference RefundPayment was called with. Empty when the refund was made
+  // at the provider and learned from its notification (origin PROVIDER).
+  string caller_reference = 3;
+
+  // Open, never an enum: API (through RefundPayment) and PROVIDER today.
+  string origin = 4;
+
+  // This refund alone, never the payment's refunds added up.
+  int64 amount_minor = 5;
+
+  // ISO 4217, the payment's.
+  string currency = 6;
+
+  // Open, never an enum: PENDING, SUCCEEDED and FAILED today. Money goes back
+  // to the payer only at SUCCEEDED; a value the caller does not know is read as
+  // PENDING.
+  string status = 7;
+
+  // Open, never an enum: REQUESTED, DUPLICATE and FRAUDULENT today. Empty when
+  // the provider gave none.
+  string reason_code = 8;
+
+  string provider_refund_ref = 9;
+
+  // The provider's own state of the refund, as it says it.
+  string provider_status = 10;
+
+  int64 requested_at_epoch_ms = 11;
+
+  // When it reached SUCCEEDED or FAILED; 0 while PENDING.
+  int64 settled_at_epoch_ms = 12;
+}
+
+message Dispute {
+  string dispute_id = 1;
+
+  string payment_id = 2;
+
+  // Open, never an enum: OPENED, FUNDS_WITHDRAWN, FUNDS_REINSTATED, WON and
+  // LOST today. The merchant answers the dispute at the provider: the service
+  // pleads nothing.
+  string phase = 3;
+
+  int64 amount_minor = 4;
+
+  // ISO 4217, the payment's.
+  string currency = 5;
+
+  // When the merchant's answer is due at the provider; 0 when none is due.
+  int64 respond_by_epoch_ms = 6;
+
+  string provider_dispute_ref = 7;
+
+  // The provider's own state of the dispute, as it says it.
+  string provider_status = 8;
+}
+
+message Payment {
+  string payment_id = 1;
+
+  string merchant_account_id = 2;
+
+  string merchant_ref = 3;
+
+  // The reference the payment was started with, unique per caller.
+  string caller_reference = 4;
+
+  // Open, never an enum: HOSTED (the payer completes a page) and SAVED_METHOD
+  // (charged without the payer) today.
+  string kind = 5;
+
+  // Positive.
+  int64 amount_minor = 6;
+
+  // ISO 4217, the merchant's.
+  string currency = 7;
+
+  // Open, never an enum: OPEN, PAID and FAILED today. A payment leaves OPEN
+  // once, to PAID or FAILED, and stays there; refunds and disputes never change
+  // it. A value the caller does not know is neither paid nor failed: read it
+  // again later.
+  string status = 8;
+
+  // Why it FAILED. Open, never an enum: EXPIRED (the page lapsed unpaid),
+  // DECLINED (the method may succeed another day), METHOD_UNUSABLE (lost,
+  // stolen, revoked or expired: never charged again), AUTHENTICATION_REQUIRED
+  // (the bank wants the payer: only a hosted page, StartPayment under a new
+  // reference, can finish) today. Empty unless FAILED. A caller that does not
+  // know a code charges the method no more without the payer.
+  string reason_code = 9;
+
+  string provider = 10;
+
+  // The provider's own state of the payment, as it says it.
+  string provider_status = 11;
+
+  // The provider's decline or error code, as it says it; empty when none.
+  string provider_failure_code = 12;
+
+  // The payment's id at the provider once it exists there, which the caller may
+  // keep as its external reference.
+  string provider_payment_ref = 13;
+
+  // The page the payer completes, while a HOSTED payment is OPEN; empty
+  // otherwise. Whoever holds it can pay: never logged.
+  string hosted_url = 14;
+
+  // When the hosted page lapses; 0 for a SAVED_METHOD payment.
+  int64 expires_at_epoch_ms = 15;
+
+  // 0 unless PAID.
+  int64 paid_at_epoch_ms = 16;
+
+  // The SUCCEEDED refunds added up, never above amount_minor.
+  int64 refunded_minor = 17;
+
+  // The method this payment saved or charged; absent when none.
+  SavedMethod saved_method = 18;
+
+  // False in the provider's test mode.
+  bool live = 19;
+
+  // Grows at every change of the payment, of its refunds or of its disputes.
+  int64 version = 20;
+
+  int64 created_at_epoch_ms = 21;
+
+  // The latest change of the payment, of its refunds or of its disputes.
+  int64 updated_at_epoch_ms = 22;
+
+  // Oldest first.
+  repeated Refund refunds = 23;
+
+  // Oldest first.
+  repeated Dispute disputes = 24;
+}
+
+// A hosted page that saves a method for a payer.
+message MethodSetup {
+  string method_setup_id = 1;
+
+  string merchant_account_id = 2;
+
+  // The reference StartMethodSetup was called with, unique per caller.
+  string caller_reference = 3;
+
+  string payer_key = 4;
+
+  // Open, never an enum: OPEN, SUCCEEDED and FAILED today. A value the caller
+  // does not know is read as OPEN.
+  string status = 5;
+
+  // Why it FAILED. Open, never an enum: EXPIRED today. Empty unless FAILED.
+  string reason_code = 6;
+
+  // The page the payer completes while OPEN; empty otherwise. Never logged.
+  string hosted_url = 7;
+
+  int64 expires_at_epoch_ms = 8;
+
+  // The method saved, once SUCCEEDED; absent before.
+  SavedMethod saved_method = 9;
+
+  string provider = 10;
+
+  // The provider's own state of the setup, as it says it.
+  string provider_status = 11;
+}
+
+message Payout {
+  string payout_id = 1;
+
+  string merchant_account_id = 2;
+
+  // What the merchant's bank receives: its lines' net amounts added up.
+  int64 amount_minor = 3;
+
+  // ISO 4217, the merchant's.
+  string currency = 4;
+
+  // Open, never an enum: PENDING, PAID and FAILED today. Its lines are read
+  // once it is PAID.
+  string status = 5;
+
+  // When the money is due at, or reached, the merchant's bank.
+  int64 arrival_at_epoch_ms = 6;
+
+  string provider = 7;
+
+  string provider_payout_ref = 8;
+
+  // The provider's own state of the payout, as it says it.
+  string provider_status = 9;
+
+  // The provider's code when it FAILED; empty otherwise.
+  string provider_failure_code = 10;
+}
+
+// One movement a payout settles. net_minor = gross_minor - fee_minor.
+message PayoutLine {
+  // Open, never an enum: PAYMENT, REFUND, DISPUTE, DISPUTE_REVERSAL, FEE and
+  // ADJUSTMENT today. A value the caller does not know is still counted in the
+  // payout's amount.
+  string kind = 1;
+
+  // Positive for money that reaches the merchant, negative for money that
+  // leaves it (a refund, a disputed amount withdrawn).
+  int64 gross_minor = 2;
+
+  // What the provider kept on the line; the merchant bears it.
+  int64 fee_minor = 3;
+
+  int64 net_minor = 4;
+
+  // ISO 4217, the payout's.
+  string currency = 5;
+
+  // The payment the line comes from; empty for a line without one.
+  string payment_id = 6;
+
+  // That payment's caller reference, so the caller finds its own record.
+  string caller_reference = 7;
+
+  // The refund behind a REFUND line; empty otherwise.
+  string refund_id = 8;
+
+  // The dispute behind a DISPUTE or DISPUTE_REVERSAL line; empty otherwise.
+  string dispute_id = 9;
+}
+
+// ============================================================================
+// Open Merchant Account
+// ============================================================================
+
+message OpenMerchantAccountRequest {
+  // The caller's reference of the merchant, 1 to 64 characters, else
+  // INVALID_ARGUMENT. Opening again under the same reference with the same
+  // fields answers the same account; other fields are ALREADY_EXISTS.
+  string merchant_ref = 1;
+
+  // ISO 3166-1 alpha-2. It picks the provider: a country no provider serves is
+  // FAILED_PRECONDITION.
+  string country = 2;
+
+  // ISO 4217, one the provider settles in that country, else INVALID_ARGUMENT.
+  string currency = 3;
+
+  // Open: NON_PROFIT or COMPANY today; any other value is INVALID_ARGUMENT.
+  string entity_kind = 4;
+}
+
+// UNAVAILABLE when the provider did not answer: the same call replays safely.
+message OpenMerchantAccountResponse {
+  // OPENING until the merchant completes the provider's onboarding.
+  MerchantAccount merchant_account = 1;
+}
+
+// ============================================================================
+// Create Onboarding Session
+// ============================================================================
+
+message CreateOnboardingSessionRequest {
+  // Under every status: a DISABLED merchant still reads its payouts and answers
+  // its disputes.
+  string merchant_account_id = 1;
+
+  // At least one, from a closed list, else INVALID_ARGUMENT: ACCOUNT_ONBOARDING,
+  // ACCOUNT_MANAGEMENT, NOTIFICATION_BANNER, PAYOUTS and PAYMENTS. The page can
+  // do what the session allows and nothing more, so the caller asks only for
+  // what the person in front of it may do.
+  repeated string components = 2;
+
+  // From a closed list, else INVALID_ARGUMENT: REFUND_MANAGEMENT and
+  // DISPUTE_MANAGEMENT, each only beside PAYMENTS. Without them the payments
+  // component only reads.
+  repeated string features = 3;
+}
+
+message CreateOnboardingSessionResponse {
+  // Which provider's library the page loads.
+  string provider = 1;
+
+  // A single-use credential the page hands to that library, new at each call.
+  // Never kept or logged.
+  string client_secret = 2;
+
+  int64 expires_at_epoch_ms = 3;
+}
+
+// ============================================================================
+// Get Merchant Account
+// ============================================================================
+
+message GetMerchantAccountRequest {
+  string merchant_account_id = 1;
+}
+
+message GetMerchantAccountResponse {
+  MerchantAccount merchant_account = 1;
+}
+
+// ============================================================================
+// Disable Merchant Account
+// ============================================================================
+
+message DisableMerchantAccountRequest {
+  string merchant_account_id = 1;
+}
+
+// Disabling a DISABLED account answers it unchanged. An account is never
+// deleted: its payments still refer to it.
+message DisableMerchantAccountResponse {
+  // DISABLED, with disabled_reason CALLER.
+  MerchantAccount merchant_account = 1;
+}
+
+// ============================================================================
+// Start Payment
+// ============================================================================
+
+message StartPaymentRequest {
+  // An ENABLED merchant, else FAILED_PRECONDITION.
+  string merchant_account_id = 1;
+
+  // The caller's reference of this payment, 1 to 64 characters, unique per
+  // caller, else INVALID_ARGUMENT. The same reference with the same fields
+  // answers the same payment, its page included while it lasts; other fields
+  // are ALREADY_EXISTS. Once the page lapsed the payment answers FAILED with
+  // EXPIRED: another attempt takes another reference.
+  string caller_reference = 2;
+
+  // Positive. Below the provider's minimum or above the service's ceiling it
+  // is INVALID_ARGUMENT; a floor of the caller's own is the caller's to check.
+  int64 amount_minor = 3;
+
+  // ISO 4217, the merchant's, else INVALID_ARGUMENT.
+  string currency = 4;
+
+  // Where the page sends the payer once paid. An absolute https URL, else
+  // INVALID_ARGUMENT.
+  string success_url = 5;
+
+  // Where the page sends a payer who leaves it unpaid. An absolute https URL,
+  // else INVALID_ARGUMENT.
+  string cancel_url = 6;
+
+  // What the page shows as paid for, 1 to 120 characters, else
+  // INVALID_ARGUMENT. Never a person's data: the provider keeps it.
+  string item_label = 7;
+
+  // Open: PAYMENT or DONATION today, which words the page's button; empty is
+  // PAYMENT, any other value INVALID_ARGUMENT.
+  string purpose = 8;
+
+  // BCP 47 language of the page ("fr", "en"); empty lets the provider choose.
+  string locale = 9;
+
+  // Saves the payer's method for ChargeSavedMethod once paid; needs payer_key.
+  bool save_method = 10;
+
+  // The caller's key of the payer, 1 to 64 characters, never an address or a
+  // name; required with save_method, else INVALID_ARGUMENT.
+  string payer_key = 11;
+
+  // Prefills the page. Handed to the provider, never kept by the service.
+  string payer_email = 12;
+}
+
+// UNAVAILABLE when the provider did not answer or is UNAVAILABLE; the same call
+// replays safely.
+message StartPaymentResponse {
+  // OPEN with its hosted_url, or as it stands on a replay.
+  Payment payment = 1;
+}
+
+// ============================================================================
+// Charge Saved Method
+// ============================================================================
+
+message ChargeSavedMethodRequest {
+  // An ENABLED merchant, else FAILED_PRECONDITION.
+  string merchant_account_id = 1;
+
+  // As in StartPaymentRequest: the same reference with the same fields answers
+  // the same payment and never charges twice; other fields are ALREADY_EXISTS.
+  string caller_reference = 2;
+
+  // An ACTIVE method of a payer of this merchant; unknown or DETACHED is
+  // NOT_FOUND.
+  string saved_method_id = 3;
+
+  // As in StartPaymentRequest.
+  int64 amount_minor = 4;
+
+  // ISO 4217, the merchant's, else INVALID_ARGUMENT.
+  string currency = 5;
+}
+
+// A refused charge is a FAILED payment with its reason_code, never an error.
+// UNAVAILABLE when the provider did not answer: replayed under the same
+// reference, the call charges once at most.
+message ChargeSavedMethodResponse {
+  // PAID, FAILED, or OPEN while the provider still processes it.
+  Payment payment = 1;
+}
+
+// ============================================================================
+// Start Method Setup
+// ============================================================================
+
+message StartMethodSetupRequest {
+  // An ENABLED merchant, else FAILED_PRECONDITION.
+  string merchant_account_id = 1;
+
+  // The caller's reference of this setup, 1 to 64 characters, unique per
+  // caller, else INVALID_ARGUMENT. The same reference with the same fields
+  // answers the same setup as it stands, which is how the caller reads its
+  // outcome; other fields are ALREADY_EXISTS.
+  string caller_reference = 2;
+
+  // 1 to 64 characters, never an address or a name, else INVALID_ARGUMENT.
+  string payer_key = 3;
+
+  // The ACTIVE method of this payer the new one replaces, DETACHED once the new
+  // one is saved; empty adds a method. Unknown or another payer's is NOT_FOUND.
+  string replaces_saved_method_id = 4;
+
+  // Absolute https URLs, else INVALID_ARGUMENT.
+  string success_url = 5;
+  string cancel_url = 6;
+
+  // BCP 47 language of the page; empty lets the provider choose.
+  string locale = 7;
+
+  // Prefills the page. Handed to the provider, never kept by the service.
+  string payer_email = 8;
+}
+
+message StartMethodSetupResponse {
+  MethodSetup method_setup = 1;
+}
+
+// ============================================================================
+// Get Payment
+// ============================================================================
+
+message GetPaymentRequest {
+  string payment_id = 1;
+}
+
+message GetPaymentResponse {
+  Payment payment = 1;
+}
+
+// ============================================================================
+// Find Payment By Reference
+// ============================================================================
+
+message FindPaymentByReferenceRequest {
+  string caller_reference = 1;
+}
+
+// NOT_FOUND when the service never recorded a payment under the reference:
+// it records one before it calls the provider, so the payment can then be
+// started under that reference without paying twice.
+message FindPaymentByReferenceResponse {
+  Payment payment = 1;
+}
+
+// ============================================================================
+// List Payments
+// ============================================================================
+
+message ListPaymentsRequest {
+  string merchant_account_id = 1;
+
+  // Payments whose updated_at_epoch_ms is at or after this instant...
+  int64 changed_from_epoch_ms = 2;
+
+  // ...and before this one, at most 31 days after the first, else
+  // INVALID_ARGUMENT. A payment that changes again while the window is read
+  // moves to a later window.
+  int64 changed_to_epoch_ms = 3;
+
+  // 1 to 200, else INVALID_ARGUMENT; 0 is 100.
+  int32 limit = 4;
+
+  // The next_cursor of the previous page, empty for the first one; a cursor of
+  // another merchant or window is INVALID_ARGUMENT.
+  string cursor = 5;
+}
+
+message ListPaymentsResponse {
+  // Oldest change first, each with its refunds and disputes.
+  repeated Payment payments = 1;
+
+  // Empty on the last page.
+  string next_cursor = 2;
+}
+
+// ============================================================================
+// Refund Payment
+// ============================================================================
+
+message RefundPaymentRequest {
+  // Under every merchant status.
+  string payment_id = 1;
+
+  // The caller's reference of this refund, 1 to 64 characters, unique per
+  // caller, else INVALID_ARGUMENT. The same reference with the same fields
+  // answers the same refund and never refunds twice; other fields are
+  // ALREADY_EXISTS.
+  string caller_reference = 2;
+
+  // Positive, and at most the payment's amount less its refunds that did not
+  // fail, else FAILED_PRECONDITION; a payment that is not PAID has nothing to
+  // refund and answers the same.
+  int64 amount_minor = 3;
+
+  // ISO 4217, the payment's, else INVALID_ARGUMENT.
+  string currency = 4;
+
+  // Open: REQUESTED, DUPLICATE or FRAUDULENT today; empty is REQUESTED, any
+  // other value INVALID_ARGUMENT.
+  string reason_code = 5;
+}
+
+// UNAVAILABLE when the provider did not answer: the same call replays safely.
+message RefundPaymentResponse {
+  // PENDING, SUCCEEDED or FAILED. PaymentRefundedEvent follows a SUCCEEDED one.
+  Refund refund = 1;
+}
+
+// ============================================================================
+// List Payout Lines
+// ============================================================================
+
+message ListPayoutLinesRequest {
+  string merchant_account_id = 1;
+
+  // The payout of PayoutChangedEvent. One that is not PAID has no lines yet:
+  // FAILED_PRECONDITION.
+  string payout_id = 2;
+
+  // 1 to 500, else INVALID_ARGUMENT; 0 is 200.
+  int32 limit = 3;
+
+  // The next_cursor of the previous page, empty for the first one.
+  string cursor = 4;
+}
+
+message ListPayoutLinesResponse {
+  Payout payout = 1;
+
+  repeated PayoutLine lines = 2;
+
+  // Empty on the last page.
+  string next_cursor = 3;
+}
+
+// ============================================================================
+// Get Provider Status
+// ============================================================================
+
+message GetProviderStatusRequest {
+  // Exactly one, else INVALID_ARGUMENT.
+  oneof subject {
+    // A provider's id, "stripe" today; one the service does not run is
+    // NOT_FOUND.
+    string provider = 1;
+
+    // The merchant whose provider is asked for.
+    string merchant_account_id = 2;
+  }
+}
+
+message GetProviderStatusResponse {
+  string provider = 1;
+
+  // Open, never an enum: AVAILABLE, DEGRADED and UNAVAILABLE today. Only
+  // UNAVAILABLE withdraws the provider's payments from a page; a value the
+  // caller does not know is read as DEGRADED.
+  string status = 2;
+
+  // Since when the status holds.
+  int64 since_epoch_ms = 3;
+
+  // When the service last probed the provider.
+  int64 checked_at_epoch_ms = 4;
+}
+
+// ============================================================================
+// Erase Payer
+// ============================================================================
+
+message ErasePayerRequest {
+  // The caller's key of the payer, erased at every merchant the caller opened:
+  // its methods detached, its customer deleted at the provider, the key itself
+  // replaced by a tombstone. 1 to 64 characters, else INVALID_ARGUMENT.
+  string payer_key = 1;
+}
+
+// UNAVAILABLE when a provider did not answer: the same call replays safely and
+// erases what is left.
+message ErasePayerResponse {
+  // Merchants the payer was erased from by this call; 0 for a key unknown or
+  // already erased, which still answers OK.
+  int32 erased_payers = 1;
+}
