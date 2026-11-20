@@ -678,6 +678,7 @@ class ContractWireCompatibilityTest {
               14 EMAIL_TEMPLATE_RECEIPT_REPLACED
               15 EMAIL_TEMPLATE_APP_SIGNUP_CODE
               16 EMAIL_TEMPLATE_SENSITIVE_ACTION_CODE
+              17 EMAIL_TEMPLATE_CHURCH_CONTACT_EMAIL_CONFIRMATION
               reserved 1
               reserved 2
             enum ecclesiaflow.email.Priority
