@@ -212,7 +212,8 @@ message AppointmentMovedEvent {
   int64 previous_starts_at_epoch_ms = 23;
   int64 previous_ends_at_epoch_ms = 24;
 
-  // Who moved it. Open, never an enum: HOST or BOOKER today, the system never moves a booking.
+  // Who moved it. Open, never an enum: HOST, DELEGATE or BOOKER today, the system never moves a
+  // booking. A delegate acts on the host's side; actor_subject names which one.
   string actor = 25;
 
   string booker_kind = 30;
@@ -256,11 +257,13 @@ message AppointmentCancelledEvent {
   // Open, never an enum: CANCELLED here.
   string status = 21;
 
-  // Who ended it, which decides who is told. Open, never an enum: HOST, BOOKER or SYSTEM today.
+  // Who ended it, which decides who is told. Open, never an enum: HOST, DELEGATE, BOOKER or SYSTEM
+  // today. A delegate acts on the host's side; actor_subject names which one.
   string actor = 22;
 
-  // Open, never an enum: REQUESTED, DECLINED, EXPIRED, HOST_UNAVAILABLE, BOOKER_UNAVAILABLE and
-  // SPACE_CLOSED today. A code, never the free text a person wrote.
+  // Open, never an enum: REQUESTED, DECLINED, EXPIRED, HOST_UNAVAILABLE, BOOKER_UNAVAILABLE,
+  // SPACE_CLOSED and OTHER today. A code, never the free text a person wrote: OTHER comes with the
+  // host's message (has_host_message), which GetNoticeDetails reads.
   string reason_code = 23;
 
   string booker_kind = 30;
