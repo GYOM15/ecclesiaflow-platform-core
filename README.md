@@ -175,9 +175,18 @@ reaches to every request authenticated by a token (`JwtAuthenticationToken`):
 | absent | `SCOPE_ef:surface:full` (the web console) |
 | `platform` | `SCOPE_ef:moderation:act` and `ROLE_PLATFORM_MODERATOR`; `ef:surface:full` never suffices |
 | `platform` with `x-ef-platform-duty: billing` | `SCOPE_ef:billing:operate` and `ROLE_PLATFORM_BILLING`; neither moderation's couple nor `ef:surface:full` suffices |
+| `platform` with `x-ef-platform-duty: support` | `SCOPE_ef:backoffice:act` and `ROLE_SUPPORT` or `ROLE_SUPER_ADMIN`; `ef:surface:full` never suffices |
+| `platform` with `x-ef-platform-duty: administration` | `SCOPE_ef:backoffice:act` and `ROLE_SUPER_ADMIN`; neither `ROLE_SUPPORT` nor `ef:surface:full` suffices |
 
 `x-ef-platform-duty` names whose operations a `platform` one is: absent or `moderation`, moderators';
-`billing`, billing operators'. Neither couple opens the other's operations.
+`billing`, billing operators'; `support`, the back-office's support and super admin; `administration`,
+the super admin's alone. No couple opens another duty's operations.
+
+The operating clients (`ecclesiaflow-backoffice`, `ecclesiaflow-moderation-cli`, `ecclesiaflow-billing-cli` by
+default) reach `platform` operations only: a token whose `azp` names one of them is refused on every `member`,
+console or unlisted operation, whatever its scopes, `ef:surface:full` included. Their tokens carry the modules'
+audience like any other, so without this rule the owner's back-office token would read his own conversations
+through a member route.
 
 A `security: []` operation is never ruled; a path outside the contract is console-only, except the
 technical list (`/ws/**`, `/error`, `/actuator/**`, `/v3/api-docs/**`, `/swagger-ui.html`,
@@ -185,11 +194,13 @@ technical list (`/ws/**`, `/error`, `/actuator/**`, `/v3/api-docs/**`, `/swagger
 chain and throws `AccessDeniedException`. At startup the module refuses to start when its chain opens,
 to a caller without a token, a route that is neither a `security: []` operation nor technical, or
 closes a `security: []` operation; an `x-ef-surface` other than `member` or `platform` stops it too, and so
-does an `x-ef-platform-duty` other than `moderation` or `billing`, or one beside another surface.
+does an `x-ef-platform-duty` other than `moderation`, `billing`, `support` or `administration`, or one beside
+another surface.
 
 | Property | Default | Effect |
 |---|---|---|
 | `ecclesiaflow.security.surface.mode` | `enforce` | `log-only` logs and counts refusals and lets them through |
+| `ecclesiaflow.security.surface.operating-clients` | the three above | the `azp` values confined to `platform` operations; an emptied list keeps the default |
 
 Metrics: `surface_mode{mode}` (1 for the mode in force) and
 `ef_surface_refused_total{surface,caller,mode}`. No `ecclesiaflow.*` property turns the rule off; a
@@ -470,7 +481,9 @@ ordered first, for a servlet module that serves its actuator endpoints on their 
 (`management.server.port` different from `server.port`). It claims `/actuator/**` and:
 
 - opens `/actuator/prometheus`, `/actuator/info`, `/actuator/health` and `/actuator/health/**` to
-  callers with no token: the Prometheus container and the orchestrator's probes;
+  callers with no token: the Prometheus container and the orchestrator's probes; and
+  `/actuator/journalhead` and `/actuator/journalhead/{seq}`, positions and hashes of the journal, to the
+  host's nightly anchoring;
 - refuses every other actuator endpoint, `/actuator/metrics` included, since the chain has no
   login mechanism;
 - creates no session, and has no CSRF, CORS, basic or form login.
@@ -508,6 +521,7 @@ generated classes and the `.proto` files.
 | `events/event_options.proto` | the `(ecclesiaflow.events.routing_keys)` option | `com.ecclesiaflow.grpc.events` |
 | `events/auth/v1/domain_events.proto` | auth (`SetupTokenIssuedEvent`, `ExistingAccountNoticeEvent`, `TwoFactorRemovedEvent`, `AccountSessionsRevokedEvent`) | `com.ecclesiaflow.grpc.events.auth` |
 | `events/church/v1/church_events.proto` | church (invitation, admission, removal, group events, `NotificationCreatedEvent`, `ChurchOwnershipTransferredEvent`, `ChurchActivatedEvent`, `MemberCapabilitiesChangedEvent`, `ChurchPublicIdentityChangedEvent`, `ChurchAppointmentSettingsChangedEvent`) | `com.ecclesiaflow.grpc.events.church` |
+| `events/church/v1/church_suspension_events.proto` | church (`ChurchSuspendedEvent`, `ChurchSuspensionLiftedEvent`) | `com.ecclesiaflow.grpc.events.church` |
 | `events/members/v1/members_events.proto` | members (`MemberProfileChangedEvent`, `MemberAnonymizedEvent`, `MemberContactsErasedEvent`, `MemberDeactivatedEvent`, `MemberReactivatedEvent`, `MemberSuspendedEvent`, `MemberSuspensionLiftedEvent`) | `com.ecclesiaflow.grpc.events.members` |
 | `events/chat/v1/chat_events.proto` | chat (`ChatMessagePostedEvent`) | `com.ecclesiaflow.grpc.events.chat` |
 | `events/moderation/v1/moderation_events.proto` | chat, church and members, each under its own key (`ContentReportedEvent`, `ModerationActionTakenEvent`) | `com.ecclesiaflow.grpc.events.moderation` |
@@ -691,6 +705,92 @@ WHERE status = 'PARKED' AND id = <id>;
 -- Drop: the event is lost; the later events of its key leave.
 DELETE FROM outbox_event WHERE status = 'PARKED' AND id = <id>;
 ```
+
+## Tamper-evident journal of platform gestures (opt-in)
+
+Every gesture a platform operation serves, readings included, writes one line to the module's own journal, in
+the gesture's transaction: a line that cannot be written means the gesture does not happen. A line holds ids and
+codes only, never a name, an address, a phone number, a content or free text; `JournalEntry` refuses any other
+value, without echoing it.
+
+| Column | Holds |
+|---|---|
+| `seq` | the line's position in the module's single chain, set by the database |
+| `occurred_at` | the module clock's instant, in microseconds |
+| `actor_subject`, `actor_roles`, `actor_session` | the operator's `sub`, the platform roles of the token, sorted, and the SHA-256 of the Keycloak `sid` |
+| `request_id` | the trace id |
+| `gesture`, `outcome`, `refusal_code` | an open UPPER_SNAKE vocabulary; `DONE` or `REFUSED`, the code set exactly when refused |
+| `target_kind`, `target_ref`, `case_ref`, `reason_code` | the target, the request or report the gesture belongs to, the motive's code |
+| `details` | at most 16 flat pairs of ids or codes (a channel, a state before and after) |
+| `prev_hash`, `row_hash` | SHA-256 of the previous hash (`0x00` for the first line) and of the line's canonical form |
+
+What it holds to:
+
+- One chain per module. The insert trigger takes the head's row lock, so concurrent gestures queue and never
+  fork; `seq` is also the primary key, and a multi-row insert fails on it.
+- The canonical form is frozen and mirrored in Java (`JournalCanonicalForm`): the verifier recomputes every
+  hash itself, never trusting a function the schema's owner could redefine.
+- `UPDATE`, `DELETE` and `TRUNCATE` are refused by triggers on the lines and on the head, whoever runs them.
+  The head moves its end one position onto the line just written, or its start forward; never back, never onto
+  a position no line holds.
+- A rewritten line fails its hash (`LINE_REWRITTEN`); a rewritten and re-hashed one, or a removed one, breaks
+  the next link (`LINK_BROKEN`); a removed tail leaves the head ahead of the lines (`TAIL_REMOVED`); a replaced
+  head or last line no longer match (`HEAD_MISMATCH`).
+- `platform_journal.purge_expired()` removes the longest run of oldest lines past 24 months (owner decision C3,
+  written in the SQL, so no caller can name a later cut) and moves the head's start point onto the last line it
+  removed, in the same transaction: the remaining chain verifies from there.
+- The application role holds `INSERT` and `SELECT` on the lines and `EXECUTE` on `current_head()` and
+  `purge_expired()`, nothing else. The module refuses to start when its role is a superuser, owns the schema or
+  is a member of its owner, may create in it, or holds more (`JournalPrivilegeException`).
+
+Adopting it in a module:
+
+1. The pre-boot step creates a NOLOGIN owner role and the schema it owns:
+
+   ```sql
+   CREATE ROLE <module>_journal_owner NOLOGIN;
+   CREATE SCHEMA platform_journal AUTHORIZATION <module>_journal_owner;
+   ```
+
+2. Copy `src/main/resources/db/journal/platform_journal.sql` (in this jar), unchanged, into the next migration
+   of a Flyway line that runs as that owner (a migrator login that `SET ROLE`s to it, as church's finance line
+   does), with the placeholder `journal_writer` set to the module's application role. The library ships no
+   migration of its own.
+3. Enable it, name the module, and expose the endpoint on the management port:
+
+   ```properties
+   ecclesiaflow.journal.enabled=true
+   ecclesiaflow.journal.module=members
+   management.endpoints.web.exposure.include=health,info,prometheus,journalhead
+   ```
+
+4. Write a line where the gesture runs, in its transaction, refusals included:
+
+   ```java
+   @Transactional
+   public void suspend(JournalActor operator, String requestId, UUID accountId, String reasonCode) {
+       // business change ...
+       journal.append(JournalEntry.done(operator, requestId, "ACCOUNT_SUSPENDED", "ACCOUNT", accountId.toString())
+               .withReason(reasonCode));
+   }
+   ```
+
+   `JournalActor.of(sub, platformRoles, sid)` hashes the `sid` itself. `append` outside a writable transaction on
+   the journal's DataSource throws `IllegalTransactionStateException`: a reading is journaled in a writable one.
+5. Run `JournalIntegrity.verify()` and `JournalRetention.purgeExpired()` every night, under the module's
+   scheduler lock. The walk covers the whole chain, from its start point to its head, in one snapshot.
+
+| Bean | Does |
+|---|---|
+| `PlatformJournal` | `append(JournalEntry)`, in the caller's transaction; returns the line as stored |
+| `JournalReader` | `list(JournalQuery)`: newest first, filtered by period, operator, target and gesture, opaque cursor, 1 to 200 lines |
+| `JournalIntegrity` | `verify()`, `lastVerification()`, `head()`, `position(seq)` |
+| `JournalRetention` | `purgeExpired()` |
+| `JournalHeadEndpoint` | `/actuator/journalhead` (the head) and `/actuator/journalhead/{seq}` (the hash at a position: `LINE`, `START`, `PURGED` or `ABSENT`), read by the host's nightly anchoring |
+
+Metrics: `ef_platform_journal_rows_total{module,gesture,outcome}` (counted after commit),
+`ef_platform_journal_chain_breaks_total{module}` and `ef_platform_journal_verified_timestamp{module}`. A broken
+chain is an ERROR line.
 
 ## Domain-event signing
 
@@ -986,6 +1086,58 @@ Adopting it, in deploy order (each step ships before the next one uses it):
 | church | Binds the two delegate keys by name, keeps a designation only for an active member of the space's church, and sends `appointments_delegate` in the call that sets `two_factor_required`; publishes `ChurchAppointmentSettingsChangedEvent` through the outbox, in the transaction of the change, only once the appointments service's queue is bound |
 | communication | Binds the three new appointment keys on its appointment queue, reads `actor` `DELEGATE` and `reason_code` `OTHER`, routes confirmations and reminders by `notice_channels`, and reads a guest's details and the host's message with `GetNoticeDetails` under a short deadline, failing closed |
 | appointments | Serves `GetNoticeDetails` annotated with its scope (it binds no `AppointmentsAdminService`); binds the settings key; publishes the new values and events only once communication's and church's queues are bound |
+
+### Back-office foundations
+
+Added only, like the rest of 0.6.13: what the back-office's lots (auth, members, church, chat, communication and the
+appointments service) read and write, released before any of them.
+
+| Change in 0.6.13 | Effect on a module that adopts nothing | Fix |
+|---|---|---|
+| `Surface.PLATFORM_SUPPORT` and `Surface.PLATFORM_ADMINISTRATION`, read from `x-ef-platform-duty: support` and `administration` | None: no contract carries the values yet | — |
+| The operating clients' rule: a token whose `azp` is `ecclesiaflow-backoffice`, `ecclesiaflow-moderation-cli` or `ecclesiaflow-billing-cli` is refused on every `member`, console or unlisted operation | None for the command lines, which call platform operations only | A module test that sends such an `azp` to a member or console route expects 403 |
+| `SurfaceAuthorizationFilter` takes the `OperatingClients`; `SurfaceAuthorizationEvents.ModeActive` carries their list | A module that builds either itself no longer compiles | None does; the auto-configuration builds both |
+| `ChurchSuspendedEvent` and `ChurchSuspensionLiftedEvent` (`events/church/v1/church_suspension_events.proto`), with two `EventRoutes` constants | None | — |
+| `EmailTemplateType` 19 to 22 | A `switch` expression over the enum with no `default` no longer compiles | Add the cases, or a `default` that refuses a template the module has no mail for |
+| `ChurchService.GetMemberLeaders` is a new RPC, and `S2sScopeRegistry` lists every RPC of a bound service, implemented or not | church does not start: `s2s scope registry is incomplete` | Override it with `@S2sScopeRequired("ef:church:leaders:read")`, implemented or as a stub that answers `UNIMPLEMENTED` |
+| `MemberContact.phone_since_epoch_ms` and `email_since_epoch_ms`, optional | None: absent means unknown | — |
+| `PlatformJournalAutoConfiguration` | Off until `ecclesiaflow.journal.enabled` is `true` | See [the journal](#tamper-evident-journal-of-platform-gestures-opt-in) |
+| `journalhead` joins the anonymous endpoints of the management chain | None: the endpoint exists only in a module that enables the journal and exposes it | — |
+
+| RPC | Served by | Called by | Scope |
+|---|---|---|---|
+| `ChurchService.GetMemberLeaders` | church | auth | `ef:church:leaders:read` |
+
+`GetMemberLeaders` answers, for a person's `sub`, each `ACTIVE` church they are an active member of, with the
+`sub` of its owner and of its active administrators; the person may be among them and the caller leaves them out.
+
+| Event | Key (`EventRoutes`) | Published by | Consumed by |
+|---|---|---|---|
+| `ChurchSuspendedEvent` | `CHURCH_CHURCH_SUSPENDED_V1` (`church.church.suspended.v1`) | church | chat, communication, appointments |
+| `ChurchSuspensionLiftedEvent` | `CHURCH_CHURCH_SUSPENSION_LIFTED_V1` (`church.church.suspension-lifted.v1`) | church | chat, communication, appointments |
+
+Both carry `event_id`, `occurred_at_epoch_ms`, `church_id` and an open `reason_code`; church stages a church's
+suspension events under one aggregate key, and a consumer ignores one no newer than the last it applied. A
+church suspension is not billing's: neither lifts the other.
+
+| Value | `EmailTemplateType` | Sent by | To |
+|---|---|---|---|
+| 19 | `EMAIL_TEMPLATE_SUSPENSION_LIFTED` | members | the account |
+| 20 | `EMAIL_TEMPLATE_CHURCH_SUSPENDED` | church | the owner and the administrators |
+| 21 | `EMAIL_TEMPLATE_CHURCH_SUSPENSION_LIFTED` | church | the owner and the administrators |
+| 22 | `EMAIL_TEMPLATE_TWO_FACTOR_RESET_REQUESTED` | auth | the account, when a reset is requested, before anything changes |
+
+Adopting it, in deploy order (each step ships before the next one uses it):
+
+| Module | Does |
+|---|---|
+| auth | Declares `ef:backoffice:act`, held by `ecclesiaflow-backoffice` alone, and `ef:church:leaders:read`, given with `ef:email:send` to `ecclesiaflow-auth-backend`; updates `check-realm.reference.json` |
+| deploy | Sets the dead-letter policy of each new queue (communication, chat, appointments), never bounded, before the image that declares it |
+| communication | Ships the FR and EN templates of 19 to 22; binds both church keys by name |
+| chat, appointments | Bind both church keys by name, dedupe on `event_id`, keep the latest per church on `occurred_at_epoch_ms` |
+| members | Fills the two dates of `MemberContact` |
+| church | Annotates `GetMemberLeaders` in the upgrade that reaches this release; publishes the two events through the outbox only once every consumer's queue is bound |
+| auth, members, church, chat | Adopt the journal: the owner role and the schema by the pre-boot step, the SQL in a Flyway line run as the owner, `journalhead` exposed on the management port |
 
 ## Upgrading to 0.6.12
 

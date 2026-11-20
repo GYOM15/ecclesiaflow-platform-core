@@ -3,6 +3,8 @@ package com.ecclesiaflow.platform.security.surface.events;
 import com.ecclesiaflow.platform.security.surface.Surface;
 import com.ecclesiaflow.platform.security.surface.SurfaceMode;
 
+import java.util.List;
+
 /** Decisions of the surface filter and verifier, which never log: listeners turn them into logs. */
 public final class SurfaceAuthorizationEvents {
 
@@ -22,8 +24,16 @@ public final class SurfaceAuthorizationEvents {
                           String caller, String azp, String subject) {
     }
 
-    /** Published once at startup so the mode in force is stated in the logs, not implied by a missing property. */
+    /**
+     * Published once at startup so the mode in force is stated in the logs, not implied by a missing property.
+     *
+     * @param operatingClients the clients whose tokens reach platform operations only
+     */
     public record ModeActive(SurfaceMode mode, int memberOperations, int consoleOperations, int platformOperations,
-                             int tokenlessOperations) {
+                             int tokenlessOperations, List<String> operatingClients) {
+
+        public ModeActive {
+            operatingClients = List.copyOf(operatingClients);
+        }
     }
 }

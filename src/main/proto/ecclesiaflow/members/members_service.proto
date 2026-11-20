@@ -145,6 +145,13 @@ message GetMemberContactsResponse {
 message MemberContact {
   string keycloak_user_id = 1;
   string phone_number = 2;
+  // Milliseconds since Unix epoch (UTC) at which the phone number took its
+  // current value. Absent: unknown, either set before members recorded the
+  // date or answered by a members build that predates the field.
+  optional int64 phone_since_epoch_ms = 3;
+  // Milliseconds since Unix epoch (UTC) at which the account's e-mail address
+  // took its current value. Absent: unknown, as for the phone.
+  optional int64 email_since_epoch_ms = 4;
 }
 
 // Idempotently provision a members.member row for a Keycloak-verified identity

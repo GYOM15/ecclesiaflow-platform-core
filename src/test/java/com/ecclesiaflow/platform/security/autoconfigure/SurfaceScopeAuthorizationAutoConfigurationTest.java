@@ -3,6 +3,7 @@ package com.ecclesiaflow.platform.security.autoconfigure;
 import com.ecclesiaflow.platform.contract.InvalidApiContractException;
 import com.ecclesiaflow.platform.security.KeycloakJwtConverter;
 import com.ecclesiaflow.platform.security.surface.InvalidSurfaceConfigurationException;
+import com.ecclesiaflow.platform.security.surface.SurfaceProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.search.Search;
 import org.junit.jupiter.api.AfterAll;
@@ -115,6 +116,16 @@ class SurfaceScopeAuthorizationAutoConfigurationTest {
             return "plans";
         }
 
+        @GetMapping("/module/backoffice/accounts")
+        String accounts() {
+            return "accounts";
+        }
+
+        @GetMapping("/module/backoffice/journal")
+        String journal() {
+            return "journal";
+        }
+
         @PostMapping("/module/public/signup")
         String signup() {
             return "signed-up";
@@ -141,20 +152,50 @@ class SurfaceScopeAuthorizationAutoConfigurationTest {
         static final String WEB_MODERATOR = "web-moderator";
         static final String BILLING_OPERATOR = "billing-operator";
         static final String BILLING_WITHOUT_ROLE = "billing-without-role";
+        static final String SUPPORT = "support";
+        static final String SUPER_ADMIN = "super-admin";
+        static final String BACKOFFICE_WITHOUT_ROLE = "backoffice-without-role";
+        static final String WEB_SUPER_ADMIN = "web-super-admin";
+        static final String MODERATION_CLI = "moderation-cli";
+        static final String BILLING_CLI = "billing-cli";
+        static final String BACKOFFICE_FULL = "backoffice-full";
 
-        private static final Map<String, Map<String, Object>> CLAIMS = Map.of(
-                WEB, Map.of("scope", "openid ef:surface:full", "azp", "ecclesiaflow-web"),
-                MOBILE, Map.of("scope", "openid", "azp", "ecclesiaflow-mobile"),
-                MODERATION, Map.of("scope", "ef:moderation:act", "azp", "ecclesiaflow-moderation",
-                        "realm_access", Map.of("roles", List.of("PLATFORM_MODERATOR"))),
-                MODERATION_WITHOUT_ROLE, Map.of("scope", "ef:moderation:act", "azp", "ecclesiaflow-moderation"),
-                WEB_MODERATOR, Map.of("scope", "openid ef:surface:full", "azp", "ecclesiaflow-web",
-                        "realm_access", Map.of("roles", List.of("PLATFORM_MODERATOR"))),
-                BILLING_OPERATOR, Map.of("scope", "ef:billing:operate", "azp", "ecclesiaflow-billing-operations",
-                        "realm_access", Map.of("roles", List.of("PLATFORM_BILLING"))),
-                BILLING_WITHOUT_ROLE, Map.of("scope", "ef:billing:operate", "azp", "ecclesiaflow-billing-operations"));
+        /** The default scopes of the back-office client. */
+        private static final String BACKOFFICE_SCOPES = "ef:backoffice:act ef:moderation:act";
+
+        private static final Map<String, Map<String, Object>> CLAIMS = Map.ofEntries(
+                Map.entry(WEB, Map.of("scope", "openid ef:surface:full", "azp", "ecclesiaflow-web")),
+                Map.entry(MOBILE, Map.of("scope", "openid", "azp", "ecclesiaflow-mobile")),
+                Map.entry(MODERATION, Map.of("scope", "ef:moderation:act", "azp", "ecclesiaflow-moderation",
+                        "realm_access", Map.of("roles", List.of("PLATFORM_MODERATOR")))),
+                Map.entry(MODERATION_WITHOUT_ROLE,
+                        Map.of("scope", "ef:moderation:act", "azp", "ecclesiaflow-moderation")),
+                Map.entry(WEB_MODERATOR, Map.of("scope", "openid ef:surface:full", "azp", "ecclesiaflow-web",
+                        "realm_access", Map.of("roles", List.of("PLATFORM_MODERATOR")))),
+                Map.entry(BILLING_OPERATOR,
+                        Map.of("scope", "ef:billing:operate", "azp", "ecclesiaflow-billing-operations",
+                                "realm_access", Map.of("roles", List.of("PLATFORM_BILLING")))),
+                Map.entry(BILLING_WITHOUT_ROLE,
+                        Map.of("scope", "ef:billing:operate", "azp", "ecclesiaflow-billing-operations")),
+                Map.entry(SUPPORT, backOffice("SUPPORT")),
+                Map.entry(SUPER_ADMIN, backOffice("SUPER_ADMIN")),
+                Map.entry(BACKOFFICE_WITHOUT_ROLE,
+                        Map.of("scope", BACKOFFICE_SCOPES, "azp", "ecclesiaflow-backoffice")),
+                Map.entry(WEB_SUPER_ADMIN, Map.of("scope", "openid ef:surface:full", "azp", "ecclesiaflow-web",
+                        "realm_access", Map.of("roles", List.of("SUPER_ADMIN", "SUPPORT")))),
+                Map.entry(MODERATION_CLI, Map.of("scope", "ef:moderation:act", "azp", "ecclesiaflow-moderation-cli",
+                        "realm_access", Map.of("roles", List.of("PLATFORM_MODERATOR")))),
+                Map.entry(BILLING_CLI, Map.of("scope", "ef:billing:operate", "azp", "ecclesiaflow-billing-cli",
+                        "realm_access", Map.of("roles", List.of("PLATFORM_BILLING")))),
+                Map.entry(BACKOFFICE_FULL, Map.of("scope", "ef:surface:full " + BACKOFFICE_SCOPES,
+                        "azp", "ecclesiaflow-backoffice", "realm_access", Map.of("roles", List.of("SUPER_ADMIN")))));
 
         private Tokens() {
+        }
+
+        private static Map<String, Object> backOffice(String role) {
+            return Map.of("scope", BACKOFFICE_SCOPES, "azp", "ecclesiaflow-backoffice",
+                    "realm_access", Map.of("roles", List.of(role)));
         }
 
         static Jwt decode(String token) {
@@ -272,6 +313,62 @@ class SurfaceScopeAuthorizationAutoConfigurationTest {
             assertThat(status("GET", "/module/ops/plans", Tokens.BILLING_WITHOUT_ROLE)).isEqualTo(403);
             assertThat(status("GET", "/module/ops/plans", Tokens.MODERATION)).isEqualTo(403);
             assertThat(status("GET", "/module/ops/plans", Tokens.WEB)).isEqualTo(403);
+        }
+
+        @Test
+        @DisplayName("support operations open to the back-office scope with the support or super admin role")
+        void supportDuty() throws Exception {
+            assertThat(call("GET", "/module/backoffice/accounts", Tokens.SUPPORT).body()).isEqualTo("accounts");
+            assertThat(call("GET", "/module/backoffice/accounts", Tokens.SUPER_ADMIN).body()).isEqualTo("accounts");
+            assertThat(status("GET", "/module/backoffice/accounts", Tokens.BACKOFFICE_WITHOUT_ROLE)).isEqualTo(403);
+            assertThat(status("GET", "/module/backoffice/accounts", Tokens.MODERATION)).isEqualTo(403);
+            assertThat(status("GET", "/module/backoffice/accounts", Tokens.BILLING_OPERATOR)).isEqualTo(403);
+        }
+
+        @Test
+        @DisplayName("administration operations open to the super admin alone, never to the support")
+        void administrationDuty() throws Exception {
+            assertThat(call("GET", "/module/backoffice/journal", Tokens.SUPER_ADMIN).body()).isEqualTo("journal");
+            assertThat(status("GET", "/module/backoffice/journal", Tokens.SUPPORT)).isEqualTo(403);
+            assertThat(status("GET", "/module/backoffice/journal", Tokens.BACKOFFICE_WITHOUT_ROLE)).isEqualTo(403);
+            assertThat(status("GET", "/module/backoffice/journal", Tokens.MODERATION)).isEqualTo(403);
+        }
+
+        @Test
+        @DisplayName("a web token reaches no back-office operation, even the owner's with both roles")
+        void webTokenOnBackOffice() throws Exception {
+            assertThat(status("GET", "/module/backoffice/accounts", Tokens.WEB_SUPER_ADMIN)).isEqualTo(403);
+            assertThat(status("GET", "/module/backoffice/journal", Tokens.WEB_SUPER_ADMIN)).isEqualTo(403);
+            assertThat(status("GET", "/module/backoffice/accounts", Tokens.WEB)).isEqualTo(403);
+            assertThat(refused("platform-administration", "console", "enforce")).isPositive();
+        }
+
+        @Test
+        @DisplayName("a back-office token opens no moderation route without the moderator role")
+        void backOfficeTokenOnModeration() throws Exception {
+            assertThat(status("GET", "/module/moderation/reports", Tokens.SUPER_ADMIN)).isEqualTo(403);
+            assertThat(status("GET", "/module/ops/plans", Tokens.SUPER_ADMIN)).isEqualTo(403);
+        }
+
+        @Test
+        @DisplayName("a back-office or command-line token reaches no member, console or unlisted route")
+        void operatingClientsReachPlatformOnly() throws Exception {
+            for (String token : List.of(Tokens.SUPER_ADMIN, Tokens.SUPPORT, Tokens.MODERATION_CLI, Tokens.BILLING_CLI,
+                    Tokens.BACKOFFICE_FULL)) {
+                assertThat(status("GET", "/module/me", token)).as(token).isEqualTo(403);
+                assertThat(status("GET", "/module/console/members", token)).as(token).isEqualTo(403);
+                assertThat(status("GET", "/module/unlisted", token)).as(token).isEqualTo(403);
+            }
+            assertThat(refused("member", "moderation", "enforce")).isPositive();
+        }
+
+        @Test
+        @DisplayName("an operating client still reaches its own duty, and a security: [] operation")
+        void operatingClientsKeepTheirDuty() throws Exception {
+            assertThat(status("GET", "/module/moderation/reports", Tokens.MODERATION_CLI)).isEqualTo(200);
+            assertThat(status("GET", "/module/ops/plans", Tokens.BILLING_CLI)).isEqualTo(200);
+            assertThat(status("GET", "/module/backoffice/journal", Tokens.BACKOFFICE_FULL)).isEqualTo(200);
+            assertThat(status("POST", "/module/public/signup", Tokens.SUPER_ADMIN)).isEqualTo(200);
         }
 
         @Test
@@ -405,6 +502,20 @@ class SurfaceScopeAuthorizationAutoConfigurationTest {
         void unknownMode() {
             assertThatThrownBy(() -> boot("ecclesiaflow.security.surface.mode=off").close())
                     .hasStackTraceContaining("ecclesiaflow.security.surface.mode");
+        }
+
+        @Test
+        @DisplayName("a configured list replaces the operating clients, and an emptied one keeps the default")
+        void configuredOperatingClients() throws Exception {
+            try (ConfigurableApplicationContext context = boot(
+                    "ecclesiaflow.security.surface.operating-clients=ecclesiaflow-web")) {
+                assertThat(context.getBean(SurfaceProperties.class).getOperatingClients())
+                        .containsExactly("ecclesiaflow-web");
+            }
+            try (ConfigurableApplicationContext context = boot("ecclesiaflow.security.surface.operating-clients=")) {
+                assertThat(context.getBean(SurfaceProperties.class).getOperatingClients())
+                        .isEqualTo(SurfaceProperties.DEFAULT_OPERATING_CLIENTS);
+            }
         }
 
         @Test

@@ -35,6 +35,9 @@ import com.ecclesiaflow.grpc.events.church.ChurchDomainEventsProto;
 import com.ecclesiaflow.grpc.events.church.ChurchInvitationCreatedEvent;
 import com.ecclesiaflow.grpc.events.church.ChurchOwnershipTransferredEvent;
 import com.ecclesiaflow.grpc.events.church.ChurchPublicIdentityChangedEvent;
+import com.ecclesiaflow.grpc.events.church.ChurchSuspendedEvent;
+import com.ecclesiaflow.grpc.events.church.ChurchSuspensionEventsProto;
+import com.ecclesiaflow.grpc.events.church.ChurchSuspensionLiftedEvent;
 import com.ecclesiaflow.grpc.events.church.MemberAddedToGroupEvent;
 import com.ecclesiaflow.grpc.events.church.MemberAdmittedToChurchEvent;
 import com.ecclesiaflow.grpc.events.church.MemberCapabilitiesChangedEvent;
@@ -118,7 +121,8 @@ class ContractWireCompatibilityTest {
             PaymentsServiceProto.getDescriptor(),
             PaymentsDomainEventsProto.getDescriptor(),
             AppointmentsNoticeServiceProto.getDescriptor(),
-            AppointmentsAdminServiceProto.getDescriptor());
+            AppointmentsAdminServiceProto.getDescriptor(),
+            ChurchSuspensionEventsProto.getDescriptor());
 
     private static final Path PROTO_ROOT = Path.of("src/main/proto");
 
@@ -234,7 +238,8 @@ class ContractWireCompatibilityTest {
                 PaymentRefundedEvent.class, PaymentDisputedEvent.class, PayoutChangedEvent.class,
                 ProviderStatusChangedEvent.class, AppointmentMoveRequestedEvent.class,
                 CalendarDelegateAddedEvent.class, CalendarDelegateRemovedEvent.class,
-                ChurchAppointmentSettingsChangedEvent.class))
+                ChurchAppointmentSettingsChangedEvent.class,
+                ChurchSuspendedEvent.class, ChurchSuspensionLiftedEvent.class))
                 .extracting(Class::getName)
                 .containsExactly(
                         "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent",
@@ -279,7 +284,9 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.events.appointments.AppointmentMoveRequestedEvent",
                         "com.ecclesiaflow.grpc.events.appointments.CalendarDelegateAddedEvent",
                         "com.ecclesiaflow.grpc.events.appointments.CalendarDelegateRemovedEvent",
-                        "com.ecclesiaflow.grpc.events.church.ChurchAppointmentSettingsChangedEvent");
+                        "com.ecclesiaflow.grpc.events.church.ChurchAppointmentSettingsChangedEvent",
+                        "com.ecclesiaflow.grpc.events.church.ChurchSuspendedEvent",
+                        "com.ecclesiaflow.grpc.events.church.ChurchSuspensionLiftedEvent");
     }
 
     private static List<Descriptor> events() {
@@ -522,6 +529,7 @@ class ContractWireCompatibilityTest {
               CanModerateGroupContent ecclesiaflow.church.CanModerateGroupContentRequest -> ecclesiaflow.church.CanModerateGroupContentResponse
               CheckBillingRight ecclesiaflow.church.CheckBillingRightRequest -> ecclesiaflow.church.CheckBillingRightResponse
               GetBillingProfile ecclesiaflow.church.GetBillingProfileRequest -> ecclesiaflow.church.GetBillingProfileResponse
+              GetMemberLeaders ecclesiaflow.church.GetMemberLeadersRequest -> ecclesiaflow.church.GetMemberLeadersResponse
             message ecclesiaflow.church.OnSignupCompletedRequest
               1 string user_id
               2 string church_id
@@ -561,6 +569,14 @@ class ContractWireCompatibilityTest {
               7 string address_line
               8 string city
               9 string postal_code
+            message ecclesiaflow.church.GetMemberLeadersRequest
+              1 string keycloak_user_id
+            message ecclesiaflow.church.GetMemberLeadersResponse
+              1 repeated ecclesiaflow.church.MemberChurchLeaders churches
+            message ecclesiaflow.church.MemberChurchLeaders
+              1 string church_id
+              2 string owner_user_id
+              3 repeated string admin_user_ids
             enum ecclesiaflow.church.ActivationStatus
               0 ACTIVATION_STATUS_UNSPECIFIED
               1 ACTIVATED
@@ -613,6 +629,8 @@ class ContractWireCompatibilityTest {
             message ecclesiaflow.members.MemberContact
               1 string keycloak_user_id
               2 string phone_number
+              3 optional int64 phone_since_epoch_ms
+              4 optional int64 email_since_epoch_ms
             message ecclesiaflow.members.ProvisionMemberRequest
               1 string keycloak_user_id
               2 string email
@@ -716,6 +734,10 @@ class ContractWireCompatibilityTest {
               16 EMAIL_TEMPLATE_SENSITIVE_ACTION_CODE
               17 EMAIL_TEMPLATE_CHURCH_CONTACT_EMAIL_CONFIRMATION
               18 EMAIL_TEMPLATE_EMAIL_CHANGED_NOTICE
+              19 EMAIL_TEMPLATE_SUSPENSION_LIFTED
+              20 EMAIL_TEMPLATE_CHURCH_SUSPENDED
+              21 EMAIL_TEMPLATE_CHURCH_SUSPENSION_LIFTED
+              22 EMAIL_TEMPLATE_TWO_FACTOR_RESET_REQUESTED
               reserved 1
               reserved 2
             enum ecclesiaflow.email.Priority
@@ -1534,6 +1556,17 @@ class ContractWireCompatibilityTest {
               1 string space_id
               2 repeated string allowed_channels
             message ecclesiaflow.appointments.SetSpaceChannelsResponse
+            file ecclesiaflow/events/church/v1/church_suspension_events.proto package ecclesiaflow.events.church.v1 java_package com.ecclesiaflow.grpc.events.church
+            message ecclesiaflow.events.church.v1.ChurchSuspendedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string church_id
+              4 string reason_code
+            message ecclesiaflow.events.church.v1.ChurchSuspensionLiftedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string church_id
+              4 string reason_code
             """;
 
     private static final String ROUTES = """
@@ -1582,5 +1615,7 @@ class ContractWireCompatibilityTest {
             payments.payment.disputed.v1 ecclesiaflow.events.payments.v1.PaymentDisputedEvent
             payments.payout.changed.v1 ecclesiaflow.events.payments.v1.PayoutChangedEvent
             payments.provider.status-changed.v1 ecclesiaflow.events.payments.v1.ProviderStatusChangedEvent
+            church.church.suspended.v1 ecclesiaflow.events.church.v1.ChurchSuspendedEvent
+            church.church.suspension-lifted.v1 ecclesiaflow.events.church.v1.ChurchSuspensionLiftedEvent
             """;
 }

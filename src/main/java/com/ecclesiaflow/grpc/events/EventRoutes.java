@@ -34,6 +34,9 @@ public final class EventRoutes {
     public static final String MEMBERS_ACCOUNT_SUSPENDED_V1 = "members.account.suspended.v1";
     public static final String MEMBERS_ACCOUNT_SUSPENSION_LIFTED_V1 = "members.account.suspension-lifted.v1";
 
+    public static final String CHURCH_CHURCH_SUSPENDED_V1 = "church.church.suspended.v1";
+    public static final String CHURCH_CHURCH_SUSPENSION_LIFTED_V1 = "church.church.suspension-lifted.v1";
+
     public static final String CHAT_MESSAGE_POSTED_V1 = "chat.message.posted.v1";
 
     // One key per publishing module: a consumer of the message binds each of them by name.

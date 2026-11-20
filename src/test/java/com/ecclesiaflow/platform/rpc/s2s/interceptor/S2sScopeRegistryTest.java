@@ -22,7 +22,13 @@ import com.ecclesiaflow.grpc.church.CanModerateGroupContentRequest;
 import com.ecclesiaflow.grpc.church.CanModerateGroupContentResponse;
 import com.ecclesiaflow.grpc.church.CheckAccountClosureRequest;
 import com.ecclesiaflow.grpc.church.CheckAccountClosureResponse;
+import com.ecclesiaflow.grpc.church.CheckBillingRightRequest;
+import com.ecclesiaflow.grpc.church.CheckBillingRightResponse;
 import com.ecclesiaflow.grpc.church.ChurchServiceGrpc;
+import com.ecclesiaflow.grpc.church.GetBillingProfileRequest;
+import com.ecclesiaflow.grpc.church.GetBillingProfileResponse;
+import com.ecclesiaflow.grpc.church.GetMemberLeadersRequest;
+import com.ecclesiaflow.grpc.church.GetMemberLeadersResponse;
 import com.ecclesiaflow.grpc.church.OnSignupCompletedRequest;
 import com.ecclesiaflow.grpc.church.OnSignupCompletedResponse;
 import com.ecclesiaflow.grpc.church.RepublishActiveMembershipsRequest;
@@ -207,7 +213,28 @@ class S2sScopeRegistryTest {
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("ecclesiaflow.church.ChurchService/CheckBillingRight")
                     .hasMessageContaining("ecclesiaflow.church.ChurchService/GetBillingProfile")
+                    .hasMessageContaining("ecclesiaflow.church.ChurchService/GetMemberLeaders")
                     .hasMessageNotContaining("ecclesiaflow.church.ChurchService/CanModerateGroupContent");
+        }
+
+        @Test
+        @DisplayName("a church build that serves billing's RPCs but not GetMemberLeaders does not start")
+        void churchServiceWithoutGetMemberLeaders() {
+            assertThatThrownBy(() -> new S2sScopeRegistry(List.of(new ChurchServiceBeforeBackOffice())))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("ecclesiaflow.church.ChurchService/GetMemberLeaders")
+                    .hasMessageNotContaining("ecclesiaflow.church.ChurchService/GetBillingProfile");
+        }
+
+        @Test
+        @DisplayName("GetMemberLeaders is keyed by its full gRPC name, with the scope only auth holds")
+        void churchServiceWithGetMemberLeaders() {
+            S2sScopeRegistry reg = new S2sScopeRegistry(List.of(new ChurchServiceWithBackOffice()));
+
+            assertThat(reg.requiredScope("ecclesiaflow.church.ChurchService/GetMemberLeaders"))
+                    .contains("ef:church:leaders:read");
+            assertThat(reg.requiredScope("ecclesiaflow.church.ChurchService/CheckBillingRight"))
+                    .contains("ef:church:billing-right:read");
         }
 
         @Test
@@ -416,6 +443,32 @@ class S2sScopeRegistryTest {
         @Override
         public void canModerateGroupContent(CanModerateGroupContentRequest request,
                                             StreamObserver<CanModerateGroupContentResponse> response) {
+        }
+    }
+
+    /** ChurchService as church serves it with billing's RPCs, before the back-office's. */
+    static class ChurchServiceBeforeBackOffice extends ChurchServiceBeforeBilling {
+
+        @S2sScopeRequired("ef:church:billing-right:read")
+        @Override
+        public void checkBillingRight(CheckBillingRightRequest request,
+                                      StreamObserver<CheckBillingRightResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:church:billing-profile:read")
+        @Override
+        public void getBillingProfile(GetBillingProfileRequest request,
+                                      StreamObserver<GetBillingProfileResponse> response) {
+        }
+    }
+
+    /** ChurchService with every RPC annotated, GetMemberLeaders included. */
+    static class ChurchServiceWithBackOffice extends ChurchServiceBeforeBackOffice {
+
+        @S2sScopeRequired("ef:church:leaders:read")
+        @Override
+        public void getMemberLeaders(GetMemberLeadersRequest request,
+                                     StreamObserver<GetMemberLeadersResponse> response) {
         }
     }
 

@@ -30,15 +30,18 @@ public class SurfaceAuthorizationEventListener {
 
     @EventListener
     public void onModeActive(SurfaceAuthorizationEvents.ModeActive event) {
+        String operatingClients = String.join(", ", event.operatingClients());
         if (event.mode() == SurfaceMode.ENFORCE) {
-            log.info("SURFACE: ✅ enforce — {} member, {} console, {} platform operations ruled; {} without a token",
+            log.info("SURFACE: ✅ enforce — {} member, {} console, {} platform operations ruled; {} without a token; "
+                            + "platform only for {}",
                     event.memberOperations(), event.consoleOperations(), event.platformOperations(),
-                    event.tokenlessOperations());
+                    event.tokenlessOperations(), operatingClients);
             return;
         }
         log.warn("SURFACE: ⚠ log-only — refusals are logged and let through ({} member, {} console, {} platform "
-                        + "operations); set ecclesiaflow.security.surface.mode=enforce once no web refusal shows",
-                event.memberOperations(), event.consoleOperations(), event.platformOperations());
+                        + "operations; platform only for {}); set ecclesiaflow.security.surface.mode=enforce once "
+                        + "no web refusal shows",
+                event.memberOperations(), event.consoleOperations(), event.platformOperations(), operatingClients);
     }
 
     // A path outside the contract is the caller's text: ids or an address in it are personal data, and

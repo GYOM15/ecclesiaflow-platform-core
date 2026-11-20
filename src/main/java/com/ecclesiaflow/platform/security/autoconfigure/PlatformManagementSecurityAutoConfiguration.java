@@ -22,8 +22,9 @@ import java.util.List;
 import java.util.stream.Stream;
 
 /**
- * Opens the scrape and the probes of the management port to tokenless internal callers (Prometheus, the
- * orchestrator) and refuses every other actuator endpoint; the unpublished port is the boundary.
+ * Opens the scrape, the probes and the journal's head of the management port to tokenless internal callers
+ * (Prometheus, the orchestrator, the host's anchoring) and refuses every other actuator endpoint; the unpublished
+ * port is the boundary.
  *
  * <p>Ordered first because the child context of a separate management port reuses the application's
  * chains, whose {@code anyRequest().authenticated()} would answer the scrape 401. It has no login
@@ -49,7 +50,7 @@ public class PlatformManagementSecurityAutoConfiguration {
     static final String ACTUATOR_BASE = "/actuator";
 
     /** Each id added here is served without authentication to every container on the internal network. */
-    static final List<String> ANONYMOUS_ENDPOINTS = List.of("health", "info", "prometheus");
+    static final List<String> ANONYMOUS_ENDPOINTS = List.of("health", "info", "prometheus", "journalhead");
 
     @Bean(CHAIN)
     @ConditionalOnMissingBean(name = CHAIN)
@@ -74,9 +75,13 @@ public class PlatformManagementSecurityAutoConfiguration {
     // two dispatcher servlets a string becomes an MVC matcher that fails at request time.
     private static RequestMatcher[] anonymousPaths() {
         return ANONYMOUS_ENDPOINTS.stream()
-                .flatMap(id -> "health".equals(id)
-                        ? Stream.of(ACTUATOR_BASE + "/health", ACTUATOR_BASE + "/health/**")
-                        : Stream.of(ACTUATOR_BASE + "/" + id))
+                .flatMap(id -> switch (id) {
+                    case "health" -> Stream.of(ACTUATOR_BASE + "/health", ACTUATOR_BASE + "/health/**");
+                    // Positions and hashes only, read by the host's nightly anchoring; one segment below, the hash
+                    // at a position.
+                    case "journalhead" -> Stream.of(ACTUATOR_BASE + "/journalhead", ACTUATOR_BASE + "/journalhead/*");
+                    default -> Stream.of(ACTUATOR_BASE + "/" + id);
+                })
                 .map(AntPathRequestMatcher::new)
                 .toArray(RequestMatcher[]::new);
     }

@@ -7,6 +7,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class SurfaceAuthorizationEventListenerTest {
@@ -59,19 +61,23 @@ class SurfaceAuthorizationEventListenerTest {
     @Test
     @DisplayName("enforce is announced at INFO with the operations it rules")
     void enforceAnnounced() {
-        listener.onModeActive(new SurfaceAuthorizationEvents.ModeActive(SurfaceMode.ENFORCE, 3, 5, 1, 2));
+        listener.onModeActive(new SurfaceAuthorizationEvents.ModeActive(SurfaceMode.ENFORCE, 3, 5, 1, 2,
+                List.of("ecclesiaflow-backoffice", "ecclesiaflow-moderation-cli")));
 
         assertThat(logs.getInfoLogs()).singleElement().asString()
-                .isEqualTo("SURFACE: ✅ enforce — 3 member, 5 console, 1 platform operations ruled; 2 without a token");
+                .isEqualTo("SURFACE: ✅ enforce — 3 member, 5 console, 1 platform operations ruled; 2 without a token; "
+                        + "platform only for ecclesiaflow-backoffice, ecclesiaflow-moderation-cli");
     }
 
     @Test
     @DisplayName("log-only is announced at WARN, with how to leave it")
     void logOnlyAnnounced() {
-        listener.onModeActive(new SurfaceAuthorizationEvents.ModeActive(SurfaceMode.LOG_ONLY, 3, 5, 1, 2));
+        listener.onModeActive(new SurfaceAuthorizationEvents.ModeActive(SurfaceMode.LOG_ONLY, 3, 5, 1, 2,
+                List.of("ecclesiaflow-backoffice")));
 
         assertThat(logs.getWarnLogs()).singleElement().asString()
                 .startsWith("SURFACE: ⚠ log-only")
+                .contains("platform only for ecclesiaflow-backoffice")
                 .contains("ecclesiaflow.security.surface.mode=enforce");
     }
 }

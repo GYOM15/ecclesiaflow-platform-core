@@ -29,6 +29,20 @@ paths:
       x-ef-platform-duty: billing
       responses:
         "200": {description: The catalogue, for a billing operator}
+  /module/backoffice/accounts:
+    get:
+      operationId: BackofficeAccounts.Search
+      x-ef-surface: platform
+      x-ef-platform-duty: support
+      responses:
+        "200": {description: The account an exact address names, for the support}
+  /module/backoffice/journal:
+    get:
+      operationId: BackofficeJournal.List
+      x-ef-surface: platform
+      x-ef-platform-duty: administration
+      responses:
+        "200": {description: The module's journal, for the super admin}
   /module/public/signup:
     post:
       operationId: Signup.Create

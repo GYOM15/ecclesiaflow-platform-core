@@ -25,3 +25,4 @@ com.ecclesiaflow.platform.events.retry.autoconfigure.PlatformDelayedRetryAutoCon
 com.ecclesiaflow.platform.web.text.autoconfigure.PlatformTextInputGuardAutoConfiguration
 com.ecclesiaflow.platform.webhooks.autoconfigure.PlatformWebhookBodyLimitAutoConfiguration
 com.ecclesiaflow.platform.webhooks.autoconfigure.PlatformWebhookInboxAutoConfiguration
+com.ecclesiaflow.platform.journal.autoconfigure.PlatformJournalAutoConfiguration
