@@ -33,7 +33,8 @@ class AppointmentEventsTest {
             AppointmentConfirmedEvent.getDescriptor(), EventRoutes.APPOINTMENTS_BOOKING_CONFIRMED_V1,
             AppointmentMovedEvent.getDescriptor(), EventRoutes.APPOINTMENTS_BOOKING_MOVED_V1,
             AppointmentCancelledEvent.getDescriptor(), EventRoutes.APPOINTMENTS_BOOKING_CANCELLED_V1,
-            AppointmentReminderDueEvent.getDescriptor(), EventRoutes.APPOINTMENTS_BOOKING_REMINDER_DUE_V1);
+            AppointmentReminderDueEvent.getDescriptor(), EventRoutes.APPOINTMENTS_BOOKING_REMINDER_DUE_V1,
+            AppointmentMoveRequestedEvent.getDescriptor(), EventRoutes.APPOINTMENTS_BOOKING_MOVE_REQUESTED_V1);
 
     // reason_code is the open cancellation code; a free text, a note or an encrypted blob is the booker's reason.
     private static final Pattern REASON_TEXT_FIELD_NAME = Pattern.compile(
@@ -139,6 +140,9 @@ class AppointmentEventsTest {
             assertThat(ownFields(AppointmentReminderDueEvent.getDescriptor()))
                     .extracting(FieldDescriptor::getNumber, FieldDescriptor::getName, FieldDescriptor::getJavaType)
                     .containsExactly(tuple(22, "offset", JavaType.STRING));
+            assertThat(ownFields(AppointmentMoveRequestedEvent.getDescriptor()))
+                    .extracting(FieldDescriptor::getNumber, FieldDescriptor::getName, FieldDescriptor::getJavaType)
+                    .containsExactly(tuple(22, "move_expires_at_epoch_ms", JavaType.LONG));
         }
 
         @Test
@@ -219,14 +223,15 @@ class AppointmentEventsTest {
         }
 
         @Test
-        @DisplayName("The five facts a booking goes through have five distinct keys")
+        @DisplayName("The six facts a booking goes through have six distinct keys")
         void keysAreDistinct() {
             assertThat(ROUTING_KEYS.values()).containsExactlyInAnyOrder(
                     "appointments.booking.booked.v1",
                     "appointments.booking.confirmed.v1",
                     "appointments.booking.moved.v1",
                     "appointments.booking.cancelled.v1",
-                    "appointments.booking.reminder-due.v1");
+                    "appointments.booking.reminder-due.v1",
+                    "appointments.booking.move-requested.v1");
         }
     }
 
@@ -367,6 +372,27 @@ class AppointmentEventsTest {
             assertThat(received.getNoticeChannelsList()).isEmpty();
             assertThat(received.getDelegateSubjectsList()).isEmpty();
             assertThat(received.getHasHostMessage()).isFalse();
+        }
+
+        @Test
+        @DisplayName("A request to move keeps the booking's slot and says until when the booker may choose")
+        void moveRequestedSurvives() throws Exception {
+            AppointmentMoveRequestedEvent sent = AppointmentMoveRequestedEvent.newBuilder()
+                    .setEventId("appt:b2:move-requested:1790000000000")
+                    .setOccurredAtEpochMs(1_790_000_000_000L)
+                    .setBookingId("b2")
+                    .setOriginBookingId("b2")
+                    .setStartsAtEpochMs(1_790_400_000_000L)
+                    .setStatus("CONFIRMED")
+                    .setMoveExpiresAtEpochMs(1_790_172_800_000L)
+                    .setActorSubject("delegate-sub")
+                    .setHasHostMessage(true)
+                    .build();
+
+            AppointmentMoveRequestedEvent received = AppointmentMoveRequestedEvent.parseFrom(sent.toByteArray());
+
+            assertThat(received).isEqualTo(sent);
+            assertThat(received.getMoveExpiresAtEpochMs()).isLessThan(received.getStartsAtEpochMs());
         }
 
         @Test

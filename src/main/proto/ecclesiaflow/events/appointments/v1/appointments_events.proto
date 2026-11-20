@@ -313,3 +313,50 @@ message AppointmentReminderDueEvent {
   repeated string delegate_subjects = 34;
   bool has_host_message = 35;
 }
+
+// The host's side asked the booker to pick another slot. The booking keeps its slot until the booker
+// moves it (an AppointmentMovedEvent follows) or the request lapses (an AppointmentCancelledEvent
+// follows, by SYSTEM).
+message AppointmentMoveRequestedEvent {
+  option (ecclesiaflow.events.routing_keys) = "appointments.booking.move-requested.v1";
+
+  // "appt:<booking_id>:move-requested:<occurred_at_epoch_ms>": a booking may be asked again, and a
+  // row appended twice keeps its id.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the host's side asked.
+  int64 occurred_at_epoch_ms = 2;
+
+  string space_id = 3;
+  string booking_id = 4;
+  string origin_booking_id = 5;
+  int32 sequence = 6;
+  string calendar_id = 7;
+  string type_id = 8;
+  string host_subject = 9;
+  string booker_subject = 10;
+  int64 starts_at_epoch_ms = 11;
+  int64 ends_at_epoch_ms = 12;
+  string host_time_zone = 13;
+  string booker_time_zone = 14;
+  string type_title = 15;
+  string host_display_name = 16;
+  string booker_display_name = 17;
+  string location_kind = 18;
+  string location_place = 19;
+  string location_link = 20;
+
+  // Open, never an enum: PENDING or CONFIRMED, the state the booking keeps meanwhile.
+  string status = 21;
+
+  // Milliseconds since Unix epoch (UTC) at which the service cancels the booking if the booker has
+  // not moved it, never after its start: a notice tells the booker until when to choose.
+  int64 move_expires_at_epoch_ms = 22;
+
+  string booker_kind = 30;
+  string booked_by_subject = 31;
+  string actor_subject = 32;
+  repeated string notice_channels = 33;
+  repeated string delegate_subjects = 34;
+  bool has_host_message = 35;
+}
