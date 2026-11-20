@@ -4,6 +4,7 @@ import com.ecclesiaflow.platform.moderation.ContentRejectedException;
 import com.ecclesiaflow.platform.ratelimit.RateLimitExceededException;
 import com.ecclesiaflow.platform.rpc.s2s.token.S2sTokenException;
 import com.ecclesiaflow.platform.upload.ImageDecodeCapacityExceededException;
+import com.ecclesiaflow.platform.webhooks.InvalidNotificationException;
 import io.grpc.Status;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -134,6 +135,15 @@ class ErrorCategoryResolverTest {
         void contentRejected() {
             assertThat(defaults.resolve(ContentRejectedException.rejected())).isEqualTo(ErrorCategory.INVALID_ARGUMENT);
             assertThat(defaults.resolve(ContentRejectedException.rejected("title"))).isEqualTo(ErrorCategory.INVALID_ARGUMENT);
+        }
+
+        @Test
+        @DisplayName("a provider notification refused by its verifier is a caller error, whatever the SDK threw")
+        void invalidNotification() {
+            assertThat(defaults.resolve(InvalidNotificationException.badSignature(new RuntimeException("sdk"))))
+                    .isEqualTo(ErrorCategory.INVALID_ARGUMENT);
+            assertThat(defaults.resolve(InvalidNotificationException.malformed(null)))
+                    .isEqualTo(ErrorCategory.INVALID_ARGUMENT);
         }
 
         @Test
