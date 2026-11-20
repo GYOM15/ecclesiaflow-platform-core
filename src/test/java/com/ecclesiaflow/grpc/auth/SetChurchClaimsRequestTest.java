@@ -3,6 +3,7 @@ package com.ecclesiaflow.grpc.auth;
 import com.google.protobuf.CodedOutputStream;
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
@@ -11,10 +12,10 @@ import java.io.IOException;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Auth keeps the stored second-factor obligation when a church build older than the field calls, so an
- * absent value must stay distinguishable from false.
+ * Auth keeps the stored second-factor obligation, and the stored delegate right, when a church build older
+ * than the field calls, so an absent value must stay distinguishable from false.
  */
-@DisplayName("SetChurchClaimsRequest - two_factor_required")
+@DisplayName("SetChurchClaimsRequest - two_factor_required and appointments_delegate")
 class SetChurchClaimsRequestTest {
 
     @Test
@@ -46,5 +47,43 @@ class SetChurchClaimsRequestTest {
 
         assertThat(received.hasTwoFactorRequired()).isFalse();
         assertThat(received.getChurchAdmin()).isTrue();
+    }
+
+    @Nested
+    @DisplayName("appointments_delegate")
+    class AppointmentsDelegate {
+
+        @Test
+        @DisplayName("An explicit false is present on the receiving side, so auth takes the right away")
+        void explicitFalseIsPresent() throws InvalidProtocolBufferException {
+            SetChurchClaimsRequest sent = SetChurchClaimsRequest.newBuilder()
+                    .setKeycloakUserId("u1")
+                    .setChurchId("c1")
+                    .setTwoFactorRequired(true)
+                    .setAppointmentsDelegate(false)
+                    .build();
+
+            SetChurchClaimsRequest received = SetChurchClaimsRequest.parseFrom(sent.toByteArray());
+
+            assertThat(received.hasAppointmentsDelegate()).isTrue();
+            assertThat(received.getAppointmentsDelegate()).isFalse();
+        }
+
+        @Test
+        @DisplayName("A request from a church build older than the field reads with the right absent")
+        void olderRequestHasNoDelegateRight() throws IOException {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            CodedOutputStream out = CodedOutputStream.newInstance(bytes);
+            out.writeString(1, "u1");
+            out.writeString(2, "c1");
+            out.writeBool(6, true);
+            out.writeBool(7, true);
+            out.flush();
+
+            SetChurchClaimsRequest received = SetChurchClaimsRequest.parseFrom(bytes.toByteArray());
+
+            assertThat(received.hasAppointmentsDelegate()).isFalse();
+            assertThat(received.getAppointmentsHost()).isTrue();
+        }
     }
 }

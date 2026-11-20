@@ -483,6 +483,7 @@ class ContractWireCompatibilityTest {
               5 int64 capabilities_expire_at_epoch_ms
               6 optional bool two_factor_required
               7 optional bool appointments_host
+              8 optional bool appointments_delegate
             message ecclesiaflow.auth.SetChurchClaimsResponse
             message ecclesiaflow.auth.SendExistingAccountNoticeRequest
               1 string keycloak_user_id
