@@ -259,3 +259,45 @@ message MemberCapabilitiesChangedEvent {
   // travel here. Empty: the member holds no capability in the church any more.
   repeated string capabilities = 5;
 }
+
+// Emitted whenever what a church shows the readers of its mail changes: its
+// name, its postal address or its contact e-mail. It carries the whole
+// identity, not the change, so a church's latest event is the truth: church
+// stages a church's events under one aggregate key and gives them strictly
+// increasing instants, and a consumer ignores one no newer than the last it
+// applied. Church also sends it once for each church that existed before it.
+// Communication signs a church's campaigns with it.
+message ChurchPublicIdentityChangedEvent {
+  option (ecclesiaflow.events.routing_keys) = "church.public-identity.changed.v1";
+
+  // Unique per change. Consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the identity changed. Orders
+  // the events of one church: never twice the same for a church.
+  int64 occurred_at_epoch_ms = 2;
+
+  string church_id = 3;
+
+  // The church's name as it presents itself.
+  string name = 4;
+
+  // The postal address, each part as the church wrote it. Empty: unknown.
+  string street_address = 5;
+  string city = 6;
+  string postal_code = 7;
+
+  // ISO 3166-1 alpha-2.
+  string country_code = 8;
+
+  // Where readers of the church's mail may write back, only once its holder
+  // confirmed it from the link church sent there. Empty: none confirmed, and
+  // a consumer forgets the one it held.
+  string contact_email = 9;
+
+  // The church's language (BCP-47), the one its invitations are written in,
+  // for a consumer that writes the address for its readers. Empty (a church
+  // build that predates the field, or none set) or unsupported: the platform
+  // default.
+  string locale = 10;
+}

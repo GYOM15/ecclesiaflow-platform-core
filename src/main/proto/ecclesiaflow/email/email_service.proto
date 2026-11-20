@@ -44,6 +44,10 @@ enum EmailTemplateType {
   EMAIL_TEMPLATE_APP_SIGNUP_CODE = 15;               // Six-digit code that confirms an address at in-app signup
   // Names the gesture from a closed list, never an amount or a church: the code is worth one request only.
   EMAIL_TEMPLATE_SENSITIVE_ACTION_CODE = 16;         // Six-digit code that confirms a sensitive gesture of a linked account
+  // Sent to the address typed, not to an account: its holder may have none, the link alone proves the inbox.
+  EMAIL_TEMPLATE_CHURCH_CONTACT_EMAIL_CONFIRMATION = 17; // Confirm the address a church's readers write back to
+  // To the address the account just left, so its holder learns of a change made without them.
+  EMAIL_TEMPLATE_EMAIL_CHANGED_NOTICE = 18;          // An account's e-mail address was changed
 }
 
 // Request to send an email
