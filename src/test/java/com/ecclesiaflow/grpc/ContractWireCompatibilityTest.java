@@ -30,6 +30,7 @@ import com.ecclesiaflow.grpc.events.church.ChurchInvitationCreatedEvent;
 import com.ecclesiaflow.grpc.events.church.ChurchOwnershipTransferredEvent;
 import com.ecclesiaflow.grpc.events.church.MemberAddedToGroupEvent;
 import com.ecclesiaflow.grpc.events.church.MemberAdmittedToChurchEvent;
+import com.ecclesiaflow.grpc.events.church.MemberCapabilitiesChangedEvent;
 import com.ecclesiaflow.grpc.events.church.MemberRemovedFromChurchEvent;
 import com.ecclesiaflow.grpc.events.church.MemberRemovedFromGroupEvent;
 import com.ecclesiaflow.grpc.events.church.NotificationCreatedEvent;
@@ -206,6 +207,7 @@ class ContractWireCompatibilityTest {
                 NotificationCreatedEvent.class, ChatMessagePostedEvent.class, ContentReportedEvent.class,
                 ModerationActionTakenEvent.class, ChurchEntitlementChangedEvent.class, BillingNoticeEvent.class,
                 ChurchOwnershipTransferredEvent.class, ChurchActivatedEvent.class,
+                MemberCapabilitiesChangedEvent.class,
                 AppointmentBookedEvent.class, AppointmentConfirmedEvent.class, AppointmentMovedEvent.class,
                 AppointmentCancelledEvent.class, AppointmentReminderDueEvent.class))
                 .extracting(Class::getName)
@@ -235,6 +237,7 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.events.billing.BillingNoticeEvent",
                         "com.ecclesiaflow.grpc.events.church.ChurchOwnershipTransferredEvent",
                         "com.ecclesiaflow.grpc.events.church.ChurchActivatedEvent",
+                        "com.ecclesiaflow.grpc.events.church.MemberCapabilitiesChangedEvent",
                         "com.ecclesiaflow.grpc.events.appointments.AppointmentBookedEvent",
                         "com.ecclesiaflow.grpc.events.appointments.AppointmentConfirmedEvent",
                         "com.ecclesiaflow.grpc.events.appointments.AppointmentMovedEvent",
@@ -779,6 +782,12 @@ class ContractWireCompatibilityTest {
               1 string event_id
               2 int64 occurred_at_epoch_ms
               3 string church_id
+            message ecclesiaflow.events.church.v1.MemberCapabilitiesChangedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string church_id
+              4 string member_user_id
+              5 repeated string capabilities
             file ecclesiaflow/events/members/v1/members_events.proto package ecclesiaflow.events.members.v1 java_package com.ecclesiaflow.grpc.events.members
             message ecclesiaflow.events.members.v1.MemberProfileChangedEvent
               1 string event_id
@@ -1063,6 +1072,7 @@ class ContractWireCompatibilityTest {
             church.notification.created.v1 ecclesiaflow.events.church.v1.NotificationCreatedEvent
             church.ownership.transferred.v1 ecclesiaflow.events.church.v1.ChurchOwnershipTransferredEvent
             church.church.activated.v1 ecclesiaflow.events.church.v1.ChurchActivatedEvent
+            church.member.capabilities-changed.v1 ecclesiaflow.events.church.v1.MemberCapabilitiesChangedEvent
             members.profile.changed ecclesiaflow.events.members.v1.MemberProfileChangedEvent
             members.profile.anonymized ecclesiaflow.events.members.v1.MemberAnonymizedEvent
             members.contacts.erased ecclesiaflow.events.members.v1.MemberContactsErasedEvent
