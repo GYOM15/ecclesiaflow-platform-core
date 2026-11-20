@@ -804,12 +804,13 @@ Added only: a module that adopts nothing keeps its answers byte for byte.
 
 | Change in 0.6.12 | Effect on a module that adopts nothing | Fix |
 |---|---|---|
-| `ChurchPublicIdentityChangedEvent` (`event_id = 1`, `occurred_at_epoch_ms = 2`, `church_id = 3`, `name = 4`, `street_address = 5`, `city = 6`, `postal_code = 7`, `country_code = 8`, `contact_email = 9`) is new, with `EventRoutes.CHURCH_PUBLIC_IDENTITY_CHANGED_V1` | None | — |
+| `ChurchPublicIdentityChangedEvent` (`event_id = 1`, `occurred_at_epoch_ms = 2`, `church_id = 3`, `name = 4`, `street_address = 5`, `city = 6`, `postal_code = 7`, `country_code = 8`, `contact_email = 9`, `locale = 10`) is new, with `EventRoutes.CHURCH_PUBLIC_IDENTITY_CHANGED_V1` | None | — |
 | `EmailTemplateType.EMAIL_TEMPLATE_CHURCH_CONTACT_EMAIL_CONFIRMATION = 17` and `EMAIL_TEMPLATE_EMAIL_CHANGED_NOTICE = 18` | A `switch` expression over the enum with no `default` no longer compiles | Add the case, or a `default` that refuses a template the module has no mail for |
 
 The event carries a church's whole public identity, not the change: the latest one is the truth. Its
 contact e-mail is only ever one its holder confirmed from a link; empty, the consumer forgets the one it
-held. The address travels in its parts, and the consumer that prints it composes the line.
+held. The address travels in its parts, and the consumer that prints it composes the line, in the
+church's `locale` (empty: the platform default).
 
 | Event | Key (`EventRoutes`) | Published by | Consumed by |
 |---|---|---|---|

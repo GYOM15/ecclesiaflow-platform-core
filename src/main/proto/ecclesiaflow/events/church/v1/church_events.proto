@@ -294,4 +294,10 @@ message ChurchPublicIdentityChangedEvent {
   // confirmed it from the link church sent there. Empty: none confirmed, and
   // a consumer forgets the one it held.
   string contact_email = 9;
+
+  // The church's language (BCP-47), the one its invitations are written in,
+  // for a consumer that writes the address for its readers. Empty (a church
+  // build that predates the field, or none set) or unsupported: the platform
+  // default.
+  string locale = 10;
 }

@@ -803,6 +803,7 @@ class ContractWireCompatibilityTest {
               7 string postal_code
               8 string country_code
               9 string contact_email
+              10 string locale
             file ecclesiaflow/events/members/v1/members_events.proto package ecclesiaflow.events.members.v1 java_package com.ecclesiaflow.grpc.events.members
             message ecclesiaflow.events.members.v1.MemberProfileChangedEvent
               1 string event_id
