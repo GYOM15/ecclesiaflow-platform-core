@@ -704,6 +704,90 @@ WHERE status = 'PARKED' AND id = <id>;
 DELETE FROM outbox_event WHERE status = 'PARKED' AND id = <id>;
 ```
 
+## Tamper-evident journal of platform gestures (opt-in)
+
+Every gesture a platform operation serves, readings included, writes one line to the module's own journal, in
+the gesture's transaction: a line that cannot be written means the gesture does not happen. A line holds ids and
+codes only, never a name, an address, a phone number, a content or free text; `JournalEntry` refuses any other
+value, without echoing it.
+
+| Column | Holds |
+|---|---|
+| `seq` | the line's position in the module's single chain, set by the database |
+| `occurred_at` | the module clock's instant, in microseconds |
+| `actor_subject`, `actor_roles`, `actor_session` | the operator's `sub`, the platform roles of the token, sorted, and the SHA-256 of the Keycloak `sid` |
+| `request_id` | the trace id |
+| `gesture`, `outcome`, `refusal_code` | an open UPPER_SNAKE vocabulary; `DONE` or `REFUSED`, the code set exactly when refused |
+| `target_kind`, `target_ref`, `case_ref`, `reason_code` | the target, the request or report the gesture belongs to, the motive's code |
+| `details` | at most 16 flat pairs of ids or codes (a channel, a state before and after) |
+| `prev_hash`, `row_hash` | SHA-256 of the previous hash (`0x00` for the first line) and of the line's canonical form |
+
+What it holds to:
+
+- One chain per module. The insert trigger takes the head's row lock, so concurrent gestures queue and never
+  fork; `seq` is also the primary key, and a multi-row insert fails on it.
+- The canonical form is frozen and mirrored in Java (`JournalCanonicalForm`): the verifier recomputes every
+  hash itself, never trusting a function the schema's owner could redefine.
+- `UPDATE`, `DELETE` and `TRUNCATE` are refused by triggers on the lines and on the head, whoever runs them.
+  The head moves its end one position onto the line just written, or its start forward; never back, never onto
+  a position no line holds.
+- A rewritten line fails its hash (`LINE_REWRITTEN`); a rewritten and re-hashed one, or a removed one, breaks
+  the next link (`LINK_BROKEN`); a removed tail leaves the head ahead of the lines (`TAIL_REMOVED`); a replaced
+  head or last line no longer match (`HEAD_MISMATCH`).
+- `platform_journal.purge_expired()` removes the longest run of oldest lines past 24 months (owner decision C3,
+  written in the SQL, so no caller can name a later cut) and moves the head's start point onto the last line it
+  removed, in the same transaction: the remaining chain verifies from there.
+- The application role holds `INSERT` and `SELECT` on the lines and `EXECUTE` on `current_head()` and
+  `purge_expired()`, nothing else. The module refuses to start when its role is a superuser, owns the schema or
+  is a member of its owner, may create in it, or holds more (`JournalPrivilegeException`).
+
+Adopting it in a module:
+
+1. The pre-boot step creates a NOLOGIN owner role and the schema it owns:
+
+   ```sql
+   CREATE ROLE <module>_journal_owner NOLOGIN;
+   CREATE SCHEMA platform_journal AUTHORIZATION <module>_journal_owner;
+   ```
+
+2. Copy `src/main/resources/db/journal/platform_journal.sql` (in this jar), unchanged, into the next migration
+   of a Flyway line that runs as that owner (a migrator login that `SET ROLE`s to it, as church's finance line
+   does), with the placeholder `journal_writer` set to the module's application role. The library ships no
+   migration of its own.
+3. Enable it and name the module:
+
+   ```properties
+   ecclesiaflow.journal.enabled=true
+   ecclesiaflow.journal.module=members
+   ```
+
+4. Write a line where the gesture runs, in its transaction, refusals included:
+
+   ```java
+   @Transactional
+   public void suspend(JournalActor operator, String requestId, UUID accountId, String reasonCode) {
+       // business change ...
+       journal.append(JournalEntry.done(operator, requestId, "ACCOUNT_SUSPENDED", "ACCOUNT", accountId.toString())
+               .withReason(reasonCode));
+   }
+   ```
+
+   `JournalActor.of(sub, platformRoles, sid)` hashes the `sid` itself. `append` outside a writable transaction on
+   the journal's DataSource throws `IllegalTransactionStateException`: a reading is journaled in a writable one.
+5. Run `JournalIntegrity.verify()` and `JournalRetention.purgeExpired()` every night, under the module's
+   scheduler lock. The walk covers the whole chain, from its start point to its head, in one snapshot.
+
+| Bean | Does |
+|---|---|
+| `PlatformJournal` | `append(JournalEntry)`, in the caller's transaction; returns the line as stored |
+| `JournalReader` | `list(JournalQuery)`: newest first, filtered by period, operator, target and gesture, opaque cursor, 1 to 200 lines |
+| `JournalIntegrity` | `verify()`, `lastVerification()`, `head()`, `position(seq)` |
+| `JournalRetention` | `purgeExpired()` |
+
+Metrics: `ef_platform_journal_rows_total{module,gesture,outcome}` (counted after commit),
+`ef_platform_journal_chain_breaks_total{module}` and `ef_platform_journal_verified_timestamp{module}`. A broken
+chain is an ERROR line.
+
 ## Domain-event signing
 
 With `ecclesiaflow.events.hmac-secret` set, `SigningMessagePostProcessor` stamps an HMAC-SHA256
