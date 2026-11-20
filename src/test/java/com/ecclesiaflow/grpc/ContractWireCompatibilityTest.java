@@ -629,6 +629,8 @@ class ContractWireCompatibilityTest {
             message ecclesiaflow.members.MemberContact
               1 string keycloak_user_id
               2 string phone_number
+              3 optional int64 phone_since_epoch_ms
+              4 optional int64 email_since_epoch_ms
             message ecclesiaflow.members.ProvisionMemberRequest
               1 string keycloak_user_id
               2 string email
