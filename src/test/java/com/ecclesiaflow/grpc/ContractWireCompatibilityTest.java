@@ -529,6 +529,7 @@ class ContractWireCompatibilityTest {
               CanModerateGroupContent ecclesiaflow.church.CanModerateGroupContentRequest -> ecclesiaflow.church.CanModerateGroupContentResponse
               CheckBillingRight ecclesiaflow.church.CheckBillingRightRequest -> ecclesiaflow.church.CheckBillingRightResponse
               GetBillingProfile ecclesiaflow.church.GetBillingProfileRequest -> ecclesiaflow.church.GetBillingProfileResponse
+              GetMemberLeaders ecclesiaflow.church.GetMemberLeadersRequest -> ecclesiaflow.church.GetMemberLeadersResponse
             message ecclesiaflow.church.OnSignupCompletedRequest
               1 string user_id
               2 string church_id
@@ -568,6 +569,14 @@ class ContractWireCompatibilityTest {
               7 string address_line
               8 string city
               9 string postal_code
+            message ecclesiaflow.church.GetMemberLeadersRequest
+              1 string keycloak_user_id
+            message ecclesiaflow.church.GetMemberLeadersResponse
+              1 repeated ecclesiaflow.church.MemberChurchLeaders churches
+            message ecclesiaflow.church.MemberChurchLeaders
+              1 string church_id
+              2 string owner_user_id
+              3 repeated string admin_user_ids
             enum ecclesiaflow.church.ActivationStatus
               0 ACTIVATION_STATUS_UNSPECIFIED
               1 ACTIVATED

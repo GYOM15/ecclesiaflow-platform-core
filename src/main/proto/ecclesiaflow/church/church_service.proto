@@ -53,6 +53,11 @@ service ChurchService {
   // What billing sizes and invoices a church by. Scope
   // ef:church:billing-profile:read, granted to billing only.
   rpc GetBillingProfile(GetBillingProfileRequest) returns (GetBillingProfileResponse);
+  // Asked by auth when the support checks a person's identity through a leader
+  // of one of their churches, before a two-factor reset: auth confirms the
+  // leader the support reached leads a church the person belongs to. Scope
+  // ef:church:leaders:read, granted to auth only.
+  rpc GetMemberLeaders(GetMemberLeadersRequest) returns (GetMemberLeadersResponse);
 }
 
 // ============================================================================
@@ -177,4 +182,29 @@ message GetBillingProfileResponse {
   string address_line = 7;
   string city = 8;
   string postal_code = 9;
+}
+
+// ============================================================================
+// Get Member Leaders
+// ============================================================================
+
+message GetMemberLeadersRequest {
+  string keycloak_user_id = 1;
+}
+
+// One entry per ACTIVE church in which the person holds an active membership;
+// none for an unknown person. Keycloak subs only: the caller reads a leader's
+// contacts from members. Failures are reported through the gRPC status, never
+// in the response.
+message GetMemberLeadersResponse {
+  repeated MemberChurchLeaders churches = 1;
+}
+
+message MemberChurchLeaders {
+  string church_id = 1;
+  // Keycloak sub of the church's owner; empty when it has none.
+  string owner_user_id = 2;
+  // Keycloak subs of the church's active administrators, the owner left out.
+  // The person may be among them: the caller excludes them itself.
+  repeated string admin_user_ids = 3;
 }
