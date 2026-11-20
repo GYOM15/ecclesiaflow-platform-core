@@ -1,5 +1,8 @@
 package com.ecclesiaflow.platform.rpc.s2s.interceptor;
 
+import com.ecclesiaflow.grpc.appointments.AppointmentsNoticeServiceGrpc;
+import com.ecclesiaflow.grpc.appointments.GetNoticeDetailsRequest;
+import com.ecclesiaflow.grpc.appointments.GetNoticeDetailsResponse;
 import com.ecclesiaflow.grpc.billing.BillingCreditServiceGrpc;
 import com.ecclesiaflow.grpc.billing.BillingEntitlementServiceGrpc;
 import com.ecclesiaflow.grpc.billing.CommitCreditsRequest;
@@ -212,6 +215,26 @@ class S2sScopeRegistryTest {
             assertThat(reg.size()).isEqualTo(PAYMENTS_SCOPES.size());
             PAYMENTS_SCOPES.forEach((rpc, scope) -> assertThat(
                     reg.requiredScope("ecclesiaflow.payments.PaymentsService/" + rpc)).as(rpc).contains(scope));
+        }
+
+        @Test
+        @DisplayName("the appointment notice read is keyed by its full gRPC name, with a scope of its own")
+        void appointmentsNoticeService() {
+            S2sScopeRegistry reg = new S2sScopeRegistry(List.of(new AppointmentsNoticeService()));
+
+            assertThat(reg.size()).isEqualTo(1);
+            assertThat(reg.requiredScope("ecclesiaflow.appointments.AppointmentsNoticeService/GetNoticeDetails"))
+                    .contains("ef:appointments:notice:read");
+        }
+    }
+
+    // The details a booker without an account left are sealed: only the sender of the notices may read them.
+    static class AppointmentsNoticeService extends AppointmentsNoticeServiceGrpc.AppointmentsNoticeServiceImplBase {
+
+        @S2sScopeRequired("ef:appointments:notice:read")
+        @Override
+        public void getNoticeDetails(GetNoticeDetailsRequest request,
+                                     StreamObserver<GetNoticeDetailsResponse> response) {
         }
     }
 

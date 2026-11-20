@@ -1,0 +1,57 @@
+// Served by the appointments service. Field numbers and types are on the wire:
+// add fields, never renumber, retype or reuse one.
+
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.appointments";
+option java_outer_classname = "AppointmentsNoticeServiceProto";
+
+package ecclesiaflow.appointments;
+
+// What a notice of a booking needs and its event may not carry: the contact
+// details of a person booked without an account, and a message the host wrote
+// to the booker. The service keeps both sealed; the bus, its outbox rows and its
+// dead-letter queues are read and replayed by operators, so the sender reads
+// them here at send time and keeps none of them.
+service AppointmentsNoticeService {
+  // Scope ef:appointments:notice:read, granted to the hosting project's sender
+  // alone (communication at Ecclify).
+  rpc GetNoticeDetails(GetNoticeDetailsRequest) returns (GetNoticeDetailsResponse);
+}
+
+message GetNoticeDetailsRequest {
+  // The space the booking's event named.
+  string space_id = 1;
+
+  string booking_id = 2;
+}
+
+// found is false for an unknown booking, one of another space, one erased, or
+// one that ended more than a day ago, so no notice is due to it any more; every
+// other field is then empty, and the answer never tells that the booking exists
+// elsewhere. Failures are reported through the gRPC status, never in the
+// response.
+message GetNoticeDetailsResponse {
+  bool found = 1;
+
+  // The person booked without an account, as the host's side wrote it. Empty
+  // for a booker with an account, whom the hosting project resolves by subject,
+  // and once retention erased the details with the booking's reason.
+  string guest_name = 2;
+
+  // E.164. Present whenever guest_name is.
+  string guest_phone = 3;
+
+  // Empty: none given.
+  string guest_email = 4;
+
+  // The language of the person's notices (BCP-47, one the platform serves), as
+  // the host's side chose it. Empty: none chosen, the platform default.
+  string guest_locale = 5;
+
+  // Plain text the host's side wrote to the booker with the booking's last
+  // change (a cancellation for another reason, a request to move), at most 200
+  // characters. Empty: none written, or erased by retention.
+  string host_message = 6;
+}
