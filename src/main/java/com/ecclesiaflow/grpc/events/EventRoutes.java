@@ -22,6 +22,7 @@ public final class EventRoutes {
     public static final String CHURCH_CHURCH_ACTIVATED_V1 = "church.church.activated.v1";
     public static final String CHURCH_MEMBER_CAPABILITIES_CHANGED_V1 = "church.member.capabilities-changed.v1";
     public static final String CHURCH_PUBLIC_IDENTITY_CHANGED_V1 = "church.public-identity.changed.v1";
+    public static final String CHURCH_APPOINTMENTS_SETTINGS_CHANGED_V1 = "church.appointments.settings-changed.v1";
 
     // Published before the .v1 suffix rule; a key never changes, so these stay as they are.
     public static final String MEMBERS_PROFILE_CHANGED = "members.profile.changed";
@@ -50,6 +51,9 @@ public final class EventRoutes {
     public static final String APPOINTMENTS_BOOKING_MOVED_V1 = "appointments.booking.moved.v1";
     public static final String APPOINTMENTS_BOOKING_CANCELLED_V1 = "appointments.booking.cancelled.v1";
     public static final String APPOINTMENTS_BOOKING_REMINDER_DUE_V1 = "appointments.booking.reminder-due.v1";
+    public static final String APPOINTMENTS_BOOKING_MOVE_REQUESTED_V1 = "appointments.booking.move-requested.v1";
+    public static final String APPOINTMENTS_CALENDAR_DELEGATE_ADDED_V1 = "appointments.calendar.delegate-added.v1";
+    public static final String APPOINTMENTS_CALENDAR_DELEGATE_REMOVED_V1 = "appointments.calendar.delegate-removed.v1";
 
     public static final String PAYMENTS_MERCHANT_ACCOUNT_CHANGED_V1 = "payments.merchant-account.changed.v1";
     public static final String PAYMENTS_PAYMENT_SUCCEEDED_V1 = "payments.payment.succeeded.v1";

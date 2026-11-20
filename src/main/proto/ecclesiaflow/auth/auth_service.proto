@@ -242,6 +242,12 @@ message SetChurchClaimsRequest {
   // church_capabilities. Absent: a caller older than this field; auth then
   // keeps the stored value.
   optional bool appointments_host = 7;
+  // Whether this person manages another member's appointment calendar, written
+  // to the church_appointments_delegate attribute. Church sends it in the same
+  // call as two_factor_required, so no token carries the right before a second
+  // factor is asked. Absent: a caller older than this field; auth then keeps
+  // the stored value.
+  optional bool appointments_delegate = 8;
 }
 
 // Failures are reported through the gRPC status, never in the response.

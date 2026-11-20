@@ -503,14 +503,16 @@ generated classes and the `.proto` files.
 | `billing/billing_credit_service.proto` | billing (`BillingCreditService`) | `com.ecclesiaflow.grpc.billing` |
 | `billing/billing_entitlement_service.proto` | billing (`BillingEntitlementService`) | `com.ecclesiaflow.grpc.billing` |
 | `payments/payments_service.proto` | payments (`PaymentsService`) | `com.ecclesiaflow.grpc.payments` |
+| `appointments/appointments_notice_service.proto` | appointments (`AppointmentsNoticeService`) | `com.ecclesiaflow.grpc.appointments` |
+| `appointments/appointments_admin_service.proto` | appointments (`AppointmentsAdminService`) | `com.ecclesiaflow.grpc.appointments` |
 | `events/event_options.proto` | the `(ecclesiaflow.events.routing_keys)` option | `com.ecclesiaflow.grpc.events` |
 | `events/auth/v1/domain_events.proto` | auth (`SetupTokenIssuedEvent`, `ExistingAccountNoticeEvent`, `TwoFactorRemovedEvent`, `AccountSessionsRevokedEvent`) | `com.ecclesiaflow.grpc.events.auth` |
-| `events/church/v1/church_events.proto` | church (invitation, admission, removal, group events, `NotificationCreatedEvent`, `ChurchOwnershipTransferredEvent`, `ChurchActivatedEvent`) | `com.ecclesiaflow.grpc.events.church` |
+| `events/church/v1/church_events.proto` | church (invitation, admission, removal, group events, `NotificationCreatedEvent`, `ChurchOwnershipTransferredEvent`, `ChurchActivatedEvent`, `MemberCapabilitiesChangedEvent`, `ChurchPublicIdentityChangedEvent`, `ChurchAppointmentSettingsChangedEvent`) | `com.ecclesiaflow.grpc.events.church` |
 | `events/members/v1/members_events.proto` | members (`MemberProfileChangedEvent`, `MemberAnonymizedEvent`, `MemberContactsErasedEvent`, `MemberDeactivatedEvent`, `MemberReactivatedEvent`, `MemberSuspendedEvent`, `MemberSuspensionLiftedEvent`) | `com.ecclesiaflow.grpc.events.members` |
 | `events/chat/v1/chat_events.proto` | chat (`ChatMessagePostedEvent`) | `com.ecclesiaflow.grpc.events.chat` |
 | `events/moderation/v1/moderation_events.proto` | chat, church and members, each under its own key (`ContentReportedEvent`, `ModerationActionTakenEvent`) | `com.ecclesiaflow.grpc.events.moderation` |
 | `events/billing/v1/billing_events.proto` | billing (`ChurchEntitlementChangedEvent`, `BillingNoticeEvent`) | `com.ecclesiaflow.grpc.events.billing` |
-| `events/appointments/v1/appointments_events.proto` | appointments (`AppointmentBookedEvent`, `AppointmentConfirmedEvent`, `AppointmentMovedEvent`, `AppointmentCancelledEvent`, `AppointmentReminderDueEvent`) | `com.ecclesiaflow.grpc.events.appointments` |
+| `events/appointments/v1/appointments_events.proto` | appointments (`AppointmentBookedEvent`, `AppointmentConfirmedEvent`, `AppointmentMovedEvent`, `AppointmentCancelledEvent`, `AppointmentReminderDueEvent`, `AppointmentMoveRequestedEvent`, `CalendarDelegateAddedEvent`, `CalendarDelegateRemovedEvent`) | `com.ecclesiaflow.grpc.events.appointments` |
 | `events/payments/v1/payments_events.proto` | payments (`MerchantAccountChangedEvent`, `PaymentSucceededEvent`, `PaymentFailedEvent`, `PaymentRefundedEvent`, `PaymentDisputedEvent`, `PayoutChangedEvent`, `ProviderStatusChangedEvent`) | `com.ecclesiaflow.grpc.events.payments` |
 
 A module that calls or serves an RPC, or publishes or consumes an event, uses these classes. It
@@ -881,6 +883,10 @@ Added only: a module that adopts nothing keeps its answers byte for byte.
 | `ContractWireCompatibilityTest` accepts the `payments` module in a routing key | None | — |
 | `PlatformWebhookBodyLimitAutoConfiguration` and `PlatformWebhookInboxAutoConfiguration` | Off until `ecclesiaflow.webhooks.body-limit.enabled` or `ecclesiaflow.webhooks.inbox.enabled` is `true` | See [provider notifications](#provider-notifications-inbox-and-body-bound-opt-in) |
 | `InvalidNotificationException` resolves to `INVALID_ARGUMENT` | None: nothing raised it before | — |
+| `AppointmentsNoticeService` (`GetNoticeDetails`) and `AppointmentsAdminService` (`SetSpaceChannels`) are new | None | — |
+| The five existing booking events gain fields 30 to 35; `AppointmentMoveRequestedEvent`, `CalendarDelegateAddedEvent`, `CalendarDelegateRemovedEvent` and `ChurchAppointmentSettingsChangedEvent` are new, with four `EventRoutes` constants | None: an event read without the new fields reads as before | — |
+| `actor` of a move or a cancellation gains `DELEGATE`, `reason_code` of a cancellation gains `OTHER` | A consumer that refuses an unknown value refuses those events once the appointments service sends them | Handle both values before the service that sends them is deployed |
+| `SetChurchClaimsRequest.appointments_delegate = 8` (`optional bool`) | None: absent, auth keeps the value it stored | — |
 
 The service knows no project and no provider in its contract: a merchant, a payer and every caller reference
 are opaque strings, every amount is an integer in minor units beside its ISO 4217 currency, and every
@@ -932,6 +938,54 @@ Adopting it, in deploy order (each step ships before the next one uses it):
 | deploy | Lists `ecclesiaflow-church-backend` alone in the payments service's `S2S_ALLOWED_AZP`; sets the dead-letter policy of church's new queue, never bounded, before church's image declares it |
 | church | Binds the payment keys it reads by name on a queue of its own, dedupes on `event_id`, reads the payment back with `GetPayment` before any write and checks its merchant is the church's; applies `MerchantAccountChangedEvent` only above the `version` it holds |
 | payments | Serves every RPC annotated with its scope; adopts the body bound and the inbox on its notification routes; publishes through the outbox, in the transaction of the change, only once church's queue is bound: the relay parks an unrouted event and blocks its aggregate |
+
+### Appointments: delegates, bookings for someone, notice channels
+
+A host may let delegates manage their calendar; the host's side may book for a member or for a person
+without an account; the host chooses which channels confirm and remind a booking, a paid one (SMS) only
+once the space allows it. The appointments service still knows no project: delegates, guests and spaces
+are opaque ids, every vocabulary an open string.
+
+What a person without an account left (name, E.164 phone, e-mail, language) and a message the host wrote
+to the booker never travel on the bus: outbox rows and dead-letter queues are read and replayed. The
+service keeps them sealed and gives them to the sender of the notices at send time.
+
+| RPC | Scope | Answers |
+|---|---|---|
+| `AppointmentsNoticeService.GetNoticeDetails(space_id, booking_id)` | `ef:appointments:notice:read` | `found`, `guest_name`, `guest_phone`, `guest_email`, `guest_locale`, `host_message`; `found` false, every field empty, for an unknown booking, one of another space, one erased, or one ended more than a day ago |
+| `AppointmentsAdminService.SetSpaceChannels(space_id, allowed_channels)` | `ef:appointments:space:channels` | Empty; the whole set of paid channels the space allows, `INVALID_ARGUMENT` on a name the deployment does not list as paid. For a project whose events do not carry the consent: Ecclify never calls it |
+
+The six booking events share a second block after their own fields, at the same numbers in each:
+
+| Field | Meaning | Empty means |
+|---|---|---|
+| `booker_kind = 30` | `ACCOUNT`, or `GUEST` for a person without an account, whose `booker_subject` is a synthetic `guest:<uuid>` and whose `booker_display_name` is empty | `ACCOUNT` |
+| `booked_by_subject = 31` | The host or delegate who booked on the booker's behalf | The booker booked for themselves |
+| `actor_subject = 32` | The person whose gesture the event records | The system acted |
+| `repeated notice_channels = 33` | The channels of the confirmation and the reminders at the instant of the fact: the booker's choice, bounded by what the space allowed then | The consumer's rule from before the field |
+| `repeated delegate_subjects = 34` | The calendar's delegates at the instant of the fact | None |
+| `has_host_message = 35` | The host's side wrote a message with this fact; `GetNoticeDetails` reads it | No message |
+
+| Event | Key (`EventRoutes`) | `event_id` | Aggregate key |
+|---|---|---|---|
+| `AppointmentMoveRequestedEvent` (own field `move_expires_at_epoch_ms = 22`) | `APPOINTMENTS_BOOKING_MOVE_REQUESTED_V1` (`appointments.booking.move-requested.v1`) | `appt:<bookingId>:move-requested:<occurredAtEpochMs>` | `booking:<originBookingId>` |
+| `CalendarDelegateAddedEvent` (`space_id`, `calendar_id`, `host_subject`, `delegate_subject`) | `APPOINTMENTS_CALENDAR_DELEGATE_ADDED_V1` (`appointments.calendar.delegate-added.v1`) | `appt:delegate:<designationId>:added` | `calendar:<calendarId>` |
+| `CalendarDelegateRemovedEvent` (the same, and `cause`: `HOST` or `SYSTEM`) | `APPOINTMENTS_CALENDAR_DELEGATE_REMOVED_V1` (`appointments.calendar.delegate-removed.v1`) | `appt:delegate:<designationId>:removed` | `calendar:<calendarId>` |
+| `ChurchAppointmentSettingsChangedEvent` (`church_id`, `sms_allowed`) | `CHURCH_APPOINTMENTS_SETTINGS_CHANGED_V1` (`church.appointments.settings-changed.v1`) | Unique per change | One per church |
+
+A designation id is drawn at each designation, so a designation after a removal is never taken for a
+duplicate, and every documented `event_id` fits 72 characters with UUID ids. The settings event carries
+the church's whole setting: the latest one is the truth, and no event means no SMS.
+
+Adopting it, in deploy order (each step ships before the next one uses it):
+
+| Module | Does |
+|---|---|
+| deploy | Sets the dead-letter policies of the new queues (church's delegate queue, the appointments service's settings queue), never bounded, before the images declare them; lists `ecclesiaflow-communication-backend` alone in the appointments service's `S2S_ALLOWED_AZP` |
+| auth | Reads field 8 and writes `church_appointments_delegate` with the other church attributes; declares `ef:appointments:notice:read` in `provisioning/client-scopes.txt`, gives it to `ecclesiaflow-communication-backend` and updates `check-realm.reference.json`; `ef:appointments:space:channels` goes to no client of the realm |
+| church | Binds the two delegate keys by name, keeps a designation only for an active member of the space's church, and sends `appointments_delegate` in the call that sets `two_factor_required`; publishes `ChurchAppointmentSettingsChangedEvent` through the outbox, in the transaction of the change, only once the appointments service's queue is bound |
+| communication | Binds the three new appointment keys on its appointment queue, reads `actor` `DELEGATE` and `reason_code` `OTHER`, routes confirmations and reminders by `notice_channels`, and reads a guest's details and the host's message with `GetNoticeDetails` under a short deadline, failing closed |
+| appointments | Serves `GetNoticeDetails` annotated with its scope (it binds no `AppointmentsAdminService`); binds the settings key; publishes the new values and events only once communication's and church's queues are bound |
 
 ## Upgrading to 0.6.12
 

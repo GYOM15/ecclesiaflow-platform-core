@@ -4,13 +4,21 @@
 // The service is generic and keeps nothing of its hosting project: a space, a host and a booker
 // are opaque ids the project resolves itself (address, language, wording).
 //
-// Fields 3 to 21 are the same in every message, so a consumer reads one booking shape. Each
-// message adds its own fields from 22.
+// Fields 3 to 21 are the same in every booking message, so a consumer reads one booking shape. Each
+// message adds its own fields from 22. Fields 30 to 35 are a second block, the same in every booking
+// message too (who booked for whom, who acted, the channels of the notices, the calendar's delegates,
+// whether the host wrote a message); it starts at 30 so the messages' own fields can grow below it.
+// A consumer reads an event without them as it did before they existed.
 //
-// The reason a booker gives for a booking is confidential and never appears in an event.
+// The reason a booker gives for a booking is confidential and never appears in an event. Neither do
+// the name, phone number, e-mail and language of a person booked without an account, nor a message
+// the host wrote: they are sealed in the service, and AppointmentsNoticeService.GetNoticeDetails
+// gives them to the sender of the notices at send time.
 //
 // The publisher stages every event of a booking chain under the aggregate key
-// "booking:<origin_booking_id>", so booked, moved and cancelled reach a consumer in order.
+// "booking:<origin_booking_id>", so booked, moved and cancelled reach a consumer in order, and
+// every delegation event of a calendar under "calendar:<calendar_id>", so a designation and its
+// removal do too.
 
 syntax = "proto3";
 
@@ -52,7 +60,9 @@ message AppointmentBookedEvent {
   // Opaque id of the person who receives the appointment.
   string host_subject = 9;
 
-  // Opaque id of the person who booked.
+  // Opaque id of the person the booking is for, even when someone booked on their behalf
+  // (booked_by_subject). For a person without an account, a synthetic "guest:<uuid>" that no
+  // token carries.
   string booker_subject = 10;
 
   // Milliseconds since Unix epoch (UTC).
@@ -72,7 +82,8 @@ message AppointmentBookedEvent {
 
   string host_display_name = 16;
 
-  // Empty once the booker is erased, so a notice to the host names nobody.
+  // Empty once the booker is erased, so a notice to the host names nobody. Empty for a person
+  // without an account too: GetNoticeDetails reads their name.
   string booker_display_name = 17;
 
   // Open, never an enum: IN_PERSON and ONLINE today.
@@ -87,6 +98,31 @@ message AppointmentBookedEvent {
 
   // Open, never an enum: PENDING or CONFIRMED here.
   string status = 21;
+
+  // Open, never an enum: ACCOUNT, or GUEST for a person without an account whom the host's side
+  // booked. Empty: ACCOUNT, the only kind before the field.
+  string booker_kind = 30;
+
+  // The host or delegate who booked on the booker's behalf. Empty: the booker booked for
+  // themselves.
+  string booked_by_subject = 31;
+
+  // The person whose gesture this event records: the one who booked, confirmed, moved or
+  // cancelled. Empty when the system acted (an expiry, a closure, a reminder).
+  string actor_subject = 32;
+
+  // The channels the confirmation and the reminders of this booking go by at the instant of the
+  // fact, and those notices only: the booker's choice, bounded by what the space allowed then.
+  // Open names, push, email and sms at Ecclify. Empty: the consumer keeps its rule from before the
+  // field.
+  repeated string notice_channels = 33;
+
+  // The calendar's delegates at the instant of the fact, so their notices need no call back.
+  repeated string delegate_subjects = 34;
+
+  // Whether the host's side wrote a message to the booker with this fact. The message itself
+  // never travels here: GetNoticeDetails reads it.
+  bool has_host_message = 35;
 }
 
 // The host confirmed a pending request. Only a booking that needed confirmation gets this event.
@@ -120,6 +156,13 @@ message AppointmentConfirmedEvent {
 
   // Open, never an enum: CONFIRMED here.
   string status = 21;
+
+  string booker_kind = 30;
+  string booked_by_subject = 31;
+  string actor_subject = 32;
+  repeated string notice_channels = 33;
+  repeated string delegate_subjects = 34;
+  bool has_host_message = 35;
 }
 
 // A booking moved: the shared fields describe the new booking, and the previous one is closed.
@@ -169,8 +212,16 @@ message AppointmentMovedEvent {
   int64 previous_starts_at_epoch_ms = 23;
   int64 previous_ends_at_epoch_ms = 24;
 
-  // Who moved it. Open, never an enum: HOST or BOOKER today, the system never moves a booking.
+  // Who moved it. Open, never an enum: HOST, DELEGATE or BOOKER today, the system never moves a
+  // booking. A delegate acts on the host's side; actor_subject names which one.
   string actor = 25;
+
+  string booker_kind = 30;
+  string booked_by_subject = 31;
+  string actor_subject = 32;
+  repeated string notice_channels = 33;
+  repeated string delegate_subjects = 34;
+  bool has_host_message = 35;
 }
 
 // A booking ended without taking place: cancelled, declined, expired, or closed with its host
@@ -206,12 +257,21 @@ message AppointmentCancelledEvent {
   // Open, never an enum: CANCELLED here.
   string status = 21;
 
-  // Who ended it, which decides who is told. Open, never an enum: HOST, BOOKER or SYSTEM today.
+  // Who ended it, which decides who is told. Open, never an enum: HOST, DELEGATE, BOOKER or SYSTEM
+  // today. A delegate acts on the host's side; actor_subject names which one.
   string actor = 22;
 
-  // Open, never an enum: REQUESTED, DECLINED, EXPIRED, HOST_UNAVAILABLE, BOOKER_UNAVAILABLE and
-  // SPACE_CLOSED today. A code, never the free text a person wrote.
+  // Open, never an enum: REQUESTED, DECLINED, EXPIRED, HOST_UNAVAILABLE, BOOKER_UNAVAILABLE,
+  // SPACE_CLOSED and OTHER today. A code, never the free text a person wrote: OTHER comes with the
+  // host's message (has_host_message), which GetNoticeDetails reads.
   string reason_code = 23;
+
+  string booker_kind = 30;
+  string booked_by_subject = 31;
+  string actor_subject = 32;
+  repeated string notice_channels = 33;
+  repeated string delegate_subjects = 34;
+  bool has_host_message = 35;
 }
 
 // A reminder fell due for a booking that has not started. The service says a reminder is due; the
@@ -250,4 +310,103 @@ message AppointmentReminderDueEvent {
 
   // How long before the start the reminder was set, as an ISO 8601 duration: "P1D", "PT1H".
   string offset = 22;
+
+  string booker_kind = 30;
+  string booked_by_subject = 31;
+  string actor_subject = 32;
+  repeated string notice_channels = 33;
+  repeated string delegate_subjects = 34;
+  bool has_host_message = 35;
+}
+
+// The host's side asked the booker to pick another slot. The booking keeps its slot until the booker
+// moves it (an AppointmentMovedEvent follows) or the request lapses (an AppointmentCancelledEvent
+// follows, by SYSTEM).
+message AppointmentMoveRequestedEvent {
+  option (ecclesiaflow.events.routing_keys) = "appointments.booking.move-requested.v1";
+
+  // "appt:<booking_id>:move-requested:<occurred_at_epoch_ms>": a booking may be asked again, and a
+  // row appended twice keeps its id.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the host's side asked.
+  int64 occurred_at_epoch_ms = 2;
+
+  string space_id = 3;
+  string booking_id = 4;
+  string origin_booking_id = 5;
+  int32 sequence = 6;
+  string calendar_id = 7;
+  string type_id = 8;
+  string host_subject = 9;
+  string booker_subject = 10;
+  int64 starts_at_epoch_ms = 11;
+  int64 ends_at_epoch_ms = 12;
+  string host_time_zone = 13;
+  string booker_time_zone = 14;
+  string type_title = 15;
+  string host_display_name = 16;
+  string booker_display_name = 17;
+  string location_kind = 18;
+  string location_place = 19;
+  string location_link = 20;
+
+  // Open, never an enum: PENDING or CONFIRMED, the state the booking keeps meanwhile.
+  string status = 21;
+
+  // Milliseconds since Unix epoch (UTC) at which the service cancels the booking if the booker has
+  // not moved it, never after its start: a notice tells the booker until when to choose.
+  int64 move_expires_at_epoch_ms = 22;
+
+  string booker_kind = 30;
+  string booked_by_subject = 31;
+  string actor_subject = 32;
+  repeated string notice_channels = 33;
+  repeated string delegate_subjects = 34;
+  bool has_host_message = 35;
+}
+
+// A host designated a delegate to manage their calendar. The designation acts only while the
+// hosting project also grants the delegate's right in the token, and this is how that project
+// learns whom to grant it to.
+message CalendarDelegateAddedEvent {
+  option (ecclesiaflow.events.routing_keys) = "appointments.calendar.delegate-added.v1";
+
+  // "appt:delegate:<designation_id>:added", the designation id drawn at each designation: a
+  // designation after a removal is not taken for a duplicate.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) of the designation. Orders the events of one delegate on
+  // one calendar.
+  int64 occurred_at_epoch_ms = 2;
+
+  string space_id = 3;
+
+  string calendar_id = 4;
+
+  // Opaque id of the person whose calendar it is.
+  string host_subject = 5;
+
+  // Opaque id of the person who now manages it.
+  string delegate_subject = 6;
+}
+
+// A delegate no longer manages a calendar: the host removed them, or the system did when the
+// calendar closed or one of the two people left.
+message CalendarDelegateRemovedEvent {
+  option (ecclesiaflow.events.routing_keys) = "appointments.calendar.delegate-removed.v1";
+
+  // "appt:delegate:<designation_id>:removed", the id of the designation it ends.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) of the removal.
+  int64 occurred_at_epoch_ms = 2;
+
+  string space_id = 3;
+  string calendar_id = 4;
+  string host_subject = 5;
+  string delegate_subject = 6;
+
+  // Who removed it. Open, never an enum: HOST or SYSTEM today.
+  string cause = 7;
 }

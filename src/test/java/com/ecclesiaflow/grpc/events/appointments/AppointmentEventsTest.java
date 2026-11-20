@@ -17,20 +17,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
 /**
- * The appointments service serves several projects and publishes to buses it does not own, so the five
- * events share one booking shape and none of them can carry what a booker confided to the host.
+ * The appointments service serves several projects and publishes to buses it does not own, so the booking
+ * events share one booking shape, in two blocks, and none of them can carry what a booker confided to the host,
+ * what the host wrote back, or the details of a person booked without an account.
  */
 @DisplayName("Appointment events - wire contract")
 class AppointmentEventsTest {
 
     private static final int SHARED_FIELDS = 21;
 
+    private static final int SECOND_BLOCK_FIRST = 30;
+
     private static final Map<Descriptor, String> ROUTING_KEYS = Map.of(
             AppointmentBookedEvent.getDescriptor(), EventRoutes.APPOINTMENTS_BOOKING_BOOKED_V1,
             AppointmentConfirmedEvent.getDescriptor(), EventRoutes.APPOINTMENTS_BOOKING_CONFIRMED_V1,
             AppointmentMovedEvent.getDescriptor(), EventRoutes.APPOINTMENTS_BOOKING_MOVED_V1,
             AppointmentCancelledEvent.getDescriptor(), EventRoutes.APPOINTMENTS_BOOKING_CANCELLED_V1,
-            AppointmentReminderDueEvent.getDescriptor(), EventRoutes.APPOINTMENTS_BOOKING_REMINDER_DUE_V1);
+            AppointmentReminderDueEvent.getDescriptor(), EventRoutes.APPOINTMENTS_BOOKING_REMINDER_DUE_V1,
+            AppointmentMoveRequestedEvent.getDescriptor(), EventRoutes.APPOINTMENTS_BOOKING_MOVE_REQUESTED_V1);
 
     // reason_code is the open cancellation code; a free text, a note or an encrypted blob is the booker's reason.
     private static final Pattern REASON_TEXT_FIELD_NAME = Pattern.compile(
@@ -46,7 +50,13 @@ class AppointmentEventsTest {
     }
 
     private static List<FieldDescriptor> ownFields(Descriptor event) {
-        return event.getFields().stream().filter(field -> field.getNumber() > SHARED_FIELDS).toList();
+        return event.getFields().stream()
+                .filter(field -> field.getNumber() > SHARED_FIELDS && field.getNumber() < SECOND_BLOCK_FIRST)
+                .toList();
+    }
+
+    private static List<FieldDescriptor> secondBlock(Descriptor event) {
+        return event.getFields().stream().filter(field -> field.getNumber() >= SECOND_BLOCK_FIRST).toList();
     }
 
     @Nested
@@ -88,6 +98,29 @@ class AppointmentEventsTest {
         }
 
         @Test
+        @DisplayName("Every event reads the same second block in fields 30 to 35")
+        void sharesTheSecondBlock() {
+            assertThat(secondBlock(AppointmentBookedEvent.getDescriptor()))
+                    .extracting(FieldDescriptor::getNumber, FieldDescriptor::getName, FieldDescriptor::getJavaType,
+                            FieldDescriptor::isRepeated)
+                    .containsExactly(
+                            tuple(30, "booker_kind", JavaType.STRING, false),
+                            tuple(31, "booked_by_subject", JavaType.STRING, false),
+                            tuple(32, "actor_subject", JavaType.STRING, false),
+                            tuple(33, "notice_channels", JavaType.STRING, true),
+                            tuple(34, "delegate_subjects", JavaType.STRING, true),
+                            tuple(35, "has_host_message", JavaType.BOOLEAN, false));
+            assertThat(events()).allSatisfy(event -> assertThat(secondBlock(event))
+                    .as(event.getFullName())
+                    .extracting(FieldDescriptor::getNumber, FieldDescriptor::getName, FieldDescriptor::getType,
+                            FieldDescriptor::isRepeated)
+                    .containsExactlyElementsOf(secondBlock(AppointmentBookedEvent.getDescriptor()).stream()
+                            .map(field -> tuple(field.getNumber(), field.getName(), field.getType(),
+                                    field.isRepeated()))
+                            .toList()));
+        }
+
+        @Test
         @DisplayName("A move names the booking it replaces and the instants it left, the others add what they need")
         void addsTheirOwnFieldsFromTwentyTwo() {
             assertThat(ownFields(AppointmentBookedEvent.getDescriptor())).isEmpty();
@@ -107,17 +140,22 @@ class AppointmentEventsTest {
             assertThat(ownFields(AppointmentReminderDueEvent.getDescriptor()))
                     .extracting(FieldDescriptor::getNumber, FieldDescriptor::getName, FieldDescriptor::getJavaType)
                     .containsExactly(tuple(22, "offset", JavaType.STRING));
+            assertThat(ownFields(AppointmentMoveRequestedEvent.getDescriptor()))
+                    .extracting(FieldDescriptor::getNumber, FieldDescriptor::getName, FieldDescriptor::getJavaType)
+                    .containsExactly(tuple(22, "move_expires_at_epoch_ms", JavaType.LONG));
         }
 
         @Test
-        @DisplayName("Holds scalars only: a vocabulary is an open string, never an enum or a nested structure")
+        @DisplayName("Holds scalars and lists of strings: a vocabulary is an open string, never an enum or a structure")
         void holdsOnlyScalars() {
             assertThat(events()).allSatisfy(event -> {
                 assertThat(event.getFields()).as(event.getFullName())
                         .allSatisfy(field -> {
-                            assertThat(field.isRepeated()).as(field.getName()).isFalse();
                             assertThat(field.getJavaType()).as(field.getName())
-                                    .isIn(JavaType.STRING, JavaType.LONG, JavaType.INT);
+                                    .isIn(JavaType.STRING, JavaType.LONG, JavaType.INT, JavaType.BOOLEAN);
+                            if (field.isRepeated()) {
+                                assertThat(field.getJavaType()).as(field.getName()).isEqualTo(JavaType.STRING);
+                            }
                         });
                 assertThat(event.getNestedTypes()).isEmpty();
                 assertThat(event.getEnumTypes()).isEmpty();
@@ -131,12 +169,23 @@ class AppointmentEventsTest {
     class Confidentiality {
 
         @Test
-        @DisplayName("Carries no field that could hold the reason a booker gave, whatever its name")
+        @DisplayName("Carries no field that could hold the reason a booker gave or a message from the host")
         void carriesNoReasonText() {
             assertThat(events()).allSatisfy(event -> assertThat(event.getFields())
                     .as(event.getFullName())
+                    .filteredOn(field -> field.getJavaType() != JavaType.BOOLEAN)
                     .extracting(FieldDescriptor::getName)
                     .noneMatch(name -> REASON_TEXT_FIELD_NAME.matcher(name).matches()));
+        }
+
+        @Test
+        @DisplayName("Says that the host wrote a message as a flag, never the message")
+        void flagsTheHostMessageOnly() {
+            assertThat(events()).allSatisfy(event -> assertThat(event.getFields())
+                    .as(event.getFullName())
+                    .filteredOn(field -> field.getName().contains("message"))
+                    .extracting(FieldDescriptor::getName, FieldDescriptor::getJavaType)
+                    .containsExactly(tuple("has_host_message", JavaType.BOOLEAN)));
         }
 
         @Test
@@ -149,9 +198,9 @@ class AppointmentEventsTest {
         }
 
         @Test
-        @DisplayName("Carries no address, phone or language of a person: the hosting project resolves them by subject")
+        @DisplayName("Carries no address, phone or language of a person, nor any detail of a guest")
         void carriesNoContactDetail() {
-            Pattern contact = Pattern.compile(".*(email|phone|address|locale|language|photo).*",
+            Pattern contact = Pattern.compile(".*(email|phone|address|locale|language|photo|guest).*",
                     Pattern.CASE_INSENSITIVE);
 
             assertThat(events()).allSatisfy(event -> assertThat(event.getFields())
@@ -174,14 +223,15 @@ class AppointmentEventsTest {
         }
 
         @Test
-        @DisplayName("The five facts a booking goes through have five distinct keys")
+        @DisplayName("The six facts a booking goes through have six distinct keys")
         void keysAreDistinct() {
             assertThat(ROUTING_KEYS.values()).containsExactlyInAnyOrder(
                     "appointments.booking.booked.v1",
                     "appointments.booking.confirmed.v1",
                     "appointments.booking.moved.v1",
                     "appointments.booking.cancelled.v1",
-                    "appointments.booking.reminder-due.v1");
+                    "appointments.booking.reminder-due.v1",
+                    "appointments.booking.move-requested.v1");
         }
     }
 
@@ -274,6 +324,75 @@ class AppointmentEventsTest {
                     .build();
 
             assertThat(AppointmentReminderDueEvent.parseFrom(sent.toByteArray()).getOffset()).isEqualTo("PT1H");
+        }
+
+        @Test
+        @DisplayName("A delegate's booking for a guest names who acted and the channels, not the guest")
+        void bookedForAGuestSurvives() throws Exception {
+            AppointmentBookedEvent sent = AppointmentBookedEvent.newBuilder()
+                    .setEventId("appt:b4:booked")
+                    .setBookingId("b4")
+                    .setOriginBookingId("b4")
+                    .setHostSubject("host-sub")
+                    .setBookerSubject("guest:6f1c2d3e-0000-4000-8000-000000000001")
+                    .setHostDisplayName("A. Host")
+                    .setStatus("CONFIRMED")
+                    .setBookerKind("GUEST")
+                    .setBookedBySubject("delegate-sub")
+                    .setActorSubject("delegate-sub")
+                    .addNoticeChannels("sms")
+                    .addDelegateSubjects("delegate-sub")
+                    .addDelegateSubjects("other-delegate-sub")
+                    .build();
+
+            AppointmentBookedEvent received = AppointmentBookedEvent.parseFrom(sent.toByteArray());
+
+            assertThat(received).isEqualTo(sent);
+            assertThat(received.getBookerDisplayName()).isEmpty();
+            assertThat(received.getNoticeChannelsList()).containsExactly("sms");
+            assertThat(received.getDelegateSubjectsList()).containsExactly("delegate-sub", "other-delegate-sub");
+            assertThat(received.getHasHostMessage()).isFalse();
+        }
+
+        @Test
+        @DisplayName("An event written before the second block reads it empty, which means what it meant before")
+        void eventWithoutTheSecondBlockReadsEmpty() throws Exception {
+            AppointmentCancelledEvent sent = AppointmentCancelledEvent.newBuilder()
+                    .setEventId("appt:b2:cancelled")
+                    .setBookingId("b2")
+                    .setActor("HOST")
+                    .setReasonCode("HOST_UNAVAILABLE")
+                    .build();
+
+            AppointmentCancelledEvent received = AppointmentCancelledEvent.parseFrom(sent.toByteArray());
+
+            assertThat(received.getBookerKind()).isEmpty();
+            assertThat(received.getBookedBySubject()).isEmpty();
+            assertThat(received.getActorSubject()).isEmpty();
+            assertThat(received.getNoticeChannelsList()).isEmpty();
+            assertThat(received.getDelegateSubjectsList()).isEmpty();
+            assertThat(received.getHasHostMessage()).isFalse();
+        }
+
+        @Test
+        @DisplayName("A request to move keeps the booking's slot and says until when the booker may choose")
+        void moveRequestedSurvives() throws Exception {
+            AppointmentMoveRequestedEvent sent = AppointmentMoveRequestedEvent.newBuilder()
+                    .setEventId("appt:b2:move-requested:1790000000000")
+                    .setOccurredAtEpochMs(1_790_000_000_000L)
+                    .setBookingId("b2")
+                    .setOriginBookingId("b2")
+                    .setStartsAtEpochMs(1_790_400_000_000L)
+                    .setStatus("CONFIRMED")
+                    .setMoveExpiresAtEpochMs(1_790_172_800_000L)
+                    .setActorSubject("delegate-sub")
+                    .setHasHostMessage(true)
+                    .build();
+
+            AppointmentMoveRequestedEvent received = AppointmentMoveRequestedEvent.parseFrom(sent.toByteArray());
+
+            assertThat(received).isEqualTo(sent);
+            assertThat(received.getMoveExpiresAtEpochMs()).isLessThan(received.getStartsAtEpochMs());
         }
 
         @Test

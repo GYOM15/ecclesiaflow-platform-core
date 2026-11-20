@@ -1,0 +1,34 @@
+// Served by the appointments service. Field numbers and types are on the wire:
+// add fields, never renumber, retype or reuse one.
+
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.appointments";
+option java_outer_classname = "AppointmentsAdminServiceProto";
+
+package ecclesiaflow.appointments;
+
+// Commands a hosting project sends the service about its spaces. A project
+// whose own events already carry these facts (Ecclify) lets the service's
+// adapters translate them instead, and never calls this service.
+service AppointmentsAdminService {
+  // Sets the paid channels a space allows its calendars to offer, so no notice
+  // spends what the space pays for without its consent. Scope
+  // ef:appointments:space:channels.
+  rpc SetSpaceChannels(SetSpaceChannelsRequest) returns (SetSpaceChannelsResponse);
+}
+
+message SetSpaceChannelsRequest {
+  string space_id = 1;
+
+  // The whole set of paid channels the space allows, not a change: a paid
+  // channel absent here is refused, and empty refuses them all. Each is one of
+  // the channels the deployment names paid (sms at Ecclify); any other name
+  // answers INVALID_ARGUMENT and changes nothing.
+  repeated string allowed_channels = 2;
+}
+
+// Failures are reported through the gRPC status, never in the response.
+message SetSpaceChannelsResponse {
+}
