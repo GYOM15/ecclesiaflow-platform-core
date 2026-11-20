@@ -1001,6 +1001,12 @@ class ContractWireCompatibilityTest {
               19 string location_place
               20 string location_link
               21 string status
+              30 string booker_kind
+              31 string booked_by_subject
+              32 string actor_subject
+              33 repeated string notice_channels
+              34 repeated string delegate_subjects
+              35 bool has_host_message
             message ecclesiaflow.events.appointments.v1.AppointmentConfirmedEvent
               1 string event_id
               2 int64 occurred_at_epoch_ms
@@ -1023,6 +1029,12 @@ class ContractWireCompatibilityTest {
               19 string location_place
               20 string location_link
               21 string status
+              30 string booker_kind
+              31 string booked_by_subject
+              32 string actor_subject
+              33 repeated string notice_channels
+              34 repeated string delegate_subjects
+              35 bool has_host_message
             message ecclesiaflow.events.appointments.v1.AppointmentMovedEvent
               1 string event_id
               2 int64 occurred_at_epoch_ms
@@ -1049,6 +1061,12 @@ class ContractWireCompatibilityTest {
               23 int64 previous_starts_at_epoch_ms
               24 int64 previous_ends_at_epoch_ms
               25 string actor
+              30 string booker_kind
+              31 string booked_by_subject
+              32 string actor_subject
+              33 repeated string notice_channels
+              34 repeated string delegate_subjects
+              35 bool has_host_message
             message ecclesiaflow.events.appointments.v1.AppointmentCancelledEvent
               1 string event_id
               2 int64 occurred_at_epoch_ms
@@ -1073,6 +1091,12 @@ class ContractWireCompatibilityTest {
               21 string status
               22 string actor
               23 string reason_code
+              30 string booker_kind
+              31 string booked_by_subject
+              32 string actor_subject
+              33 repeated string notice_channels
+              34 repeated string delegate_subjects
+              35 bool has_host_message
             message ecclesiaflow.events.appointments.v1.AppointmentReminderDueEvent
               1 string event_id
               2 int64 occurred_at_epoch_ms
@@ -1096,6 +1120,12 @@ class ContractWireCompatibilityTest {
               20 string location_link
               21 string status
               22 string offset
+              30 string booker_kind
+              31 string booked_by_subject
+              32 string actor_subject
+              33 repeated string notice_channels
+              34 repeated string delegate_subjects
+              35 bool has_host_message
             file ecclesiaflow/payments/payments_service.proto package ecclesiaflow.payments java_package com.ecclesiaflow.grpc.payments
             service ecclesiaflow.payments.PaymentsService
               OpenMerchantAccount ecclesiaflow.payments.OpenMerchantAccountRequest -> ecclesiaflow.payments.OpenMerchantAccountResponse
