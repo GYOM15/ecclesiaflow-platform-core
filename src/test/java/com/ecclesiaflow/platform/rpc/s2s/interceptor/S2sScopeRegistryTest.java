@@ -21,6 +21,35 @@ import com.ecclesiaflow.grpc.church.OnSignupCompletedRequest;
 import com.ecclesiaflow.grpc.church.OnSignupCompletedResponse;
 import com.ecclesiaflow.grpc.church.RepublishActiveMembershipsRequest;
 import com.ecclesiaflow.grpc.church.RepublishActiveMembershipsResponse;
+import com.ecclesiaflow.grpc.payments.ChargeSavedMethodRequest;
+import com.ecclesiaflow.grpc.payments.ChargeSavedMethodResponse;
+import com.ecclesiaflow.grpc.payments.CreateOnboardingSessionRequest;
+import com.ecclesiaflow.grpc.payments.CreateOnboardingSessionResponse;
+import com.ecclesiaflow.grpc.payments.DisableMerchantAccountRequest;
+import com.ecclesiaflow.grpc.payments.DisableMerchantAccountResponse;
+import com.ecclesiaflow.grpc.payments.ErasePayerRequest;
+import com.ecclesiaflow.grpc.payments.ErasePayerResponse;
+import com.ecclesiaflow.grpc.payments.FindPaymentByReferenceRequest;
+import com.ecclesiaflow.grpc.payments.FindPaymentByReferenceResponse;
+import com.ecclesiaflow.grpc.payments.GetMerchantAccountRequest;
+import com.ecclesiaflow.grpc.payments.GetMerchantAccountResponse;
+import com.ecclesiaflow.grpc.payments.GetPaymentRequest;
+import com.ecclesiaflow.grpc.payments.GetPaymentResponse;
+import com.ecclesiaflow.grpc.payments.GetProviderStatusRequest;
+import com.ecclesiaflow.grpc.payments.GetProviderStatusResponse;
+import com.ecclesiaflow.grpc.payments.ListPaymentsRequest;
+import com.ecclesiaflow.grpc.payments.ListPaymentsResponse;
+import com.ecclesiaflow.grpc.payments.ListPayoutLinesRequest;
+import com.ecclesiaflow.grpc.payments.ListPayoutLinesResponse;
+import com.ecclesiaflow.grpc.payments.OpenMerchantAccountRequest;
+import com.ecclesiaflow.grpc.payments.OpenMerchantAccountResponse;
+import com.ecclesiaflow.grpc.payments.PaymentsServiceGrpc;
+import com.ecclesiaflow.grpc.payments.RefundPaymentRequest;
+import com.ecclesiaflow.grpc.payments.RefundPaymentResponse;
+import com.ecclesiaflow.grpc.payments.StartMethodSetupRequest;
+import com.ecclesiaflow.grpc.payments.StartMethodSetupResponse;
+import com.ecclesiaflow.grpc.payments.StartPaymentRequest;
+import com.ecclesiaflow.grpc.payments.StartPaymentResponse;
 import io.grpc.BindableService;
 import io.grpc.MethodDescriptor;
 import io.grpc.ServerCall;
@@ -36,6 +65,7 @@ import org.springframework.aop.framework.ProxyFactory;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -173,6 +203,16 @@ class S2sScopeRegistryTest {
                     .hasMessageContaining("ecclesiaflow.church.ChurchService/GetBillingProfile")
                     .hasMessageNotContaining("ecclesiaflow.church.ChurchService/CanModerateGroupContent");
         }
+
+        @Test
+        @DisplayName("the payments RPCs are keyed by their full gRPC name, each with its own ef:payments scope")
+        void paymentsService() {
+            S2sScopeRegistry reg = new S2sScopeRegistry(List.of(new PaymentsService()));
+
+            assertThat(reg.size()).isEqualTo(PAYMENTS_SCOPES.size());
+            PAYMENTS_SCOPES.forEach((rpc, scope) -> assertThat(
+                    reg.requiredScope("ecclesiaflow.payments.PaymentsService/" + rpc)).as(rpc).contains(scope));
+        }
     }
 
     static class BillingCreditService extends BillingCreditServiceGrpc.BillingCreditServiceImplBase {
@@ -204,6 +244,104 @@ class S2sScopeRegistryTest {
         @S2sScopeRequired("ef:billing:entitlement:read")
         @Override
         public void getEntitlement(GetEntitlementRequest request, StreamObserver<GetEntitlementResponse> response) {
+        }
+    }
+
+    // Read and write are split per object, so a caller that only reconciles holds no power to charge or refund.
+    static final Map<String, String> PAYMENTS_SCOPES = Map.ofEntries(
+            Map.entry("OpenMerchantAccount", "ef:payments:merchant:write"),
+            Map.entry("CreateOnboardingSession", "ef:payments:merchant:session"),
+            Map.entry("GetMerchantAccount", "ef:payments:merchant:read"),
+            Map.entry("DisableMerchantAccount", "ef:payments:merchant:write"),
+            Map.entry("StartPayment", "ef:payments:payment:write"),
+            Map.entry("ChargeSavedMethod", "ef:payments:payment:write"),
+            Map.entry("StartMethodSetup", "ef:payments:payment:write"),
+            Map.entry("GetPayment", "ef:payments:payment:read"),
+            Map.entry("FindPaymentByReference", "ef:payments:payment:read"),
+            Map.entry("ListPayments", "ef:payments:payment:read"),
+            Map.entry("RefundPayment", "ef:payments:refund:write"),
+            Map.entry("ListPayoutLines", "ef:payments:payout:read"),
+            Map.entry("GetProviderStatus", "ef:payments:status:read"),
+            Map.entry("ErasePayer", "ef:payments:payer:erase"));
+
+    static class PaymentsService extends PaymentsServiceGrpc.PaymentsServiceImplBase {
+
+        @S2sScopeRequired("ef:payments:merchant:write")
+        @Override
+        public void openMerchantAccount(OpenMerchantAccountRequest request,
+                                        StreamObserver<OpenMerchantAccountResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:payments:merchant:session")
+        @Override
+        public void createOnboardingSession(CreateOnboardingSessionRequest request,
+                                            StreamObserver<CreateOnboardingSessionResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:payments:merchant:read")
+        @Override
+        public void getMerchantAccount(GetMerchantAccountRequest request,
+                                       StreamObserver<GetMerchantAccountResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:payments:merchant:write")
+        @Override
+        public void disableMerchantAccount(DisableMerchantAccountRequest request,
+                                           StreamObserver<DisableMerchantAccountResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:payments:payment:write")
+        @Override
+        public void startPayment(StartPaymentRequest request, StreamObserver<StartPaymentResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:payments:payment:write")
+        @Override
+        public void chargeSavedMethod(ChargeSavedMethodRequest request,
+                                      StreamObserver<ChargeSavedMethodResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:payments:payment:write")
+        @Override
+        public void startMethodSetup(StartMethodSetupRequest request,
+                                     StreamObserver<StartMethodSetupResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:payments:payment:read")
+        @Override
+        public void getPayment(GetPaymentRequest request, StreamObserver<GetPaymentResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:payments:payment:read")
+        @Override
+        public void findPaymentByReference(FindPaymentByReferenceRequest request,
+                                           StreamObserver<FindPaymentByReferenceResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:payments:payment:read")
+        @Override
+        public void listPayments(ListPaymentsRequest request, StreamObserver<ListPaymentsResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:payments:refund:write")
+        @Override
+        public void refundPayment(RefundPaymentRequest request, StreamObserver<RefundPaymentResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:payments:payout:read")
+        @Override
+        public void listPayoutLines(ListPayoutLinesRequest request, StreamObserver<ListPayoutLinesResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:payments:status:read")
+        @Override
+        public void getProviderStatus(GetProviderStatusRequest request,
+                                      StreamObserver<GetProviderStatusResponse> response) {
+        }
+
+        @S2sScopeRequired("ef:payments:payer:erase")
+        @Override
+        public void erasePayer(ErasePayerRequest request, StreamObserver<ErasePayerResponse> response) {
         }
     }
 

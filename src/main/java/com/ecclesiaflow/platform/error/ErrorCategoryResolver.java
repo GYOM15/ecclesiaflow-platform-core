@@ -4,6 +4,7 @@ import com.ecclesiaflow.platform.moderation.ContentRejectedException;
 import com.ecclesiaflow.platform.ratelimit.RateLimitExceededException;
 import com.ecclesiaflow.platform.rpc.s2s.token.S2sTokenException;
 import com.ecclesiaflow.platform.upload.ImageDecodeCapacityExceededException;
+import com.ecclesiaflow.platform.webhooks.InvalidNotificationException;
 import io.grpc.Status;
 import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
@@ -77,7 +78,8 @@ public final class ErrorCategoryResolver {
         if (chain.stream().anyMatch(link -> isDependencyFailure(link) || isSaturation(link))) {
             return ErrorCategory.UNAVAILABLE;
         }
-        if (error instanceof IllegalArgumentException || error instanceof ContentRejectedException) {
+        if (error instanceof IllegalArgumentException || error instanceof ContentRejectedException
+                || error instanceof InvalidNotificationException) {
             return ErrorCategory.INVALID_ARGUMENT;
         }
         if (error instanceof RateLimitExceededException) {

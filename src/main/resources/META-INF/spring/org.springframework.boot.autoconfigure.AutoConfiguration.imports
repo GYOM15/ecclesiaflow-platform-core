@@ -23,3 +23,5 @@ com.ecclesiaflow.platform.moderation.autoconfigure.PlatformTermFilterAutoConfigu
 com.ecclesiaflow.platform.web.trace.autoconfigure.PlatformTraceparentAutoConfiguration
 com.ecclesiaflow.platform.events.retry.autoconfigure.PlatformDelayedRetryAutoConfiguration
 com.ecclesiaflow.platform.web.text.autoconfigure.PlatformTextInputGuardAutoConfiguration
+com.ecclesiaflow.platform.webhooks.autoconfigure.PlatformWebhookBodyLimitAutoConfiguration
+com.ecclesiaflow.platform.webhooks.autoconfigure.PlatformWebhookInboxAutoConfiguration

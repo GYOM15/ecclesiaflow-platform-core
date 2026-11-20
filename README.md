@@ -502,6 +502,7 @@ generated classes and the `.proto` files.
 | `email/email_service.proto` | communication (`EmailService`, `EmailQueueMessage`) | `com.ecclesiaflow.grpc.email` |
 | `billing/billing_credit_service.proto` | billing (`BillingCreditService`) | `com.ecclesiaflow.grpc.billing` |
 | `billing/billing_entitlement_service.proto` | billing (`BillingEntitlementService`) | `com.ecclesiaflow.grpc.billing` |
+| `payments/payments_service.proto` | payments (`PaymentsService`) | `com.ecclesiaflow.grpc.payments` |
 | `events/event_options.proto` | the `(ecclesiaflow.events.routing_keys)` option | `com.ecclesiaflow.grpc.events` |
 | `events/auth/v1/domain_events.proto` | auth (`SetupTokenIssuedEvent`, `ExistingAccountNoticeEvent`, `TwoFactorRemovedEvent`, `AccountSessionsRevokedEvent`) | `com.ecclesiaflow.grpc.events.auth` |
 | `events/church/v1/church_events.proto` | church (invitation, admission, removal, group events, `NotificationCreatedEvent`, `ChurchOwnershipTransferredEvent`, `ChurchActivatedEvent`) | `com.ecclesiaflow.grpc.events.church` |
@@ -510,6 +511,7 @@ generated classes and the `.proto` files.
 | `events/moderation/v1/moderation_events.proto` | chat, church and members, each under its own key (`ContentReportedEvent`, `ModerationActionTakenEvent`) | `com.ecclesiaflow.grpc.events.moderation` |
 | `events/billing/v1/billing_events.proto` | billing (`ChurchEntitlementChangedEvent`, `BillingNoticeEvent`) | `com.ecclesiaflow.grpc.events.billing` |
 | `events/appointments/v1/appointments_events.proto` | appointments (`AppointmentBookedEvent`, `AppointmentConfirmedEvent`, `AppointmentMovedEvent`, `AppointmentCancelledEvent`, `AppointmentReminderDueEvent`) | `com.ecclesiaflow.grpc.events.appointments` |
+| `events/payments/v1/payments_events.proto` | payments (`MerchantAccountChangedEvent`, `PaymentSucceededEvent`, `PaymentFailedEvent`, `PaymentRefundedEvent`, `PaymentDisputedEvent`, `PayoutChangedEvent`, `ProviderStatusChangedEvent`) | `com.ecclesiaflow.grpc.events.payments` |
 
 A module that calls or serves an RPC, or publishes or consumes an event, uses these classes. It
 keeps no `.proto` of its own and needs no protobuf plugin. Consumers bring `grpc-protobuf`
@@ -787,6 +789,76 @@ EventFieldSealer setupTokenSealer(SealingKeyProperties setupTokenSealingKeys) {
 module decides whether that stops its startup. To rotate, deploy the old key under
 `retired-keys` with the new one current on every consumer first, then on the producer.
 
+## Provider notifications: inbox and body bound (opt-in)
+
+A provider (a card processor, a mobile-money aggregator) tells a module what happened through signed
+notifications on an anonymous route. Two pieces take them in the same way in every module that receives
+them; neither knows a provider.
+
+**Body bound.** `WebhookBodyLimitFilter` runs ahead of Spring Security's chain on the routes it is given and
+reads at most the bound: a declared `Content-Length` past it is refused unread, an undeclared body once a byte
+past it arrives. It answers `413` with `errorCode` `PAYLOAD_TOO_LARGE` in the shared error body and closes the
+connection; within the bound it hands the body on from memory. The route is matched by prefix on its decoded
+and raw path alike.
+
+```properties
+ecclesiaflow.webhooks.body-limit.enabled=true
+ecclesiaflow.webhooks.body-limit.path-prefixes=/payments/webhooks/
+# ecclesiaflow.webhooks.body-limit.max-bytes=262144   (default, 256 KiB)
+```
+
+**Inbox.** `NotificationInbox.receive(verifier, body, headers)` checks the signature through the provider's
+adapter before it takes a database connection, then records the notification once per (provider, account,
+event id): its identifiers and the SHA-256 of its body, never the body. A notification of the other mode than
+the deployment's is answered and not recorded; one about an account the module does not know is recorded
+`UNMATCHED` and never handled until an operator replays it. A processor thread then hands each recorded
+notification to the module's handler, outside any transaction, retries a failure after doubling delays (30
+seconds to an hour) and parks it at its tenth failure. Two instances never handle the same notification at
+once: a claim leases it, and a write after the lease ran out changes nothing.
+
+The module provides, as beans:
+
+| Bean | Does |
+|---|---|
+| one `NotificationVerifier` per endpoint (in the provider's adapter) | Checks the signature with the provider's SDK and returns an `InboundNotification`, or throws `InvalidNotificationException` (`badSignature`, `malformed`) |
+| `NotificationAccountDirectory` | Says which provider accounts the module serves, from its own records |
+| `InboundNotificationHandler` | Reads the object again from the provider and applies the state it reads; throws to be retried. It may meet a notification twice, in any order |
+
+Adopting it:
+
+1. Copy `src/main/resources/db/webhooks/inbound_notification.sql` (in this jar) into the module's next Flyway
+   migration, and grant its application role only what the file's header lists. The library ships no
+   migration of its own.
+2. Enable it and state the deployment's mode; the startup fails without the mode, the directory or the handler:
+
+```properties
+ecclesiaflow.webhooks.inbox.enabled=true
+ecclesiaflow.webhooks.inbox.live=false
+```
+
+```java
+@PostMapping("/payments/webhooks/acme/accounts")
+ResponseEntity<Void> receive(@RequestBody byte[] body, @RequestHeader Map<String, String> headers) {
+    inbox.receive(accountsVerifier, body, headers);   // every verified notification answers 200
+    return ResponseEntity.ok().build();
+}
+```
+
+An `InvalidNotificationException` answers `400` through the shared error mapping (`INVALID_ARGUMENT`); the
+module's own handler may give it its code. `replayParked()` and `replay(id)` make set-aside notifications due
+again; the module traces the operator's act.
+
+| Property (`ecclesiaflow.webhooks.inbox.`) | Default | Effect |
+|---|---|---|
+| `poll-interval` | `PT2S` | Delay between two processing runs that drained what was due |
+| `batch-size`, `lease` | `10`, `PT5M` | Notifications claimed per run, and how long they stay out of reach of other instances; the lease outlasts a batch's handling |
+| `max-attempts`, `initial-backoff`, `backoff-multiplier`, `max-backoff` | `10`, `PT30S`, `2.0`, `PT1H` | Retries before a notification is parked |
+
+Watch `ecclesiaflow_webhooks_received_total{provider,endpoint,outcome}` (`outcome="rejected"` counts refused
+signatures), `ecclesiaflow_webhooks_inbox_unmatched`, `ecclesiaflow_webhooks_inbox_parked` and
+`ecclesiaflow_webhooks_inbox_oldest_pending_age_seconds`. Log lines name the inbox id, never the provider's
+event id or account.
+
 ## Other building blocks
 
 | Concern | Entry points | Configuration |
@@ -797,6 +869,69 @@ module decides whether that stops its startup. To rotate, deploy the old key und
 | Error responses | `PlatformRestExceptionHandler` (lowest precedence, `ApiErrorResponse` with `errorCode`), `GrpcExceptionServerInterceptor`, `ExceptionClassifier` beans for module exceptions | `ecclesiaflow.platform.web.errors.enabled` |
 | Clock | A UTC `Clock` bean, unless the module declares one | — |
 | Architecture | `HexagonalArchitectureRules.check("<base package>")`, run from a module test with ArchUnit in test scope | — |
+
+## Upgrading to 0.6.13
+
+Added only: a module that adopts nothing keeps its answers byte for byte.
+
+| Change in 0.6.13 | Effect on a module that adopts nothing | Fix |
+|---|---|---|
+| `PaymentsService` (`payments/payments_service.proto`, fourteen RPCs) is new | None | — |
+| `MerchantAccountChangedEvent`, `PaymentSucceededEvent`, `PaymentFailedEvent`, `PaymentRefundedEvent`, `PaymentDisputedEvent`, `PayoutChangedEvent` and `ProviderStatusChangedEvent` are new, with seven `EventRoutes` constants | None | — |
+| `ContractWireCompatibilityTest` accepts the `payments` module in a routing key | None | — |
+| `PlatformWebhookBodyLimitAutoConfiguration` and `PlatformWebhookInboxAutoConfiguration` | Off until `ecclesiaflow.webhooks.body-limit.enabled` or `ecclesiaflow.webhooks.inbox.enabled` is `true` | See [provider notifications](#provider-notifications-inbox-and-body-bound-opt-in) |
+| `InvalidNotificationException` resolves to `INVALID_ARGUMENT` | None: nothing raised it before | — |
+
+The service knows no project and no provider in its contract: a merchant, a payer and every caller reference
+are opaque strings, every amount is an integer in minor units beside its ISO 4217 currency, and every
+vocabulary (statuses, phases, reason codes, kinds) is an open string. Every write is idempotent on the
+caller's reference (`merchant_ref` at opening), so a call left without an answer is replayed as it was; the
+same reference with other fields answers `ALREADY_EXISTS`. A merchant another `azp` opened answers
+`NOT_FOUND`, like an unknown one.
+
+| RPC | Scope | Errors (gRPC status, plan code) |
+|---|---|---|
+| `OpenMerchantAccount` | `ef:payments:merchant:write` | `FAILED_PRECONDITION` `COUNTRY_NOT_SUPPORTED`, `ALREADY_EXISTS` `IDEMPOTENCY_CONFLICT`, `UNAVAILABLE` `PROVIDER_UNAVAILABLE` |
+| `CreateOnboardingSession` | `ef:payments:merchant:session` | `INVALID_ARGUMENT` on a component or feature outside the closed list |
+| `GetMerchantAccount` | `ef:payments:merchant:read` | `NOT_FOUND` |
+| `DisableMerchantAccount` | `ef:payments:merchant:write` | `NOT_FOUND` |
+| `StartPayment` | `ef:payments:payment:write` | `FAILED_PRECONDITION` `MERCHANT_NOT_READY`, `INVALID_ARGUMENT` `AMOUNT_OUT_OF_RANGE`, `ALREADY_EXISTS` `IDEMPOTENCY_CONFLICT`, `UNAVAILABLE` `PROVIDER_UNAVAILABLE` |
+| `ChargeSavedMethod` | `ef:payments:payment:write` | As `StartPayment`; a refused charge, `AUTHENTICATION_REQUIRED` included, is a `FAILED` payment with its `reason_code`, never an error |
+| `StartMethodSetup` | `ef:payments:payment:write` | As `StartPayment`; replayed with the same reference, it reads the setup's outcome |
+| `GetPayment` | `ef:payments:payment:read` | `NOT_FOUND` |
+| `FindPaymentByReference` | `ef:payments:payment:read` | `NOT_FOUND`: nothing was ever recorded under the reference |
+| `ListPayments` | `ef:payments:payment:read` | `INVALID_ARGUMENT` on a window over 31 days or a foreign cursor |
+| `RefundPayment` | `ef:payments:refund:write` | `FAILED_PRECONDITION` `REFUND_EXCEEDS_PAYMENT`, `ALREADY_EXISTS` `IDEMPOTENCY_CONFLICT`, `UNAVAILABLE` `PROVIDER_UNAVAILABLE` |
+| `ListPayoutLines` | `ef:payments:payout:read` | `FAILED_PRECONDITION` while the payout is not `PAID` |
+| `GetProviderStatus` | `ef:payments:status:read` | `NOT_FOUND` for a provider the service does not run |
+| `ErasePayer` | `ef:payments:payer:erase` | `UNAVAILABLE` `PROVIDER_UNAVAILABLE`; an unknown or erased key answers OK |
+
+Every event carries the envelope and one exact key. An event never carries the authority to write money: the
+signing secret is shared by every module, so a consumer reads the payment back with `GetPayment` and applies
+only what that answer says. No event carries a person's data. The four payment events share fields 3 to 12
+(`merchant_account_id`, `merchant_ref`, `payment_id`, `caller_reference`, `amount_minor`, `currency`,
+`provider`, `provider_payment_ref`, `status`, `provider_status`); each adds its own from 13.
+
+| Event | Key (`EventRoutes`) | `event_id` | Aggregate key |
+|---|---|---|---|
+| `MerchantAccountChangedEvent` | `PAYMENTS_MERCHANT_ACCOUNT_CHANGED_V1` (`payments.merchant-account.changed.v1`) | `mer:<merchantAccountId>:<version>` | `merchant:<merchantAccountId>` |
+| `PaymentSucceededEvent` | `PAYMENTS_PAYMENT_SUCCEEDED_V1` (`payments.payment.succeeded.v1`) | `pay:<paymentId>:paid` | `payment:<paymentId>` |
+| `PaymentFailedEvent` | `PAYMENTS_PAYMENT_FAILED_V1` (`payments.payment.failed.v1`) | `pay:<paymentId>:failed` | `payment:<paymentId>` |
+| `PaymentRefundedEvent` | `PAYMENTS_PAYMENT_REFUNDED_V1` (`payments.payment.refunded.v1`) | `ref:<refundId>:succeeded` | `payment:<paymentId>` |
+| `PaymentDisputedEvent` | `PAYMENTS_PAYMENT_DISPUTED_V1` (`payments.payment.disputed.v1`) | `dsp:<disputeId>:<phase>` | `payment:<paymentId>` |
+| `PayoutChangedEvent` | `PAYMENTS_PAYOUT_CHANGED_V1` (`payments.payout.changed.v1`) | `pyo:<payoutId>:<status>` | `payout:<payoutId>` |
+| `ProviderStatusChangedEvent` | `PAYMENTS_PROVIDER_STATUS_CHANGED_V1` (`payments.provider.status-changed.v1`) | `prv:<provider>:<occurredAtEpochMs>` | `provider:<provider>` |
+
+Every documented `event_id` fits 64 characters with a UUID id.
+
+Adopting it, in deploy order (each step ships before the next one uses it):
+
+| Module | Does |
+|---|---|
+| auth | Declares the nine `ef:payments:*` scopes in `provisioning/client-scopes.txt`, gives them to `ecclesiaflow-church-backend` and updates `check-realm.reference.json`; no client for the payments service, which calls nobody |
+| deploy | Lists `ecclesiaflow-church-backend` alone in the payments service's `S2S_ALLOWED_AZP`; sets the dead-letter policy of church's new queue, never bounded, before church's image declares it |
+| church | Binds the payment keys it reads by name on a queue of its own, dedupes on `event_id`, reads the payment back with `GetPayment` before any write and checks its merchant is the church's; applies `MerchantAccountChangedEvent` only above the `version` it holds |
+| payments | Serves every RPC annotated with its scope; adopts the body bound and the inbox on its notification routes; publishes through the outbox, in the transaction of the change, only once church's queue is bound: the relay parks an unrouted event and blocks its aggregate |
 
 ## Upgrading to 0.6.12
 

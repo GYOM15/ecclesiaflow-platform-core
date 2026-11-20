@@ -51,6 +51,14 @@ public final class EventRoutes {
     public static final String APPOINTMENTS_BOOKING_CANCELLED_V1 = "appointments.booking.cancelled.v1";
     public static final String APPOINTMENTS_BOOKING_REMINDER_DUE_V1 = "appointments.booking.reminder-due.v1";
 
+    public static final String PAYMENTS_MERCHANT_ACCOUNT_CHANGED_V1 = "payments.merchant-account.changed.v1";
+    public static final String PAYMENTS_PAYMENT_SUCCEEDED_V1 = "payments.payment.succeeded.v1";
+    public static final String PAYMENTS_PAYMENT_FAILED_V1 = "payments.payment.failed.v1";
+    public static final String PAYMENTS_PAYMENT_REFUNDED_V1 = "payments.payment.refunded.v1";
+    public static final String PAYMENTS_PAYMENT_DISPUTED_V1 = "payments.payment.disputed.v1";
+    public static final String PAYMENTS_PAYOUT_CHANGED_V1 = "payments.payout.changed.v1";
+    public static final String PAYMENTS_PROVIDER_STATUS_CHANGED_V1 = "payments.provider.status-changed.v1";
+
     private EventRoutes() {
     }
 }
