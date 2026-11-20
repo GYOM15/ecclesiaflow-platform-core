@@ -1087,6 +1087,58 @@ Adopting it, in deploy order (each step ships before the next one uses it):
 | communication | Binds the three new appointment keys on its appointment queue, reads `actor` `DELEGATE` and `reason_code` `OTHER`, routes confirmations and reminders by `notice_channels`, and reads a guest's details and the host's message with `GetNoticeDetails` under a short deadline, failing closed |
 | appointments | Serves `GetNoticeDetails` annotated with its scope (it binds no `AppointmentsAdminService`); binds the settings key; publishes the new values and events only once communication's and church's queues are bound |
 
+### Back-office foundations
+
+Added only, like the rest of 0.6.13: what the back-office's lots (auth, members, church, chat, communication and the
+appointments service) read and write, released before any of them.
+
+| Change in 0.6.13 | Effect on a module that adopts nothing | Fix |
+|---|---|---|
+| `Surface.PLATFORM_SUPPORT` and `Surface.PLATFORM_ADMINISTRATION`, read from `x-ef-platform-duty: support` and `administration` | None: no contract carries the values yet | — |
+| The operating clients' rule: a token whose `azp` is `ecclesiaflow-backoffice`, `ecclesiaflow-moderation-cli` or `ecclesiaflow-billing-cli` is refused on every `member`, console or unlisted operation | None for the command lines, which call platform operations only | A module test that sends such an `azp` to a member or console route expects 403 |
+| `SurfaceAuthorizationFilter` takes the `OperatingClients`; `SurfaceAuthorizationEvents.ModeActive` carries their list | A module that builds either itself no longer compiles | None does; the auto-configuration builds both |
+| `ChurchSuspendedEvent` and `ChurchSuspensionLiftedEvent` (`events/church/v1/church_suspension_events.proto`), with two `EventRoutes` constants | None | — |
+| `EmailTemplateType` 19 to 22 | A `switch` expression over the enum with no `default` no longer compiles | Add the cases, or a `default` that refuses a template the module has no mail for |
+| `ChurchService.GetMemberLeaders` is a new RPC, and `S2sScopeRegistry` lists every RPC of a bound service, implemented or not | church does not start: `s2s scope registry is incomplete` | Override it with `@S2sScopeRequired("ef:church:leaders:read")`, implemented or as a stub that answers `UNIMPLEMENTED` |
+| `MemberContact.phone_since_epoch_ms` and `email_since_epoch_ms`, optional | None: absent means unknown | — |
+| `PlatformJournalAutoConfiguration` | Off until `ecclesiaflow.journal.enabled` is `true` | See [the journal](#tamper-evident-journal-of-platform-gestures-opt-in) |
+| `journalhead` joins the anonymous endpoints of the management chain | None: the endpoint exists only in a module that enables the journal and exposes it | — |
+
+| RPC | Served by | Called by | Scope |
+|---|---|---|---|
+| `ChurchService.GetMemberLeaders` | church | auth | `ef:church:leaders:read` |
+
+`GetMemberLeaders` answers, for a person's `sub`, each `ACTIVE` church they are an active member of, with the
+`sub` of its owner and of its active administrators; the person may be among them and the caller leaves them out.
+
+| Event | Key (`EventRoutes`) | Published by | Consumed by |
+|---|---|---|---|
+| `ChurchSuspendedEvent` | `CHURCH_CHURCH_SUSPENDED_V1` (`church.church.suspended.v1`) | church | chat, communication, appointments |
+| `ChurchSuspensionLiftedEvent` | `CHURCH_CHURCH_SUSPENSION_LIFTED_V1` (`church.church.suspension-lifted.v1`) | church | chat, communication, appointments |
+
+Both carry `event_id`, `occurred_at_epoch_ms`, `church_id` and an open `reason_code`; church stages a church's
+suspension events under one aggregate key, and a consumer ignores one no newer than the last it applied. A
+church suspension is not billing's: neither lifts the other.
+
+| Value | `EmailTemplateType` | Sent by | To |
+|---|---|---|---|
+| 19 | `EMAIL_TEMPLATE_SUSPENSION_LIFTED` | members | the account |
+| 20 | `EMAIL_TEMPLATE_CHURCH_SUSPENDED` | church | the owner and the administrators |
+| 21 | `EMAIL_TEMPLATE_CHURCH_SUSPENSION_LIFTED` | church | the owner and the administrators |
+| 22 | `EMAIL_TEMPLATE_TWO_FACTOR_RESET_REQUESTED` | auth | the account, when a reset is requested, before anything changes |
+
+Adopting it, in deploy order (each step ships before the next one uses it):
+
+| Module | Does |
+|---|---|
+| auth | Declares `ef:backoffice:act`, held by `ecclesiaflow-backoffice` alone, and `ef:church:leaders:read`, given with `ef:email:send` to `ecclesiaflow-auth-backend`; updates `check-realm.reference.json` |
+| deploy | Sets the dead-letter policy of each new queue (communication, chat, appointments), never bounded, before the image that declares it |
+| communication | Ships the FR and EN templates of 19 to 22; binds both church keys by name |
+| chat, appointments | Bind both church keys by name, dedupe on `event_id`, keep the latest per church on `occurred_at_epoch_ms` |
+| members | Fills the two dates of `MemberContact` |
+| church | Annotates `GetMemberLeaders` in the upgrade that reaches this release; publishes the two events through the outbox only once every consumer's queue is bound |
+| auth, members, church, chat | Adopt the journal: the owner role and the schema by the pre-boot step, the SQL in a Flyway line run as the owner, `journalhead` exposed on the management port |
+
 ## Upgrading to 0.6.12
 
 Added only: a module that adopts nothing keeps its answers byte for byte.
