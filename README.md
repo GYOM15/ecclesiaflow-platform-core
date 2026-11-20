@@ -798,6 +798,32 @@ module decides whether that stops its startup. To rotate, deploy the old key und
 | Clock | A UTC `Clock` bean, unless the module declares one | — |
 | Architecture | `HexagonalArchitectureRules.check("<base package>")`, run from a module test with ArchUnit in test scope | — |
 
+## Upgrading to 0.6.12
+
+Added only: a module that adopts nothing keeps its answers byte for byte.
+
+| Change in 0.6.12 | Effect on a module that adopts nothing | Fix |
+|---|---|---|
+| `ChurchPublicIdentityChangedEvent` (`event_id = 1`, `occurred_at_epoch_ms = 2`, `church_id = 3`, `name = 4`, `street_address = 5`, `city = 6`, `postal_code = 7`, `country_code = 8`, `contact_email = 9`) is new, with `EventRoutes.CHURCH_PUBLIC_IDENTITY_CHANGED_V1` | None | — |
+| `EmailTemplateType.EMAIL_TEMPLATE_CHURCH_CONTACT_EMAIL_CONFIRMATION = 17` and `EMAIL_TEMPLATE_EMAIL_CHANGED_NOTICE = 18` | A `switch` expression over the enum with no `default` no longer compiles | Add the case, or a `default` that refuses a template the module has no mail for |
+
+The event carries a church's whole public identity, not the change: the latest one is the truth. Its
+contact e-mail is only ever one its holder confirmed from a link; empty, the consumer forgets the one it
+held. The address travels in its parts, and the consumer that prints it composes the line.
+
+| Event | Key (`EventRoutes`) | Published by | Consumed by |
+|---|---|---|---|
+| `ChurchPublicIdentityChangedEvent` | `CHURCH_PUBLIC_IDENTITY_CHANGED_V1` (`church.public-identity.changed.v1`) | church | communication |
+
+Adopting it, in deploy order (each step ships before the next one uses it):
+
+| Module | Does |
+|---|---|
+| deploy | Sets the dead-letter policy of communication's new queue, never bounded, before communication's image declares it |
+| communication | Ships the templates of both new types; binds `CHURCH_PUBLIC_IDENTITY_CHANGED_V1` on a queue of its own and keeps one row per church, replaced only by an event with a later `occurred_at_epoch_ms` |
+| church | Publishes it through the outbox, in the transaction of the change, under one aggregate key per church and with strictly increasing instants per church, and once for every church that existed before; only once communication's queue is bound, since the relay parks an unrouted event |
+| members | Sends the notice to the address an account left under `EMAIL_TEMPLATE_EMAIL_CHANGED_NOTICE`, once communication has its template |
+
 ## Upgrading to 0.6.10
 
 Added only: a module that adopts nothing keeps its answers byte for byte.
