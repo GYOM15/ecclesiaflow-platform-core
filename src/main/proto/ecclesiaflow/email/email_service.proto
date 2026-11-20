@@ -48,6 +48,12 @@ enum EmailTemplateType {
   EMAIL_TEMPLATE_CHURCH_CONTACT_EMAIL_CONFIRMATION = 17; // Confirm the address a church's readers write back to
   // To the address the account just left, so its holder learns of a change made without them.
   EMAIL_TEMPLATE_EMAIL_CHANGED_NOTICE = 18;          // An account's e-mail address was changed
+  // Platform notices, outside any church's quota: the motive travels as its code, rendered from the catalog.
+  EMAIL_TEMPLATE_SUSPENSION_LIFTED = 19;             // Account suspension lifted by the platform
+  EMAIL_TEMPLATE_CHURCH_SUSPENDED = 20;              // Church suspended by the platform, to its owner and admins
+  EMAIL_TEMPLATE_CHURCH_SUSPENSION_LIFTED = 21;      // Church suspension lifted, to its owner and administrators
+  // Sent to the account's address before anything changes, so a holder who never asked can contest it.
+  EMAIL_TEMPLATE_TWO_FACTOR_RESET_REQUESTED = 22;    // A two-factor reset request was opened for the account
 }
 
 // Request to send an email

@@ -723,6 +723,10 @@ class ContractWireCompatibilityTest {
               16 EMAIL_TEMPLATE_SENSITIVE_ACTION_CODE
               17 EMAIL_TEMPLATE_CHURCH_CONTACT_EMAIL_CONFIRMATION
               18 EMAIL_TEMPLATE_EMAIL_CHANGED_NOTICE
+              19 EMAIL_TEMPLATE_SUSPENSION_LIFTED
+              20 EMAIL_TEMPLATE_CHURCH_SUSPENDED
+              21 EMAIL_TEMPLATE_CHURCH_SUSPENSION_LIFTED
+              22 EMAIL_TEMPLATE_TWO_FACTOR_RESET_REQUESTED
               reserved 1
               reserved 2
             enum ecclesiaflow.email.Priority
