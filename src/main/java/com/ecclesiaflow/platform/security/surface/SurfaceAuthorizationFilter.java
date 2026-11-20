@@ -24,7 +24,8 @@ import java.util.Collection;
  * Applies the surface of the operation a token-bearing request reaches. Registered right after Spring
  * Security's chain, so the token is already authenticated and the module's own rules have run; a refusal is
  * thrown as an {@link AccessDeniedException}, which the chain's exception handling answers with the module's
- * usual 403. Requests without a {@link JwtAuthenticationToken} are not ruled.
+ * usual 403. Requests without a {@link JwtAuthenticationToken} are not ruled. A token of an operating client is
+ * refused on every operation that is not a platform duty, whatever its scopes.
  */
 public class SurfaceAuthorizationFilter extends OncePerRequestFilter {
 
@@ -36,14 +37,16 @@ public class SurfaceAuthorizationFilter extends OncePerRequestFilter {
     static final String OTHER_CALLER = "other";
 
     private final SurfaceIndex surfaces;
+    private final OperatingClients operatingClients;
     private final SurfaceMode mode;
     private final ApplicationEventPublisher events;
     private final MeterRegistry meterRegistry;
 
     /** A {@code null} registry counts nothing; decisions are unchanged. */
-    public SurfaceAuthorizationFilter(SurfaceIndex surfaces, SurfaceMode mode, ApplicationEventPublisher events,
-                                      MeterRegistry meterRegistry) {
+    public SurfaceAuthorizationFilter(SurfaceIndex surfaces, OperatingClients operatingClients, SurfaceMode mode,
+                                      ApplicationEventPublisher events, MeterRegistry meterRegistry) {
         this.surfaces = surfaces;
+        this.operatingClients = operatingClients;
         this.mode = mode;
         this.events = events;
         this.meterRegistry = meterRegistry;
@@ -60,7 +63,9 @@ public class SurfaceAuthorizationFilter extends OncePerRequestFilter {
         String path = RequestPath.parse(request.getRequestURI(), request.getContextPath())
                 .pathWithinApplication().value();
         SurfaceIndex.Resolution resolution = surfaces.resolve(request.getMethod(), path);
-        if (!resolution.ruled() || resolution.surface().permits(token.getAuthorities())) {
+        String azp = token.getToken().getClaimAsString("azp");
+        if (!resolution.ruled() || (resolution.surface().permits(token.getAuthorities())
+                && operatingClients.admit(azp, resolution.surface()))) {
             chain.doFilter(request, response);
             return;
         }
@@ -70,8 +75,7 @@ public class SurfaceAuthorizationFilter extends OncePerRequestFilter {
                 request.getMethod(),
                 resolution.operation() == null ? null : resolution.operation().label(),
                 resolution.operation() == null ? path : null,
-                resolution.surface(), mode, caller,
-                token.getToken().getClaimAsString("azp"),
+                resolution.surface(), mode, caller, azp,
                 SecurityMaskingUtils.maskId(token.getToken().getSubject())));
         count(resolution.surface(), caller);
         if (mode == SurfaceMode.ENFORCE) {

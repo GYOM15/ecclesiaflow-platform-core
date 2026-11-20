@@ -3,6 +3,7 @@ package com.ecclesiaflow.platform.security.autoconfigure;
 import com.ecclesiaflow.platform.contract.InvalidApiContractException;
 import com.ecclesiaflow.platform.security.KeycloakJwtConverter;
 import com.ecclesiaflow.platform.security.surface.InvalidSurfaceConfigurationException;
+import com.ecclesiaflow.platform.security.surface.SurfaceProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.search.Search;
 import org.junit.jupiter.api.AfterAll;
@@ -155,6 +156,9 @@ class SurfaceScopeAuthorizationAutoConfigurationTest {
         static final String SUPER_ADMIN = "super-admin";
         static final String BACKOFFICE_WITHOUT_ROLE = "backoffice-without-role";
         static final String WEB_SUPER_ADMIN = "web-super-admin";
+        static final String MODERATION_CLI = "moderation-cli";
+        static final String BILLING_CLI = "billing-cli";
+        static final String BACKOFFICE_FULL = "backoffice-full";
 
         /** The default scopes of the back-office client. */
         private static final String BACKOFFICE_SCOPES = "ef:backoffice:act ef:moderation:act";
@@ -178,7 +182,13 @@ class SurfaceScopeAuthorizationAutoConfigurationTest {
                 Map.entry(BACKOFFICE_WITHOUT_ROLE,
                         Map.of("scope", BACKOFFICE_SCOPES, "azp", "ecclesiaflow-backoffice")),
                 Map.entry(WEB_SUPER_ADMIN, Map.of("scope", "openid ef:surface:full", "azp", "ecclesiaflow-web",
-                        "realm_access", Map.of("roles", List.of("SUPER_ADMIN", "SUPPORT")))));
+                        "realm_access", Map.of("roles", List.of("SUPER_ADMIN", "SUPPORT")))),
+                Map.entry(MODERATION_CLI, Map.of("scope", "ef:moderation:act", "azp", "ecclesiaflow-moderation-cli",
+                        "realm_access", Map.of("roles", List.of("PLATFORM_MODERATOR")))),
+                Map.entry(BILLING_CLI, Map.of("scope", "ef:billing:operate", "azp", "ecclesiaflow-billing-cli",
+                        "realm_access", Map.of("roles", List.of("PLATFORM_BILLING")))),
+                Map.entry(BACKOFFICE_FULL, Map.of("scope", "ef:surface:full " + BACKOFFICE_SCOPES,
+                        "azp", "ecclesiaflow-backoffice", "realm_access", Map.of("roles", List.of("SUPER_ADMIN")))));
 
         private Tokens() {
         }
@@ -341,6 +351,27 @@ class SurfaceScopeAuthorizationAutoConfigurationTest {
         }
 
         @Test
+        @DisplayName("a back-office or command-line token reaches no member, console or unlisted route")
+        void operatingClientsReachPlatformOnly() throws Exception {
+            for (String token : List.of(Tokens.SUPER_ADMIN, Tokens.SUPPORT, Tokens.MODERATION_CLI, Tokens.BILLING_CLI,
+                    Tokens.BACKOFFICE_FULL)) {
+                assertThat(status("GET", "/module/me", token)).as(token).isEqualTo(403);
+                assertThat(status("GET", "/module/console/members", token)).as(token).isEqualTo(403);
+                assertThat(status("GET", "/module/unlisted", token)).as(token).isEqualTo(403);
+            }
+            assertThat(refused("member", "moderation", "enforce")).isPositive();
+        }
+
+        @Test
+        @DisplayName("an operating client still reaches its own duty, and a security: [] operation")
+        void operatingClientsKeepTheirDuty() throws Exception {
+            assertThat(status("GET", "/module/moderation/reports", Tokens.MODERATION_CLI)).isEqualTo(200);
+            assertThat(status("GET", "/module/ops/plans", Tokens.BILLING_CLI)).isEqualTo(200);
+            assertThat(status("GET", "/module/backoffice/journal", Tokens.BACKOFFICE_FULL)).isEqualTo(200);
+            assertThat(status("POST", "/module/public/signup", Tokens.SUPER_ADMIN)).isEqualTo(200);
+        }
+
+        @Test
         @DisplayName("a mobile token is refused on a route without x-ef-surface, and on one outside the contract")
         void mobileTokenOnConsole() throws Exception {
             assertThat(status("GET", "/module/console/members", Tokens.MOBILE)).isEqualTo(403);
@@ -471,6 +502,20 @@ class SurfaceScopeAuthorizationAutoConfigurationTest {
         void unknownMode() {
             assertThatThrownBy(() -> boot("ecclesiaflow.security.surface.mode=off").close())
                     .hasStackTraceContaining("ecclesiaflow.security.surface.mode");
+        }
+
+        @Test
+        @DisplayName("a configured list replaces the operating clients, and an emptied one keeps the default")
+        void configuredOperatingClients() throws Exception {
+            try (ConfigurableApplicationContext context = boot(
+                    "ecclesiaflow.security.surface.operating-clients=ecclesiaflow-web")) {
+                assertThat(context.getBean(SurfaceProperties.class).getOperatingClients())
+                        .containsExactly("ecclesiaflow-web");
+            }
+            try (ConfigurableApplicationContext context = boot("ecclesiaflow.security.surface.operating-clients=")) {
+                assertThat(context.getBean(SurfaceProperties.class).getOperatingClients())
+                        .isEqualTo(SurfaceProperties.DEFAULT_OPERATING_CLIENTS);
+            }
         }
 
         @Test

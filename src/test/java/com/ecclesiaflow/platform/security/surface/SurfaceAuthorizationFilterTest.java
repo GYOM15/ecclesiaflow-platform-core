@@ -41,7 +41,11 @@ class SurfaceAuthorizationFilterTest {
             new ContractOperation("GET", "/members/me", "Me.Get", false, Map.of(Surface.EXTENSION, "member"),
                     List.of(), "test"),
             new ContractOperation("GET", "/members", "Members.List", false, Map.of(), List.of(), "test"),
-            new ContractOperation("POST", "/members", "Signup", true, Map.of(), List.of(), "test"))));
+            new ContractOperation("POST", "/members", "Signup", true, Map.of(), List.of(), "test"),
+            new ContractOperation("GET", "/backoffice/accounts", "BackofficeAccounts.Search", false,
+                    Map.of(Surface.EXTENSION, "platform", Surface.DUTY_EXTENSION, "support"), List.of(), "test"))));
+
+    private static final OperatingClients OPERATING = new OperatingClients(SurfaceProperties.DEFAULT_OPERATING_CLIENTS);
 
     @Mock
     private ApplicationEventPublisher events;
@@ -75,7 +79,7 @@ class SurfaceAuthorizationFilterTest {
     }
 
     private SurfaceAuthorizationFilter filter(SurfaceMode mode) {
-        return new SurfaceAuthorizationFilter(SURFACES, mode, events, meters);
+        return new SurfaceAuthorizationFilter(SURFACES, OPERATING, mode, events, meters);
     }
 
     private double refused(String surface, String caller, String mode) {
@@ -152,11 +156,69 @@ class SurfaceAuthorizationFilterTest {
         @DisplayName("without a meter registry the decision is unchanged")
         void withoutMetrics() {
             authenticate("ecclesiaflow-mobile");
-            SurfaceAuthorizationFilter uncounted = new SurfaceAuthorizationFilter(SURFACES, SurfaceMode.ENFORCE,
-                    events, null);
+            SurfaceAuthorizationFilter uncounted = new SurfaceAuthorizationFilter(SURFACES, OPERATING,
+                    SurfaceMode.ENFORCE, events, null);
 
             assertThatThrownBy(() -> uncounted.doFilter(request("GET", "/members"), response, chain))
                     .isInstanceOf(AccessDeniedException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("operating clients")
+    class OperatingClientTokens {
+
+        @Test
+        @DisplayName("a back-office token is refused on a member operation, and counted under its surface")
+        void backOfficeOnMember() {
+            authenticate("ecclesiaflow-backoffice", Surface.BACKOFFICE_ACT, Surface.SUPER_ADMIN);
+            MockHttpServletRequest request = request("GET", "/members/me");
+
+            assertThatThrownBy(() -> filter(SurfaceMode.ENFORCE).doFilter(request, response, chain))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            verifyNoInteractions(chain);
+            ArgumentCaptor<SurfaceAuthorizationEvents.Refused> event =
+                    ArgumentCaptor.forClass(SurfaceAuthorizationEvents.Refused.class);
+            verify(events).publishEvent(event.capture());
+            assertThat(event.getValue().surface()).isEqualTo(Surface.MEMBER);
+            assertThat(event.getValue().azp()).isEqualTo("ecclesiaflow-backoffice");
+            assertThat(refused("member", "other", "enforce")).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("an operating client is refused on a console operation even with ef:surface:full")
+        void commandLineOnConsole() {
+            authenticate("ecclesiaflow-moderation-cli", Surface.SURFACE_FULL, Surface.MODERATION_ACT,
+                    Surface.PLATFORM_MODERATOR);
+
+            assertThatThrownBy(() -> filter(SurfaceMode.ENFORCE).doFilter(request("GET", "/members"), response,
+                    chain)).isInstanceOf(AccessDeniedException.class);
+            verifyNoInteractions(chain);
+        }
+
+        @Test
+        @DisplayName("an operating client reaches the platform operation its scope and role open")
+        void backOfficeOnPlatform() throws Exception {
+            authenticate("ecclesiaflow-backoffice", Surface.BACKOFFICE_ACT, Surface.SUPPORT);
+            MockHttpServletRequest request = request("GET", "/backoffice/accounts");
+
+            filter(SurfaceMode.ENFORCE).doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            verifyNoInteractions(events);
+        }
+
+        @Test
+        @DisplayName("in log-only an operating client's refusal is counted and let through")
+        void logOnly() throws Exception {
+            authenticate("ecclesiaflow-billing-cli", Surface.BILLING_OPERATE, Surface.BILLING_OPERATOR);
+            MockHttpServletRequest request = request("GET", "/members/me");
+
+            filter(SurfaceMode.LOG_ONLY).doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertThat(refused("member", "other", "log-only")).isEqualTo(1);
         }
     }
 

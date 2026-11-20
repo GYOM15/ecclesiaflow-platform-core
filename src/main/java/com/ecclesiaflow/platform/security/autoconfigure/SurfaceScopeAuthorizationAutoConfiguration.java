@@ -2,6 +2,7 @@ package com.ecclesiaflow.platform.security.autoconfigure;
 
 import com.ecclesiaflow.platform.contract.ApiContract;
 import com.ecclesiaflow.platform.contract.autoconfigure.PlatformApiContractAutoConfiguration;
+import com.ecclesiaflow.platform.security.surface.OperatingClients;
 import com.ecclesiaflow.platform.security.surface.Surface;
 import com.ecclesiaflow.platform.security.surface.SurfaceAuthorizationFilter;
 import com.ecclesiaflow.platform.security.surface.SurfaceIndex;
@@ -41,7 +42,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * {@code ecclesiaflow.security.surface.mode=log-only} is set, and a module that adopts it without a contract
  * does not start. The only way out is excluding this auto-configuration, which shows in the module's own code.
  * The filter beans are not {@code @ConditionalOnMissingBean} for the same reason: a module bean of the same
- * type must not silently replace enforcement.</p>
+ * type must not silently replace enforcement. The operating clients' rule follows the same mode.</p>
  */
 @AutoConfiguration(after = PlatformApiContractAutoConfiguration.class)
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
@@ -67,7 +68,8 @@ public class SurfaceScopeAuthorizationAutoConfiguration {
             ApplicationEventPublisher events,
             ObjectProvider<MeterRegistry> meterRegistry,
             ObjectProvider<SecurityProperties> security) {
-        SurfaceAuthorizationFilter filter = new SurfaceAuthorizationFilter(surfaces, properties.getMode(), events,
+        SurfaceAuthorizationFilter filter = new SurfaceAuthorizationFilter(surfaces,
+                new OperatingClients(properties.getOperatingClients()), properties.getMode(), events,
                 meterRegistry.getIfAvailable());
         FilterRegistrationBean<SurfaceAuthorizationFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setName("surfaceAuthorizationFilter");
@@ -99,7 +101,8 @@ public class SurfaceScopeAuthorizationAutoConfiguration {
                 surfaces.count(Surface.MEMBER),
                 surfaces.count(Surface.CONSOLE),
                 Arrays.stream(Surface.values()).filter(Surface::platform).mapToInt(surfaces::count).sum(),
-                surfaces.tokenlessCount());
+                surfaces.tokenlessCount(),
+                properties.getOperatingClients());
         // A child context (a separate management port) refreshes too and its event reaches us.
         AtomicBoolean announced = new AtomicBoolean();
         return refreshed -> {

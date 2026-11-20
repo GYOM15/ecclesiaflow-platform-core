@@ -182,6 +182,12 @@ reaches to every request authenticated by a token (`JwtAuthenticationToken`):
 `billing`, billing operators'; `support`, the back-office's support and super admin; `administration`,
 the super admin's alone. No couple opens another duty's operations.
 
+The operating clients (`ecclesiaflow-backoffice`, `ecclesiaflow-moderation-cli`, `ecclesiaflow-billing-cli` by
+default) reach `platform` operations only: a token whose `azp` names one of them is refused on every `member`,
+console or unlisted operation, whatever its scopes, `ef:surface:full` included. Their tokens carry the modules'
+audience like any other, so without this rule the owner's back-office token would read his own conversations
+through a member route.
+
 A `security: []` operation is never ruled; a path outside the contract is console-only, except the
 technical list (`/ws/**`, `/error`, `/actuator/**`, `/v3/api-docs/**`, `/swagger-ui.html`,
 `/swagger-ui/**`). A refusal is the module's own 403: the filter runs right after Spring Security's
@@ -194,6 +200,7 @@ another surface.
 | Property | Default | Effect |
 |---|---|---|
 | `ecclesiaflow.security.surface.mode` | `enforce` | `log-only` logs and counts refusals and lets them through |
+| `ecclesiaflow.security.surface.operating-clients` | the three above | the `azp` values confined to `platform` operations; an emptied list keeps the default |
 
 Metrics: `surface_mode{mode}` (1 for the mode in force) and
 `ef_surface_refused_total{surface,caller,mode}`. No `ecclesiaflow.*` property turns the rule off; a
