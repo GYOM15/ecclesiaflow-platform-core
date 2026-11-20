@@ -232,3 +232,30 @@ message ChurchActivatedEvent {
 
   string church_id = 3;
 }
+
+// Emitted whenever the capability set church projects for a member changes:
+// grant, revoke, a lapsed delegation, promotion, demotion, ownership transfer.
+// It carries the whole new set, not the change, so a member's latest event is
+// the truth: church stages a member's events under one aggregate key, so they
+// arrive in order, and a consumer ignores one older than the last it applied.
+// The appointments service closes a host whose set lacks RECEIVE_APPOINTMENTS.
+message MemberCapabilitiesChangedEvent {
+  option (ecclesiaflow.events.routing_keys) = "church.member.capabilities-changed.v1";
+
+  // Unique per change. Consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the set changed. Orders the
+  // events of one member.
+  int64 occurred_at_epoch_ms = 2;
+
+  string church_id = 3;
+
+  // Keycloak sub of the member.
+  string member_user_id = 4;
+
+  // Capability names, as church's Capability enum spells them: an open set, an
+  // unknown name is ignored. The token's projection, so finance rights never
+  // travel here. Empty: the member holds no capability in the church any more.
+  repeated string capabilities = 5;
+}
