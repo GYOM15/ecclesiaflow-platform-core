@@ -1,0 +1,56 @@
+// Published by the church module when the platform suspends a church or lifts
+// the suspension, in a file of its own beside church_events.proto: same
+// package, same java_package. Consumers load the class named by the __TypeId__
+// header, so java_package and message names are on the wire like field numbers.
+
+syntax = "proto3";
+
+import "ecclesiaflow/events/event_options.proto";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.events.church";
+option java_outer_classname = "ChurchSuspensionEventsProto";
+
+package ecclesiaflow.events.church.v1;
+
+// Emitted when the platform suspends a church. Chat turns the church's group
+// conversations read-only, communication holds the church's sends, the
+// appointments service takes no new booking in its space. Distinct from a
+// billing suspension, which billing decides: neither lifts the other. Church
+// stages a church's suspension events under one aggregate key, so they arrive
+// in order, and a consumer ignores one no newer than the last it applied.
+message ChurchSuspendedEvent {
+  option (ecclesiaflow.events.routing_keys) = "church.church.suspended.v1";
+
+  // Unique per status change. Consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the church was suspended.
+  // Orders the suspension events of one church.
+  int64 occurred_at_epoch_ms = 2;
+
+  string church_id = 3;
+
+  // Why the platform suspended the church: ABUSE, FRAUD, SECURITY, LEGAL or
+  // OTHER today. Open, never an enum: a value a consumer does not know is
+  // still a suspension. A code, never free text.
+  string reason_code = 4;
+}
+
+// Emitted when the platform lifts a church's suspension. Each consumer undoes
+// only what it did for the suspension. Same fields and ordering rule as
+// ChurchSuspendedEvent.
+message ChurchSuspensionLiftedEvent {
+  option (ecclesiaflow.events.routing_keys) = "church.church.suspension-lifted.v1";
+
+  // Unique per status change. Consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the suspension was lifted.
+  int64 occurred_at_epoch_ms = 2;
+
+  string church_id = 3;
+
+  // Why the platform lifted the suspension. Open, never an enum.
+  string reason_code = 4;
+}
