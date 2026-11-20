@@ -237,6 +237,11 @@ message SetChurchClaimsRequest {
   // or any finance right, which the token never carries. Absent: a caller older
   // than this field; auth then keeps the stored value, except for an admin.
   optional bool two_factor_required = 6;
+  // Whether this person receives appointments, written to the
+  // church_appointments_host attribute: the members app's token carries no
+  // church_capabilities. Absent: a caller older than this field; auth then
+  // keeps the stored value.
+  optional bool appointments_host = 7;
 }
 
 // Failures are reported through the gRPC status, never in the response.
