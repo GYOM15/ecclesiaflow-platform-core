@@ -301,3 +301,26 @@ message ChurchPublicIdentityChangedEvent {
   // default.
   string locale = 10;
 }
+
+// Emitted whenever a church changes its appointment settings, today whether
+// its credits may pay the SMS that confirm and remind its members'
+// appointments. It carries the whole setting, not the change, so a church's
+// latest event is the truth: church stages a church's events under one
+// aggregate key, and a consumer ignores one older than the last it applied.
+// A church that never changed it has sent none, and no event means no SMS.
+// The appointments service lets a calendar offer the SMS only once allowed.
+message ChurchAppointmentSettingsChangedEvent {
+  option (ecclesiaflow.events.routing_keys) = "church.appointments.settings-changed.v1";
+
+  // Unique per change. Consumers dedupe on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the settings changed. Orders
+  // the events of one church.
+  int64 occurred_at_epoch_ms = 2;
+
+  string church_id = 3;
+
+  // Whether the church's credits may pay appointment SMS.
+  bool sms_allowed = 4;
+}

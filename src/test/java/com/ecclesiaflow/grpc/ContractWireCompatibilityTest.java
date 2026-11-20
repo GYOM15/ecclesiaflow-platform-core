@@ -30,6 +30,7 @@ import com.ecclesiaflow.grpc.events.billing.ChurchEntitlementChangedEvent;
 import com.ecclesiaflow.grpc.events.chat.ChatDomainEventsProto;
 import com.ecclesiaflow.grpc.events.chat.ChatMessagePostedEvent;
 import com.ecclesiaflow.grpc.events.church.ChurchActivatedEvent;
+import com.ecclesiaflow.grpc.events.church.ChurchAppointmentSettingsChangedEvent;
 import com.ecclesiaflow.grpc.events.church.ChurchDomainEventsProto;
 import com.ecclesiaflow.grpc.events.church.ChurchInvitationCreatedEvent;
 import com.ecclesiaflow.grpc.events.church.ChurchOwnershipTransferredEvent;
@@ -232,7 +233,8 @@ class ContractWireCompatibilityTest {
                 MerchantAccountChangedEvent.class, PaymentSucceededEvent.class, PaymentFailedEvent.class,
                 PaymentRefundedEvent.class, PaymentDisputedEvent.class, PayoutChangedEvent.class,
                 ProviderStatusChangedEvent.class, AppointmentMoveRequestedEvent.class,
-                CalendarDelegateAddedEvent.class, CalendarDelegateRemovedEvent.class))
+                CalendarDelegateAddedEvent.class, CalendarDelegateRemovedEvent.class,
+                ChurchAppointmentSettingsChangedEvent.class))
                 .extracting(Class::getName)
                 .containsExactly(
                         "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent",
@@ -276,7 +278,8 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.events.payments.ProviderStatusChangedEvent",
                         "com.ecclesiaflow.grpc.events.appointments.AppointmentMoveRequestedEvent",
                         "com.ecclesiaflow.grpc.events.appointments.CalendarDelegateAddedEvent",
-                        "com.ecclesiaflow.grpc.events.appointments.CalendarDelegateRemovedEvent");
+                        "com.ecclesiaflow.grpc.events.appointments.CalendarDelegateRemovedEvent",
+                        "com.ecclesiaflow.grpc.events.church.ChurchAppointmentSettingsChangedEvent");
     }
 
     private static List<Descriptor> events() {
@@ -837,6 +840,11 @@ class ContractWireCompatibilityTest {
               8 string country_code
               9 string contact_email
               10 string locale
+            message ecclesiaflow.events.church.v1.ChurchAppointmentSettingsChangedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string church_id
+              4 bool sms_allowed
             file ecclesiaflow/events/members/v1/members_events.proto package ecclesiaflow.events.members.v1 java_package com.ecclesiaflow.grpc.events.members
             message ecclesiaflow.events.members.v1.MemberProfileChangedEvent
               1 string event_id
@@ -1543,6 +1551,7 @@ class ContractWireCompatibilityTest {
             church.church.activated.v1 ecclesiaflow.events.church.v1.ChurchActivatedEvent
             church.member.capabilities-changed.v1 ecclesiaflow.events.church.v1.MemberCapabilitiesChangedEvent
             church.public-identity.changed.v1 ecclesiaflow.events.church.v1.ChurchPublicIdentityChangedEvent
+            church.appointments.settings-changed.v1 ecclesiaflow.events.church.v1.ChurchAppointmentSettingsChangedEvent
             members.profile.changed ecclesiaflow.events.members.v1.MemberProfileChangedEvent
             members.profile.anonymized ecclesiaflow.events.members.v1.MemberAnonymizedEvent
             members.contacts.erased ecclesiaflow.events.members.v1.MemberContactsErasedEvent
