@@ -6,6 +6,7 @@ import com.ecclesiaflow.platform.journal.JournalReader;
 import com.ecclesiaflow.platform.journal.JournalRepository;
 import com.ecclesiaflow.platform.journal.JournalRetention;
 import com.ecclesiaflow.platform.journal.PlatformJournal;
+import com.ecclesiaflow.platform.journal.actuate.JournalHeadEndpoint;
 import com.ecclesiaflow.platform.journal.events.JournalEventListener;
 import com.ecclesiaflow.platform.journal.events.JournalMetrics;
 import com.ecclesiaflow.platform.journal.jdbc.JdbcPlatformJournal;
@@ -15,6 +16,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.actuate.endpoint.annotation.Endpoint;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.context.annotation.ImportCandidates;
@@ -123,7 +125,7 @@ class PlatformJournalAutoConfigurationTest {
     class Enabled {
 
         @Test
-        @DisplayName("wires the writer, the reader, the verification, the purge, the listener and the metrics")
+        @DisplayName("wires the writer, the reader, the verification, the purge, the listener, metrics and endpoint")
         void wires() {
             enabled().run(context -> assertThat(context).hasNotFailed()
                     .hasSingleBean(JournalPrivilegeCheck.class)
@@ -133,7 +135,8 @@ class PlatformJournalAutoConfigurationTest {
                     .hasSingleBean(JournalIntegrity.class)
                     .hasSingleBean(JournalRetention.class)
                     .hasSingleBean(JournalEventListener.class)
-                    .hasSingleBean(JournalMetrics.class));
+                    .hasSingleBean(JournalMetrics.class)
+                    .hasSingleBean(JournalHeadEndpoint.class));
         }
 
         @Test
@@ -156,12 +159,13 @@ class PlatformJournalAutoConfigurationTest {
         }
 
         @Test
-        @DisplayName("without Micrometer, the journal runs without metrics")
+        @DisplayName("without Micrometer or the actuator, the journal runs without metrics or endpoint")
         void optionalRuntimes() {
-            enabled().withClassLoader(new FilteredClassLoader(MeterRegistry.class))
+            enabled().withClassLoader(new FilteredClassLoader(MeterRegistry.class, Endpoint.class))
                     .run(context -> assertThat(context).hasNotFailed()
                             .hasSingleBean(PlatformJournal.class)
-                            .doesNotHaveBean(JournalMetrics.class));
+                            .doesNotHaveBean(JournalMetrics.class)
+                            .doesNotHaveBean(JournalHeadEndpoint.class));
         }
     }
 }

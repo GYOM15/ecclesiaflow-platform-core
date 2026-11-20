@@ -481,7 +481,9 @@ ordered first, for a servlet module that serves its actuator endpoints on their 
 (`management.server.port` different from `server.port`). It claims `/actuator/**` and:
 
 - opens `/actuator/prometheus`, `/actuator/info`, `/actuator/health` and `/actuator/health/**` to
-  callers with no token: the Prometheus container and the orchestrator's probes;
+  callers with no token: the Prometheus container and the orchestrator's probes; and
+  `/actuator/journalhead` and `/actuator/journalhead/{seq}`, positions and hashes of the journal, to the
+  host's nightly anchoring;
 - refuses every other actuator endpoint, `/actuator/metrics` included, since the chain has no
   login mechanism;
 - creates no session, and has no CSRF, CORS, basic or form login.
@@ -754,11 +756,12 @@ Adopting it in a module:
    of a Flyway line that runs as that owner (a migrator login that `SET ROLE`s to it, as church's finance line
    does), with the placeholder `journal_writer` set to the module's application role. The library ships no
    migration of its own.
-3. Enable it and name the module:
+3. Enable it, name the module, and expose the endpoint on the management port:
 
    ```properties
    ecclesiaflow.journal.enabled=true
    ecclesiaflow.journal.module=members
+   management.endpoints.web.exposure.include=health,info,prometheus,journalhead
    ```
 
 4. Write a line where the gesture runs, in its transaction, refusals included:
@@ -783,6 +786,7 @@ Adopting it in a module:
 | `JournalReader` | `list(JournalQuery)`: newest first, filtered by period, operator, target and gesture, opaque cursor, 1 to 200 lines |
 | `JournalIntegrity` | `verify()`, `lastVerification()`, `head()`, `position(seq)` |
 | `JournalRetention` | `purgeExpired()` |
+| `JournalHeadEndpoint` | `/actuator/journalhead` (the head) and `/actuator/journalhead/{seq}` (the hash at a position: `LINE`, `START`, `PURGED` or `ABSENT`), read by the host's nightly anchoring |
 
 Metrics: `ef_platform_journal_rows_total{module,gesture,outcome}` (counted after commit),
 `ef_platform_journal_chain_breaks_total{module}` and `ef_platform_journal_verified_timestamp{module}`. A broken

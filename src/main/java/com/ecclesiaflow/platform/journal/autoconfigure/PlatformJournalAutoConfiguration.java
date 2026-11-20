@@ -6,6 +6,7 @@ import com.ecclesiaflow.platform.journal.JournalReader;
 import com.ecclesiaflow.platform.journal.JournalRepository;
 import com.ecclesiaflow.platform.journal.JournalRetention;
 import com.ecclesiaflow.platform.journal.PlatformJournal;
+import com.ecclesiaflow.platform.journal.actuate.JournalHeadEndpoint;
 import com.ecclesiaflow.platform.journal.events.JournalEventListener;
 import com.ecclesiaflow.platform.journal.events.JournalMetrics;
 import com.ecclesiaflow.platform.journal.jdbc.JdbcJournalReader;
@@ -105,6 +106,17 @@ public class PlatformJournalAutoConfiguration {
         @ConditionalOnMissingBean
         JournalMetrics journalMetrics(ObjectProvider<MeterRegistry> registry, JournalProperties properties) {
             return new JournalMetrics(registry.getIfUnique(), moduleOf(properties));
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "org.springframework.boot.actuate.endpoint.annotation.Endpoint")
+    static class JournalHeadEndpointConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean
+        JournalHeadEndpoint journalHeadEndpoint(JournalIntegrity journalIntegrity, JournalProperties properties) {
+            return new JournalHeadEndpoint(journalIntegrity, moduleOf(properties));
         }
     }
 

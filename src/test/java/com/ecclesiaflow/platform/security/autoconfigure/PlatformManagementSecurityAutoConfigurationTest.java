@@ -99,7 +99,7 @@ class PlatformManagementSecurityAutoConfigurationTest {
 
         @ParameterizedTest(name = "{0}")
         @ValueSource(strings = {"/actuator/prometheus", "/actuator/health", "/actuator/health/readiness",
-                "/actuator/health/liveness", "/actuator/info"})
+                "/actuator/health/liveness", "/actuator/info", "/actuator/journalhead", "/actuator/journalhead/42"})
         @DisplayName("opens the scrape and the probes to a caller with no token, without a session")
         void anonymousEndpoints(String path) {
             runner.run(context -> {
@@ -112,7 +112,8 @@ class PlatformManagementSecurityAutoConfigurationTest {
 
         @ParameterizedTest(name = "{0}")
         @ValueSource(strings = {"/actuator/metrics", "/actuator/metrics/jvm.memory.used", "/actuator/env",
-                "/actuator/loggers", "/actuator/healthz", "/actuator"})
+                "/actuator/loggers", "/actuator/healthz", "/actuator", "/actuator/journalhead/42/x",
+                "/actuator/journalheads"})
         @DisplayName("refuses every other actuator endpoint")
         void otherEndpoints(String path) {
             runner.run(context -> {
