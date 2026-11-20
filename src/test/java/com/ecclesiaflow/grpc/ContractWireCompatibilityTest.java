@@ -1,5 +1,6 @@
 package com.ecclesiaflow.grpc;
 
+import com.ecclesiaflow.grpc.appointments.AppointmentsAdminServiceProto;
 import com.ecclesiaflow.grpc.appointments.AppointmentsNoticeServiceProto;
 import com.ecclesiaflow.grpc.auth.AuthServiceProto;
 import com.ecclesiaflow.grpc.billing.BillingCreditServiceProto;
@@ -115,7 +116,8 @@ class ContractWireCompatibilityTest {
             AppointmentsDomainEventsProto.getDescriptor(),
             PaymentsServiceProto.getDescriptor(),
             PaymentsDomainEventsProto.getDescriptor(),
-            AppointmentsNoticeServiceProto.getDescriptor());
+            AppointmentsNoticeServiceProto.getDescriptor(),
+            AppointmentsAdminServiceProto.getDescriptor());
 
     private static final Path PROTO_ROOT = Path.of("src/main/proto");
 
@@ -1516,6 +1518,13 @@ class ContractWireCompatibilityTest {
               4 string guest_email
               5 string guest_locale
               6 string host_message
+            file ecclesiaflow/appointments/appointments_admin_service.proto package ecclesiaflow.appointments java_package com.ecclesiaflow.grpc.appointments
+            service ecclesiaflow.appointments.AppointmentsAdminService
+              SetSpaceChannels ecclesiaflow.appointments.SetSpaceChannelsRequest -> ecclesiaflow.appointments.SetSpaceChannelsResponse
+            message ecclesiaflow.appointments.SetSpaceChannelsRequest
+              1 string space_id
+              2 repeated string allowed_channels
+            message ecclesiaflow.appointments.SetSpaceChannelsResponse
             """;
 
     private static final String ROUTES = """

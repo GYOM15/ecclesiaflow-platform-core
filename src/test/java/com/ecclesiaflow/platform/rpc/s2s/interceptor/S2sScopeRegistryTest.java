@@ -1,8 +1,11 @@
 package com.ecclesiaflow.platform.rpc.s2s.interceptor;
 
+import com.ecclesiaflow.grpc.appointments.AppointmentsAdminServiceGrpc;
 import com.ecclesiaflow.grpc.appointments.AppointmentsNoticeServiceGrpc;
 import com.ecclesiaflow.grpc.appointments.GetNoticeDetailsRequest;
 import com.ecclesiaflow.grpc.appointments.GetNoticeDetailsResponse;
+import com.ecclesiaflow.grpc.appointments.SetSpaceChannelsRequest;
+import com.ecclesiaflow.grpc.appointments.SetSpaceChannelsResponse;
 import com.ecclesiaflow.grpc.billing.BillingCreditServiceGrpc;
 import com.ecclesiaflow.grpc.billing.BillingEntitlementServiceGrpc;
 import com.ecclesiaflow.grpc.billing.CommitCreditsRequest;
@@ -226,6 +229,16 @@ class S2sScopeRegistryTest {
             assertThat(reg.requiredScope("ecclesiaflow.appointments.AppointmentsNoticeService/GetNoticeDetails"))
                     .contains("ef:appointments:notice:read");
         }
+
+        @Test
+        @DisplayName("the space channels command is keyed by its full gRPC name, apart from the notice read")
+        void appointmentsAdminService() {
+            S2sScopeRegistry reg = new S2sScopeRegistry(List.of(new AppointmentsAdminService()));
+
+            assertThat(reg.size()).isEqualTo(1);
+            assertThat(reg.requiredScope("ecclesiaflow.appointments.AppointmentsAdminService/SetSpaceChannels"))
+                    .contains("ef:appointments:space:channels");
+        }
     }
 
     // The details a booker without an account left are sealed: only the sender of the notices may read them.
@@ -235,6 +248,15 @@ class S2sScopeRegistryTest {
         @Override
         public void getNoticeDetails(GetNoticeDetailsRequest request,
                                      StreamObserver<GetNoticeDetailsResponse> response) {
+        }
+    }
+
+    static class AppointmentsAdminService extends AppointmentsAdminServiceGrpc.AppointmentsAdminServiceImplBase {
+
+        @S2sScopeRequired("ef:appointments:space:channels")
+        @Override
+        public void setSpaceChannels(SetSpaceChannelsRequest request,
+                                     StreamObserver<SetSpaceChannelsResponse> response) {
         }
     }
 
