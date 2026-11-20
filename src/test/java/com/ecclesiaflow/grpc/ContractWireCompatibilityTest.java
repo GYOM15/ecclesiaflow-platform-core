@@ -46,6 +46,14 @@ import com.ecclesiaflow.grpc.events.members.MembersDomainEventsProto;
 import com.ecclesiaflow.grpc.events.moderation.ContentReportedEvent;
 import com.ecclesiaflow.grpc.events.moderation.ModerationActionTakenEvent;
 import com.ecclesiaflow.grpc.events.moderation.ModerationDomainEventsProto;
+import com.ecclesiaflow.grpc.events.payments.MerchantAccountChangedEvent;
+import com.ecclesiaflow.grpc.events.payments.PaymentDisputedEvent;
+import com.ecclesiaflow.grpc.events.payments.PaymentFailedEvent;
+import com.ecclesiaflow.grpc.events.payments.PaymentRefundedEvent;
+import com.ecclesiaflow.grpc.events.payments.PaymentSucceededEvent;
+import com.ecclesiaflow.grpc.events.payments.PaymentsDomainEventsProto;
+import com.ecclesiaflow.grpc.events.payments.PayoutChangedEvent;
+import com.ecclesiaflow.grpc.events.payments.ProviderStatusChangedEvent;
 import com.ecclesiaflow.grpc.members.MembersServiceProto;
 import com.ecclesiaflow.grpc.payments.PaymentsServiceProto;
 import com.google.protobuf.DescriptorProtos.DescriptorProto;
@@ -101,7 +109,8 @@ class ContractWireCompatibilityTest {
             BillingDomainEventsProto.getDescriptor(),
             BillingEntitlementServiceProto.getDescriptor(),
             AppointmentsDomainEventsProto.getDescriptor(),
-            PaymentsServiceProto.getDescriptor());
+            PaymentsServiceProto.getDescriptor(),
+            PaymentsDomainEventsProto.getDescriptor());
 
     private static final Path PROTO_ROOT = Path.of("src/main/proto");
 
@@ -120,7 +129,7 @@ class ContractWireCompatibilityTest {
             "members.account.reactivated");
 
     private static final Pattern VERSIONED_KEY = Pattern.compile(
-            "(auth|church|members|chat|communication|billing|appointments)\\.[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*\\.v[1-9][0-9]*");
+            "(auth|church|members|chat|communication|billing|appointments|payments)\\.[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*\\.v[1-9][0-9]*");
 
     @Test
     @DisplayName("Packages, RPCs, field numbers and types match what the deployed services exchange")
@@ -212,7 +221,10 @@ class ContractWireCompatibilityTest {
                 ChurchOwnershipTransferredEvent.class, ChurchActivatedEvent.class,
                 MemberCapabilitiesChangedEvent.class, ChurchPublicIdentityChangedEvent.class,
                 AppointmentBookedEvent.class, AppointmentConfirmedEvent.class, AppointmentMovedEvent.class,
-                AppointmentCancelledEvent.class, AppointmentReminderDueEvent.class))
+                AppointmentCancelledEvent.class, AppointmentReminderDueEvent.class,
+                MerchantAccountChangedEvent.class, PaymentSucceededEvent.class, PaymentFailedEvent.class,
+                PaymentRefundedEvent.class, PaymentDisputedEvent.class, PayoutChangedEvent.class,
+                ProviderStatusChangedEvent.class))
                 .extracting(Class::getName)
                 .containsExactly(
                         "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent",
@@ -246,7 +258,14 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.events.appointments.AppointmentConfirmedEvent",
                         "com.ecclesiaflow.grpc.events.appointments.AppointmentMovedEvent",
                         "com.ecclesiaflow.grpc.events.appointments.AppointmentCancelledEvent",
-                        "com.ecclesiaflow.grpc.events.appointments.AppointmentReminderDueEvent");
+                        "com.ecclesiaflow.grpc.events.appointments.AppointmentReminderDueEvent",
+                        "com.ecclesiaflow.grpc.events.payments.MerchantAccountChangedEvent",
+                        "com.ecclesiaflow.grpc.events.payments.PaymentSucceededEvent",
+                        "com.ecclesiaflow.grpc.events.payments.PaymentFailedEvent",
+                        "com.ecclesiaflow.grpc.events.payments.PaymentRefundedEvent",
+                        "com.ecclesiaflow.grpc.events.payments.PaymentDisputedEvent",
+                        "com.ecclesiaflow.grpc.events.payments.PayoutChangedEvent",
+                        "com.ecclesiaflow.grpc.events.payments.ProviderStatusChangedEvent");
     }
 
     private static List<Descriptor> events() {
@@ -1298,6 +1317,109 @@ class ContractWireCompatibilityTest {
               1 string payer_key
             message ecclesiaflow.payments.ErasePayerResponse
               1 int32 erased_payers
+            file ecclesiaflow/events/payments/v1/payments_events.proto package ecclesiaflow.events.payments.v1 java_package com.ecclesiaflow.grpc.events.payments
+            message ecclesiaflow.events.payments.v1.MerchantAccountChangedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string merchant_account_id
+              4 string merchant_ref
+              5 string provider
+              6 string provider_account_ref
+              7 string country
+              8 string currency
+              9 string status
+              10 string provider_status
+              11 bool charges_enabled
+              12 bool payouts_enabled
+              13 string disabled_reason
+              14 int64 version
+            message ecclesiaflow.events.payments.v1.PaymentSucceededEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string merchant_account_id
+              4 string merchant_ref
+              5 string payment_id
+              6 string caller_reference
+              7 int64 amount_minor
+              8 string currency
+              9 string provider
+              10 string provider_payment_ref
+              11 string status
+              12 string provider_status
+            message ecclesiaflow.events.payments.v1.PaymentFailedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string merchant_account_id
+              4 string merchant_ref
+              5 string payment_id
+              6 string caller_reference
+              7 int64 amount_minor
+              8 string currency
+              9 string provider
+              10 string provider_payment_ref
+              11 string status
+              12 string provider_status
+              13 string reason_code
+              14 string provider_failure_code
+            message ecclesiaflow.events.payments.v1.PaymentRefundedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string merchant_account_id
+              4 string merchant_ref
+              5 string payment_id
+              6 string caller_reference
+              7 int64 amount_minor
+              8 string currency
+              9 string provider
+              10 string provider_payment_ref
+              11 string status
+              12 string provider_status
+              13 string refund_id
+              14 string refund_caller_reference
+              15 string refund_origin
+              16 int64 refund_amount_minor
+              17 string provider_refund_ref
+              18 string refund_status
+              19 string refund_provider_status
+            message ecclesiaflow.events.payments.v1.PaymentDisputedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string merchant_account_id
+              4 string merchant_ref
+              5 string payment_id
+              6 string caller_reference
+              7 int64 amount_minor
+              8 string currency
+              9 string provider
+              10 string provider_payment_ref
+              11 string status
+              12 string provider_status
+              13 string dispute_id
+              14 string phase
+              15 int64 dispute_amount_minor
+              16 int64 respond_by_epoch_ms
+              17 string provider_dispute_ref
+              18 string dispute_provider_status
+            message ecclesiaflow.events.payments.v1.PayoutChangedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string merchant_account_id
+              4 string merchant_ref
+              5 string payout_id
+              6 int64 amount_minor
+              7 string currency
+              8 string provider
+              9 string provider_payout_ref
+              10 string status
+              11 string provider_status
+              12 int64 arrival_at_epoch_ms
+              13 string provider_failure_code
+            message ecclesiaflow.events.payments.v1.ProviderStatusChangedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string provider
+              4 string status
+              5 string previous_status
             """;
 
     private static final String ROUTES = """
@@ -1335,5 +1457,12 @@ class ContractWireCompatibilityTest {
             appointments.booking.moved.v1 ecclesiaflow.events.appointments.v1.AppointmentMovedEvent
             appointments.booking.cancelled.v1 ecclesiaflow.events.appointments.v1.AppointmentCancelledEvent
             appointments.booking.reminder-due.v1 ecclesiaflow.events.appointments.v1.AppointmentReminderDueEvent
+            payments.merchant-account.changed.v1 ecclesiaflow.events.payments.v1.MerchantAccountChangedEvent
+            payments.payment.succeeded.v1 ecclesiaflow.events.payments.v1.PaymentSucceededEvent
+            payments.payment.failed.v1 ecclesiaflow.events.payments.v1.PaymentFailedEvent
+            payments.payment.refunded.v1 ecclesiaflow.events.payments.v1.PaymentRefundedEvent
+            payments.payment.disputed.v1 ecclesiaflow.events.payments.v1.PaymentDisputedEvent
+            payments.payout.changed.v1 ecclesiaflow.events.payments.v1.PayoutChangedEvent
+            payments.provider.status-changed.v1 ecclesiaflow.events.payments.v1.ProviderStatusChangedEvent
             """;
 }

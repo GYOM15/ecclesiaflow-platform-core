@@ -1,0 +1,297 @@
+// Published by the payments service. Consumers load the class named by the __TypeId__
+// header, so java_package and message names are on the wire like field numbers.
+//
+// The service is generic and keeps nothing of its callers' projects: a merchant, a payer and a
+// caller reference are opaque strings the consumer resolves itself. No event carries a person's
+// name, address or card digits.
+//
+// An event never carries the authority to write money: it says what to read again. The signing
+// secret is the same in every module, so a consumer reads the payment back with
+// PaymentsService.GetPayment and applies only what that answer says.
+//
+// Every amount is an integer in minor units of the event's currency field (ISO 4217); a merchant's
+// payments, refunds, disputes and payouts share its currency and are never converted.
+//
+// Fields 3 to 12 are the same in the four payment events, so a consumer reads one payment shape;
+// each adds its own fields from 13.
+//
+// The publisher stages every event of a payment under the aggregate key "payment:<payment_id>", of a
+// merchant under "merchant:<merchant_account_id>", of a payout under "payout:<payout_id>" and of a
+// provider under "provider:<provider>", so paid, refunded and disputed reach a consumer in order and
+// a parked event holds back its own object alone.
+
+syntax = "proto3";
+
+import "ecclesiaflow/events/event_options.proto";
+
+option java_multiple_files = true;
+option java_package = "com.ecclesiaflow.grpc.events.payments";
+option java_outer_classname = "PaymentsDomainEventsProto";
+
+package ecclesiaflow.events.payments.v1;
+
+// A merchant account changed, as a versioned snapshot, never an order: a consumer applies it only
+// when version exceeds the one it holds, so a late or redelivered snapshot never undoes a newer
+// one. PaymentsService.GetMerchantAccount serves the same.
+message MerchantAccountChangedEvent {
+  option (ecclesiaflow.events.routing_keys) = "payments.merchant-account.changed.v1";
+
+  // "mer:<merchant_account_id>:<version>": a row appended twice keeps its id, so consumers dedupe
+  // on it.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) of the change.
+  int64 occurred_at_epoch_ms = 2;
+
+  string merchant_account_id = 3;
+
+  // The caller's reference given at opening.
+  string merchant_ref = 4;
+
+  // Fixed at opening: "stripe" today.
+  string provider = 5;
+
+  string provider_account_ref = 6;
+
+  // ISO 3166-1 alpha-2.
+  string country = 7;
+
+  // ISO 4217.
+  string currency = 8;
+
+  // Open, never an enum: OPENING, RESTRICTED, ENABLED and DISABLED today. Payments start only
+  // under ENABLED; a value the consumer does not know offers no payment.
+  string status = 9;
+
+  // The provider's own state of the account, as it says it.
+  string provider_status = 10;
+
+  bool charges_enabled = 11;
+
+  bool payouts_enabled = 12;
+
+  // The provider's code, or CALLER after DisableMerchantAccount. Empty unless RESTRICTED or
+  // DISABLED.
+  string disabled_reason = 13;
+
+  // Strictly increasing per merchant account.
+  int64 version = 14;
+}
+
+// A payment was paid.
+message PaymentSucceededEvent {
+  option (ecclesiaflow.events.routing_keys) = "payments.payment.succeeded.v1";
+
+  // "pay:<payment_id>:paid": a payment is paid once.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the payment was paid.
+  int64 occurred_at_epoch_ms = 2;
+
+  string merchant_account_id = 3;
+  string merchant_ref = 4;
+  string payment_id = 5;
+
+  // The reference the payment was started with.
+  string caller_reference = 6;
+
+  // The payment's amount.
+  int64 amount_minor = 7;
+
+  // ISO 4217, of every amount in the event.
+  string currency = 8;
+
+  string provider = 9;
+  string provider_payment_ref = 10;
+
+  // Open, never an enum: PAID here.
+  string status = 11;
+
+  // The provider's own state of the payment, as it says it.
+  string provider_status = 12;
+}
+
+// A payment failed, or its page lapsed unpaid.
+message PaymentFailedEvent {
+  option (ecclesiaflow.events.routing_keys) = "payments.payment.failed.v1";
+
+  // "pay:<payment_id>:failed": a payment fails once, and is then never paid.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the payment failed or lapsed.
+  int64 occurred_at_epoch_ms = 2;
+
+  string merchant_account_id = 3;
+  string merchant_ref = 4;
+  string payment_id = 5;
+  string caller_reference = 6;
+  int64 amount_minor = 7;
+  string currency = 8;
+  string provider = 9;
+
+  // Empty when the payment never reached the provider's payment stage (a page that lapsed).
+  string provider_payment_ref = 10;
+
+  // Open, never an enum: FAILED here.
+  string status = 11;
+
+  string provider_status = 12;
+
+  // Open, never an enum: EXPIRED, DECLINED, METHOD_UNUSABLE and AUTHENTICATION_REQUIRED today, as
+  // Payment.reason_code says them. A consumer that does not know a code charges the method no more
+  // without the payer.
+  string reason_code = 13;
+
+  // The provider's decline or error code, as it says it; empty when none.
+  string provider_failure_code = 14;
+}
+
+// A refund of a payment succeeded, whether asked through RefundPayment or made at the provider.
+message PaymentRefundedEvent {
+  option (ecclesiaflow.events.routing_keys) = "payments.payment.refunded.v1";
+
+  // "ref:<refund_id>:succeeded": a refund succeeds once.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the refund succeeded.
+  int64 occurred_at_epoch_ms = 2;
+
+  string merchant_account_id = 3;
+  string merchant_ref = 4;
+  string payment_id = 5;
+  string caller_reference = 6;
+
+  // The payment's amount, not the refund's.
+  int64 amount_minor = 7;
+
+  string currency = 8;
+  string provider = 9;
+  string provider_payment_ref = 10;
+
+  // Open, never an enum: the payment's, PAID here. A refund never changes it.
+  string status = 11;
+
+  string provider_status = 12;
+
+  string refund_id = 13;
+
+  // The reference RefundPayment was called with; empty for a refund made at the provider.
+  string refund_caller_reference = 14;
+
+  // Open, never an enum: API and PROVIDER today.
+  string refund_origin = 15;
+
+  // This refund alone: a partial refund is read from it, never from the payment's refunds added
+  // up.
+  int64 refund_amount_minor = 16;
+
+  string provider_refund_ref = 17;
+
+  // Open, never an enum: SUCCEEDED here.
+  string refund_status = 18;
+
+  // The provider's own state of the refund, as it says it.
+  string refund_provider_status = 19;
+}
+
+// A dispute of a payment reached a phase. Each phase is published once.
+message PaymentDisputedEvent {
+  option (ecclesiaflow.events.routing_keys) = "payments.payment.disputed.v1";
+
+  // "dsp:<dispute_id>:<phase>".
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the dispute reached the phase.
+  int64 occurred_at_epoch_ms = 2;
+
+  string merchant_account_id = 3;
+  string merchant_ref = 4;
+  string payment_id = 5;
+  string caller_reference = 6;
+
+  // The payment's amount, not the disputed one.
+  int64 amount_minor = 7;
+
+  string currency = 8;
+  string provider = 9;
+  string provider_payment_ref = 10;
+
+  // Open, never an enum: the payment's, PAID here. A dispute never changes it.
+  string status = 11;
+
+  string provider_status = 12;
+
+  string dispute_id = 13;
+
+  // Open, never an enum: OPENED, FUNDS_WITHDRAWN, FUNDS_REINSTATED, WON and LOST today.
+  string phase = 14;
+
+  int64 dispute_amount_minor = 15;
+
+  // When the merchant's answer is due at the provider; 0 when none is due.
+  int64 respond_by_epoch_ms = 16;
+
+  string provider_dispute_ref = 17;
+
+  // The provider's own state of the dispute, as it says it.
+  string dispute_provider_status = 18;
+}
+
+// A payout to a merchant's bank was paid or failed. PaymentsService.ListPayoutLines reads what a
+// paid one settles.
+message PayoutChangedEvent {
+  option (ecclesiaflow.events.routing_keys) = "payments.payout.changed.v1";
+
+  // "pyo:<payout_id>:<status>".
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the payout reached the status.
+  int64 occurred_at_epoch_ms = 2;
+
+  string merchant_account_id = 3;
+  string merchant_ref = 4;
+  string payout_id = 5;
+
+  // What the merchant's bank receives.
+  int64 amount_minor = 6;
+
+  // ISO 4217.
+  string currency = 7;
+
+  string provider = 8;
+  string provider_payout_ref = 9;
+
+  // Open, never an enum: PAID and FAILED today.
+  string status = 10;
+
+  // The provider's own state of the payout, as it says it.
+  string provider_status = 11;
+
+  // When the money is due at, or reached, the merchant's bank.
+  int64 arrival_at_epoch_ms = 12;
+
+  // The provider's code when it FAILED; empty otherwise.
+  string provider_failure_code = 13;
+}
+
+// A provider's health changed. A page offers the provider's payments again once it is back to
+// AVAILABLE; a consumer may then resume what it held while the provider was down.
+message ProviderStatusChangedEvent {
+  option (ecclesiaflow.events.routing_keys) = "payments.provider.status-changed.v1";
+
+  // "prv:<provider>:<occurred_at_epoch_ms>".
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) at which the new status began.
+  int64 occurred_at_epoch_ms = 2;
+
+  // "stripe" today.
+  string provider = 3;
+
+  // Open, never an enum: AVAILABLE, DEGRADED and UNAVAILABLE today. A value the consumer does
+  // not know is read as DEGRADED.
+  string status = 4;
+
+  // The status it left.
+  string previous_status = 5;
+}
