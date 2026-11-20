@@ -16,6 +16,8 @@ import com.ecclesiaflow.grpc.events.appointments.AppointmentMoveRequestedEvent;
 import com.ecclesiaflow.grpc.events.appointments.AppointmentMovedEvent;
 import com.ecclesiaflow.grpc.events.appointments.AppointmentReminderDueEvent;
 import com.ecclesiaflow.grpc.events.appointments.AppointmentsDomainEventsProto;
+import com.ecclesiaflow.grpc.events.appointments.CalendarDelegateAddedEvent;
+import com.ecclesiaflow.grpc.events.appointments.CalendarDelegateRemovedEvent;
 import com.ecclesiaflow.grpc.events.auth.AccountSessionsRevokedEvent;
 import com.ecclesiaflow.grpc.events.auth.AuthDomainEventsProto;
 import com.ecclesiaflow.grpc.events.auth.ExistingAccountNoticeEvent;
@@ -227,7 +229,8 @@ class ContractWireCompatibilityTest {
                 AppointmentCancelledEvent.class, AppointmentReminderDueEvent.class,
                 MerchantAccountChangedEvent.class, PaymentSucceededEvent.class, PaymentFailedEvent.class,
                 PaymentRefundedEvent.class, PaymentDisputedEvent.class, PayoutChangedEvent.class,
-                ProviderStatusChangedEvent.class, AppointmentMoveRequestedEvent.class))
+                ProviderStatusChangedEvent.class, AppointmentMoveRequestedEvent.class,
+                CalendarDelegateAddedEvent.class, CalendarDelegateRemovedEvent.class))
                 .extracting(Class::getName)
                 .containsExactly(
                         "com.ecclesiaflow.grpc.events.auth.SetupTokenIssuedEvent",
@@ -269,7 +272,9 @@ class ContractWireCompatibilityTest {
                         "com.ecclesiaflow.grpc.events.payments.PaymentDisputedEvent",
                         "com.ecclesiaflow.grpc.events.payments.PayoutChangedEvent",
                         "com.ecclesiaflow.grpc.events.payments.ProviderStatusChangedEvent",
-                        "com.ecclesiaflow.grpc.events.appointments.AppointmentMoveRequestedEvent");
+                        "com.ecclesiaflow.grpc.events.appointments.AppointmentMoveRequestedEvent",
+                        "com.ecclesiaflow.grpc.events.appointments.CalendarDelegateAddedEvent",
+                        "com.ecclesiaflow.grpc.events.appointments.CalendarDelegateRemovedEvent");
     }
 
     private static List<Descriptor> events() {
@@ -1157,6 +1162,21 @@ class ContractWireCompatibilityTest {
               33 repeated string notice_channels
               34 repeated string delegate_subjects
               35 bool has_host_message
+            message ecclesiaflow.events.appointments.v1.CalendarDelegateAddedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string space_id
+              4 string calendar_id
+              5 string host_subject
+              6 string delegate_subject
+            message ecclesiaflow.events.appointments.v1.CalendarDelegateRemovedEvent
+              1 string event_id
+              2 int64 occurred_at_epoch_ms
+              3 string space_id
+              4 string calendar_id
+              5 string host_subject
+              6 string delegate_subject
+              7 string cause
             file ecclesiaflow/payments/payments_service.proto package ecclesiaflow.payments java_package com.ecclesiaflow.grpc.payments
             service ecclesiaflow.payments.PaymentsService
               OpenMerchantAccount ecclesiaflow.payments.OpenMerchantAccountRequest -> ecclesiaflow.payments.OpenMerchantAccountResponse
@@ -1534,6 +1554,8 @@ class ContractWireCompatibilityTest {
             appointments.booking.cancelled.v1 ecclesiaflow.events.appointments.v1.AppointmentCancelledEvent
             appointments.booking.reminder-due.v1 ecclesiaflow.events.appointments.v1.AppointmentReminderDueEvent
             appointments.booking.move-requested.v1 ecclesiaflow.events.appointments.v1.AppointmentMoveRequestedEvent
+            appointments.calendar.delegate-added.v1 ecclesiaflow.events.appointments.v1.CalendarDelegateAddedEvent
+            appointments.calendar.delegate-removed.v1 ecclesiaflow.events.appointments.v1.CalendarDelegateRemovedEvent
             payments.merchant-account.changed.v1 ecclesiaflow.events.payments.v1.MerchantAccountChangedEvent
             payments.payment.succeeded.v1 ecclesiaflow.events.payments.v1.PaymentSucceededEvent
             payments.payment.failed.v1 ecclesiaflow.events.payments.v1.PaymentFailedEvent

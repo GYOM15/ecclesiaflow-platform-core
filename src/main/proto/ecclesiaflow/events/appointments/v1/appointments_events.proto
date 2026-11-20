@@ -16,7 +16,9 @@
 // gives them to the sender of the notices at send time.
 //
 // The publisher stages every event of a booking chain under the aggregate key
-// "booking:<origin_booking_id>", so booked, moved and cancelled reach a consumer in order.
+// "booking:<origin_booking_id>", so booked, moved and cancelled reach a consumer in order, and
+// every delegation event of a calendar under "calendar:<calendar_id>", so a designation and its
+// removal do too.
 
 syntax = "proto3";
 
@@ -359,4 +361,49 @@ message AppointmentMoveRequestedEvent {
   repeated string notice_channels = 33;
   repeated string delegate_subjects = 34;
   bool has_host_message = 35;
+}
+
+// A host designated a delegate to manage their calendar. The designation acts only while the
+// hosting project also grants the delegate's right in the token, and this is how that project
+// learns whom to grant it to.
+message CalendarDelegateAddedEvent {
+  option (ecclesiaflow.events.routing_keys) = "appointments.calendar.delegate-added.v1";
+
+  // "appt:delegate:<designation_id>:added", the designation id drawn at each designation: a
+  // designation after a removal is not taken for a duplicate.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) of the designation. Orders the events of one delegate on
+  // one calendar.
+  int64 occurred_at_epoch_ms = 2;
+
+  string space_id = 3;
+
+  string calendar_id = 4;
+
+  // Opaque id of the person whose calendar it is.
+  string host_subject = 5;
+
+  // Opaque id of the person who now manages it.
+  string delegate_subject = 6;
+}
+
+// A delegate no longer manages a calendar: the host removed them, or the system did when the
+// calendar closed or one of the two people left.
+message CalendarDelegateRemovedEvent {
+  option (ecclesiaflow.events.routing_keys) = "appointments.calendar.delegate-removed.v1";
+
+  // "appt:delegate:<designation_id>:removed", the id of the designation it ends.
+  string event_id = 1;
+
+  // Milliseconds since Unix epoch (UTC) of the removal.
+  int64 occurred_at_epoch_ms = 2;
+
+  string space_id = 3;
+  string calendar_id = 4;
+  string host_subject = 5;
+  string delegate_subject = 6;
+
+  // Who removed it. Open, never an enum: HOST or SYSTEM today.
+  string cause = 7;
 }
